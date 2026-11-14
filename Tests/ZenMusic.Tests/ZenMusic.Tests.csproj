@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZenMusic.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="TagLibSharp" Version="2.3.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\AtomicFile.cs" Link="AtomicFile.cs" />
+    <Compile Include="..\..\ListMerge.cs" Link="ListMerge.cs" />
+    <Compile Include="..\..\Audio\SpeakerConfig.cs" Link="SpeakerConfig.cs" />
+    <Compile Include="..\..\Audio\FftAnalyzer.cs" Link="FftAnalyzer.cs" />
+    <Compile Include="..\..\Library\TrackItem.cs" Link="TrackItem.cs" />
+    <Compile Include="..\..\Tagging\MusicLibrary.cs" Link="MusicLibrary.cs" />
+    <Compile Include="..\..\Tagging\AutoTagger.cs" Link="AutoTagger.cs" />
+  </ItemGroup>
+</Project>
