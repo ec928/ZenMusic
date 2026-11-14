@@ -57,6 +57,14 @@ public static class AutoTagger
         @"^(?<num>\d{1,3})(?:\s*[-._)]\s*|\s+)(?<rest>.+)$",
         RegexOptions.Compiled);
 
+    public static bool HasDirtyFilename(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        string rawName = Path.GetFileNameWithoutExtension(path) ?? string.Empty;
+        if (BracketJunkRegex.IsMatch(rawName)) return true;
+        return !rawName.Contains(' ') && rawName.Contains('_');
+    }
+
     public static AutoTagCandidate ParseFromFilename(string path)
     {
         string rawName = Path.GetFileNameWithoutExtension(path) ?? string.Empty;
@@ -172,6 +180,19 @@ public static class AutoTagger
         }
 
         return result;
+    }
+
+    public static Task<string> FetchLyricsAsync(
+        string filePath,
+        string? queryTitle,
+        string? queryArtist,
+        TimeSpan duration,
+        CancellationToken ct = default)
+    {
+        var fileCandidate = ParseFromFilename(filePath);
+        string title = !string.IsNullOrWhiteSpace(queryTitle) ? queryTitle.Trim() : fileCandidate.Title;
+        string artist = !string.IsNullOrWhiteSpace(queryArtist) ? queryArtist.Trim() : fileCandidate.Artist;
+        return QueryLrclibAsync(title, artist, (int)Math.Round(duration.TotalSeconds), ct);
     }
 
     private static async Task<List<AutoTagCandidate>> QueryItunesAsync(string term, CancellationToken ct)
@@ -310,24 +331,36 @@ public static class AutoTagger
             if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
                 return string.Empty;
 
-            // Prefer closest duration match with plainLyrics
+            // Prefer closest duration match with syncedLyrics or plainLyrics
             JsonElement? best = null;
             int bestDiff = int.MaxValue;
+            bool bestHasSynced = false;
             foreach (var item in doc.RootElement.EnumerateArray())
             {
+                string? synced = item.TryGetProperty("syncedLyrics", out var sl) ? sl.GetString() : null;
                 string? plain = item.TryGetProperty("plainLyrics", out var pl) ? pl.GetString() : null;
-                if (string.IsNullOrWhiteSpace(plain)) continue;
+                bool hasSynced = !string.IsNullOrWhiteSpace(synced);
+                if (!hasSynced && string.IsNullOrWhiteSpace(plain)) continue;
                 int itemDur = item.TryGetProperty("duration", out var durEl) && durEl.TryGetDouble(out double d) ? (int)Math.Round(d) : durationSec;
                 int diff = durationSec > 0 ? Math.Abs(itemDur - durationSec) : 0;
-                if (diff < bestDiff)
+                if (best == null || (hasSynced && !bestHasSynced && diff <= 5) || (hasSynced == bestHasSynced && diff < bestDiff))
                 {
                     bestDiff = diff;
+                    bestHasSynced = hasSynced;
                     best = item;
                 }
             }
 
-            if (best is JsonElement chosen && chosen.TryGetProperty("plainLyrics", out var bestLyrics))
-                return bestLyrics.GetString()?.Trim() ?? string.Empty;
+            if (best is JsonElement chosen)
+            {
+                if (chosen.TryGetProperty("syncedLyrics", out var bestSynced))
+                {
+                    string? s = bestSynced.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+                if (chosen.TryGetProperty("plainLyrics", out var bestLyrics))
+                    return bestLyrics.GetString()?.Trim() ?? string.Empty;
+            }
         }
         catch { }
         return string.Empty;

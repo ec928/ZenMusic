@@ -25,8 +25,11 @@ public sealed class FftAnalyzer
     private readonly float[] _bands = new float[BandCount];
     private readonly float[] _peaks = new float[BandCount];
     private readonly float[] _waveform = new float[WaveformPoints];
+    private readonly object _computeLock = new();
 
     private volatile int _sampleRate = 44100;
+
+    public float BassEnergy { get; private set; }
 
     public FftAnalyzer()
     {
@@ -58,6 +61,7 @@ public sealed class FftAnalyzer
         Array.Clear(_bands);
         Array.Clear(_peaks);
         Array.Clear(_waveform);
+        BassEnergy = 0f;
     }
 
     /// <summary>
@@ -66,70 +70,75 @@ public sealed class FftAnalyzer
     /// </summary>
     public void ComputeFrame(Span<float> outBands, Span<float> outPeaks, Span<float> outWaveform, float smoothing = 0.72f)
     {
-        int writePos = Volatile.Read(ref _writeIndex);
-        int len = _ring.Length;
-        int start = (writePos - FftSize + len) % len;
-
-        for (int i = 0; i < FftSize; i++)
+        lock (_computeLock)
         {
-            float sample = _ring[(start + i) % len];
-            _real[i] = sample * _hann[i];
-            _imag[i] = 0f;
-        }
+            int writePos = Volatile.Read(ref _writeIndex);
+            int len = _ring.Length;
+            int start = (writePos - FftSize + len) % len;
 
-        // Decimated waveform from the most recent FftSize samples
-        int waveStep = Math.Max(1, FftSize / WaveformPoints);
-        int wCount = Math.Min(WaveformPoints, outWaveform.Length);
-        for (int i = 0; i < wCount; i++)
-        {
-            float v = _ring[(start + i * waveStep) % len];
-            _waveform[i] = _waveform[i] * 0.4f + v * 0.6f;
-            outWaveform[i] = _waveform[i];
-        }
-
-        FftInPlace(_real, _imag);
-
-        int half = FftSize / 2;
-        float norm = 2f / FftSize;
-        for (int i = 0; i < half; i++)
-        {
-            float mag = MathF.Sqrt(_real[i] * _real[i] + _imag[i] * _imag[i]) * norm;
-            _magnitudes[i] = mag;
-        }
-
-        int sr = _sampleRate;
-        double minFreq = 24.0;
-        double maxFreq = Math.Min(16500.0, sr * 0.45);
-        double logMin = Math.Log10(minFreq);
-        double logMax = Math.Log10(maxFreq);
-        double binHz = sr / (double)FftSize;
-
-        int bCount = Math.Min(BandCount, Math.Min(outBands.Length, outPeaks.Length));
-        float decay = Math.Clamp(smoothing, 0.3f, 0.92f);
-
-        for (int b = 0; b < bCount; b++)
-        {
-            double f0 = Math.Pow(10.0, logMin + (logMax - logMin) * b / bCount);
-            double f1 = Math.Pow(10.0, logMin + (logMax - logMin) * (b + 1) / bCount);
-            int bin0 = Math.Clamp((int)Math.Floor(f0 / binHz), 1, half - 1);
-            int bin1 = Math.Clamp((int)Math.Ceiling(f1 / binHz), bin0, half - 1);
-
-            float peakMag = 0f;
-            for (int k = bin0; k <= bin1; k++)
+            for (int i = 0; i < FftSize; i++)
             {
-                if (_magnitudes[k] > peakMag) peakMag = _magnitudes[k];
+                float sample = _ring[(start + i) % len];
+                _real[i] = sample * _hann[i];
+                _imag[i] = 0f;
             }
 
-            // Convert to perceptual dB scale (-60 dB .. 0 dB -> 0 .. 1)
-            float db = 20f * MathF.Log10(peakMag + 1e-6f);
-            float level = Math.Clamp((db + 60f) / 56f, 0f, 1f);
+            // Decimated waveform from the most recent FftSize samples
+            int waveStep = Math.Max(1, FftSize / WaveformPoints);
+            int wCount = Math.Min(WaveformPoints, outWaveform.Length);
+            for (int i = 0; i < wCount; i++)
+            {
+                float v = _ring[(start + i * waveStep) % len];
+                _waveform[i] = _waveform[i] * 0.4f + v * 0.6f;
+                outWaveform[i] = _waveform[i];
+            }
 
-            float prev = _bands[b];
-            _bands[b] = level > prev ? prev * 0.25f + level * 0.75f : prev * decay + level * (1f - decay);
-            _peaks[b] = _bands[b] >= _peaks[b] ? _bands[b] : MathF.Max(0f, _peaks[b] - 0.008f);
+            FftInPlace(_real, _imag);
 
-            outBands[b] = _bands[b];
-            outPeaks[b] = _peaks[b];
+            int half = FftSize / 2;
+            float norm = 2f / FftSize;
+            for (int i = 0; i < half; i++)
+            {
+                float mag = MathF.Sqrt(_real[i] * _real[i] + _imag[i] * _imag[i]) * norm;
+                _magnitudes[i] = mag;
+            }
+
+            int sr = _sampleRate;
+            double minFreq = 24.0;
+            double maxFreq = Math.Min(16500.0, sr * 0.45);
+            double logMin = Math.Log10(minFreq);
+            double logMax = Math.Log10(maxFreq);
+            double binHz = sr / (double)FftSize;
+
+            int bCount = Math.Min(BandCount, Math.Min(outBands.Length, outPeaks.Length));
+            float decay = Math.Clamp(smoothing, 0.3f, 0.92f);
+
+            for (int b = 0; b < bCount; b++)
+            {
+                double f0 = Math.Pow(10.0, logMin + (logMax - logMin) * b / bCount);
+                double f1 = Math.Pow(10.0, logMin + (logMax - logMin) * (b + 1) / bCount);
+                int bin0 = Math.Clamp((int)Math.Floor(f0 / binHz), 1, half - 1);
+                int bin1 = Math.Clamp((int)Math.Ceiling(f1 / binHz), bin0, half - 1);
+
+                float peakMag = 0f;
+                for (int k = bin0; k <= bin1; k++)
+                {
+                    if (_magnitudes[k] > peakMag) peakMag = _magnitudes[k];
+                }
+
+                // Convert to perceptual dB scale (-60 dB .. 0 dB -> 0 .. 1)
+                float db = 20f * MathF.Log10(peakMag + 1e-6f);
+                float level = Math.Clamp((db + 60f) / 56f, 0f, 1f);
+
+                float prev = _bands[b];
+                _bands[b] = level > prev ? prev * 0.25f + level * 0.75f : prev * decay + level * (1f - decay);
+                _peaks[b] = _bands[b] >= _peaks[b] ? _bands[b] : MathF.Max(0f, _peaks[b] - 0.008f);
+
+                outBands[b] = _bands[b];
+                outPeaks[b] = _peaks[b];
+            }
+
+            BassEnergy = Math.Clamp((_bands[0] + _bands[1] + _bands[2] + _bands[3] + _bands[4]) / 5f, 0f, 1f);
         }
     }
 

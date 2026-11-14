@@ -155,4 +155,160 @@ public sealed class AudioAndLibraryTests
         Assert.Equal(expectedTitle, parsed.Title);
         Assert.Equal(expectedTrack, parsed.TrackNumber);
     }
+
+    [Fact]
+    public void LrcParser_ParsesSortedTimestampsAndResolvesActiveLine()
+    {
+        string raw = """
+            [ar:Test Artist]
+            [00:12.50]Second line
+            [00:05.100]First line
+            [00:25.00]Third line
+            """;
+
+        var lines = ZenMusic.Tagging.LrcParser.Parse(raw);
+        Assert.Equal(3, lines.Count);
+        Assert.Equal("First line", lines[0].Text);
+        Assert.Equal(System.TimeSpan.FromMilliseconds(5100), lines[0].Timestamp);
+        Assert.Equal("Second line", lines[1].Text);
+        Assert.Equal("Third line", lines[2].Text);
+
+        Assert.Equal(-1, ZenMusic.Tagging.LrcParser.GetActiveLineIndex(lines, System.TimeSpan.FromSeconds(2)));
+        Assert.Equal(0, ZenMusic.Tagging.LrcParser.GetActiveLineIndex(lines, System.TimeSpan.FromMilliseconds(5100)));
+        Assert.Equal(1, ZenMusic.Tagging.LrcParser.GetActiveLineIndex(lines, System.TimeSpan.FromSeconds(18)));
+        Assert.Equal(2, ZenMusic.Tagging.LrcParser.GetActiveLineIndex(lines, System.TimeSpan.FromSeconds(40)));
+    }
+
+    [Fact]
+    public void SpeakerMatrixProvider_SoftClip_PreservesLinearAndBoundsOverdrive()
+    {
+        Assert.Equal(0.5f, ZenMusic.Audio.SpeakerMatrixProvider.SoftClip(0.5f), precision: 5);
+        Assert.Equal(-0.85f, ZenMusic.Audio.SpeakerMatrixProvider.SoftClip(-0.85f), precision: 5);
+
+        float knee = ZenMusic.Audio.SpeakerMatrixProvider.SoftClip(1.05f);
+        Assert.InRange(knee, 0.85f, 0.9999f);
+
+        float high = ZenMusic.Audio.SpeakerMatrixProvider.SoftClip(3.0f);
+        float low = ZenMusic.Audio.SpeakerMatrixProvider.SoftClip(-3.0f);
+        Assert.InRange(high, 0.99f, 1.0f);
+        Assert.InRange(low, -1.0f, -0.99f);
+        Assert.Equal(high, -low, precision: 5);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Music\01 - Pink Floyd - Time [Official Audio].mp3", true)]
+    [InlineData(@"C:\Music\Track_Name_(Official Video).mp3", true)]
+    [InlineData(@"C:\Music\01 - Time.flac", false)]
+    public void AutoTagger_HasDirtyFilename_DetectsNoise(string path, bool expectedDirty)
+    {
+        Assert.Equal(expectedDirty, AutoTagger.HasDirtyFilename(path));
+    }
+
+    [Fact]
+    public void LibraryCache_RoundTripsFolderTracksAndFiltersUnrelatedFolders()
+    {
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ZenMusicCacheTest_" + System.Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempDir);
+        try
+        {
+            string cachePath = System.IO.Path.Combine(tempDir, "library-cache.json");
+            string musicFolder = System.IO.Path.Combine(tempDir, "Library");
+            string otherFolder = System.IO.Path.Combine(tempDir, "Other");
+
+            var tracks = new[]
+            {
+                new ZenMusic.Library.TrackItem
+                {
+                    Path = System.IO.Path.Combine(musicFolder, "01 - Track One.flac"),
+                    Title = "Track One",
+                    Artist = "Artist A",
+                    Album = "Album A",
+                    Genre = "Ambient",
+                    Year = 2024,
+                    TrackNumber = 1,
+                    Rating = 4.5,
+                    PlayCount = 7,
+                    FileSize = 123456,
+                    FileWriteUtcTicks = 638000000000000000L
+                },
+                new ZenMusic.Library.TrackItem
+                {
+                    Path = System.IO.Path.Combine(otherFolder, "02 - Outside.mp3"),
+                    Title = "Outside",
+                    Artist = "Artist B"
+                }
+            };
+
+            ZenMusic.Library.LibraryCache.Save(cachePath, tracks);
+            var restored = ZenMusic.Library.LibraryCache.LoadInstantTracks(cachePath, musicFolder);
+
+            Assert.Single(restored);
+            Assert.Equal("Track One", restored[0].Title);
+            Assert.Equal("Artist A", restored[0].Artist);
+            Assert.Equal(4.5, restored[0].Rating);
+            Assert.Equal(7, restored[0].PlayCount);
+            Assert.Equal(123456, restored[0].FileSize);
+            Assert.Equal(638000000000000000L, restored[0].FileWriteUtcTicks);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempDir))
+                System.IO.Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TrackItem_TrimsDisplayPropertiesAndCopiesMetadataInPlace()
+    {
+        var existing = new ZenMusic.Library.TrackItem
+        {
+            Index = 1,
+            Path = @"C:\Music\Song.flac",
+            Title = "  My Song  ",
+            Artist = "  Artist X ",
+            Album = "",
+            Rating = 4.0,
+            IsNowPlaying = true
+        };
+
+        Assert.Equal("My Song", existing.DisplayTitle);
+        Assert.Equal("Artist X", existing.DisplayArtist);
+        Assert.Equal("Unknown Album", existing.DisplayAlbum);
+
+        int notifyCount = 0;
+        existing.PropertyChanged += (_, _) => notifyCount++;
+
+        var identical = new ZenMusic.Library.TrackItem
+        {
+            Index = 1,
+            Path = @"C:\Music\Song.flac",
+            Title = "  My Song  ",
+            Artist = "  Artist X ",
+            Album = "",
+            Rating = 4.0
+        };
+        existing.CopyMetadataFrom(identical);
+        Assert.Equal(0, notifyCount);
+        Assert.True(existing.IsNowPlaying);
+
+        var updated = new ZenMusic.Library.TrackItem
+        {
+            Index = 2,
+            Path = @"C:\Music\Song.flac",
+            Title = "Renamed Song",
+            Artist = "Artist X",
+            Album = "New Album",
+            Year = 2025,
+            Duration = System.TimeSpan.FromSeconds(185),
+            Rating = 5.0
+        };
+        existing.CopyMetadataFrom(updated);
+        Assert.True(notifyCount > 0);
+        Assert.Equal(2, existing.Index);
+        Assert.Equal("Renamed Song", existing.DisplayTitle);
+        Assert.Equal("New Album", existing.DisplayAlbum);
+        Assert.Equal("2025 · 03:05", existing.TileMetaText);
+        Assert.Equal(5.0, existing.Rating);
+        Assert.True(existing.IsNowPlaying);
+    }
 }

@@ -86,7 +86,9 @@ public static class MusicLibrary
             Title = Path.GetFileNameWithoutExtension(path),
             Codec = Path.GetExtension(path).TrimStart('.').ToUpperInvariant(),
             DateAddedUtc = info.Exists ? info.LastWriteTimeUtc : DateTime.UtcNow,
-            IsCloudOnly = isCloudOnly
+            IsCloudOnly = isCloudOnly,
+            FileSize = info.Exists ? info.Length : 0,
+            FileWriteUtcTicks = info.Exists ? info.LastWriteTimeUtc.Ticks : 0
         };
 
         if (isCloudOnly) return item;
@@ -100,6 +102,7 @@ public static class MusicLibrary
             item.Album = tag.Album?.Trim() ?? string.Empty;
             item.Genre = tag.JoinedGenres?.Trim() ?? string.Empty;
             item.Year = (int)tag.Year;
+            item.TrackNumber = (int)tag.Track;
             item.HasEmbeddedArt = tag.Pictures != null && tag.Pictures.Length > 0;
 
             if (file.Properties != null)
@@ -284,6 +287,41 @@ public static class MusicLibrary
                     file.Save();
                     saved = true;
                 }
+                else if (ext is ".m4a" or ".mp4" or ".aac")
+                {
+                    if (file.GetTag(TagLib.TagTypes.Apple, true) is TagLib.Mpeg4.AppleTag apple)
+                    {
+                        if (stars is double s && s > 0)
+                        {
+                            int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
+                            apple.SetDashBox("com.apple.iTunes", "RATING", val100.ToString(CultureInfo.InvariantCulture));
+                        }
+                        else
+                        {
+                            apple.SetDashBox("com.apple.iTunes", "RATING", string.Empty);
+                        }
+                        file.Save();
+                        saved = true;
+                    }
+                }
+                else if (ext == ".wma")
+                {
+                    if (file.GetTag(TagLib.TagTypes.Asf, true) is TagLib.Asf.Tag asf)
+                    {
+                        if (stars is double s && s > 0)
+                        {
+                            uint val99 = (uint)Math.Clamp(Math.Round((s - 0.5) / 4.5 * 98.0 + 1.0), 1, 99);
+                            if (s >= 4.9) val99 = 99;
+                            asf.SetDescriptorString(val99.ToString(CultureInfo.InvariantCulture), "WM/SharedUserRating");
+                        }
+                        else
+                        {
+                            asf.RemoveDescriptors("WM/SharedUserRating");
+                        }
+                        file.Save();
+                        saved = true;
+                    }
+                }
             }
             if (saved)
             {
@@ -311,6 +349,30 @@ public static class MusicLibrary
             {
                 string[] vals = xiph.GetField(key);
                 if (vals.Length > 0 && StarsFromVorbis(key, vals[0]) is double s) return s;
+            }
+        }
+        else if (ext is ".m4a" or ".mp4" or ".aac" && file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)
+        {
+            string? val = apple.GetDashBox("com.apple.iTunes", "RATING");
+            if (!string.IsNullOrWhiteSpace(val) &&
+                double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out double num) &&
+                num > 0)
+            {
+                return Math.Clamp(Math.Round((num > 5 ? num / 20.0 : num) * 2.0) / 2.0, 0.5, 5.0);
+            }
+        }
+        else if (ext == ".wma" && file.GetTag(TagLib.TagTypes.Asf, false) is TagLib.Asf.Tag asf)
+        {
+            var descs = asf.GetDescriptors("WM/SharedUserRating");
+            foreach (var desc in descs)
+            {
+                string raw = desc.ToString();
+                if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double num) && num > 0)
+                {
+                    if (num >= 99) return 5.0;
+                    double mapped = (num - 1.0) / 98.0 * 4.5 + 0.5;
+                    return Math.Clamp(Math.Round(mapped * 2.0) / 2.0, 0.5, 5.0);
+                }
             }
         }
         return null;

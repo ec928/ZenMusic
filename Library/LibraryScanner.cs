@@ -16,7 +16,8 @@ public static class LibraryScanner
     public static async Task<IReadOnlyList<TrackItem>> ScanFolderAsync(
         string folder,
         CancellationToken token,
-        Action<IReadOnlyList<TrackItem>>? onBatch = null)
+        Action<IReadOnlyList<TrackItem>>? onBatch = null,
+        IReadOnlyDictionary<string, CachedTrackEntry>? cache = null)
     {
         return await Task.Run<IReadOnlyList<TrackItem>>(() =>
         {
@@ -49,13 +50,36 @@ public static class LibraryScanner
                     if (token.IsCancellationRequested) return;
                     string path = files[i];
                     bool isCloudOnly = false;
+                    long fileSize = 0;
+                    long lastWriteTicks = 0;
                     try
                     {
-                        isCloudOnly = ((int)File.GetAttributes(path) & RecallOnDataAccess) != 0;
+                        var info = new FileInfo(path);
+                        isCloudOnly = ((int)info.Attributes & RecallOnDataAccess) != 0;
+                        fileSize = info.Length;
+                        lastWriteTicks = info.LastWriteTimeUtc.Ticks;
                     }
                     catch { return; }
 
-                    var item = MusicLibrary.ReadTrackMetadata(path, i + 1, isCloudOnly);
+                    TrackItem item;
+                    if (cache != null &&
+                        cache.TryGetValue(path, out var cached) &&
+                        cached.LastWriteUtcTicks == lastWriteTicks &&
+                        cached.FileSize == fileSize)
+                    {
+                        item = LibraryCache.ToTrackItem(cached, i + 1, isCloudOnly);
+                    }
+                    else
+                    {
+                        item = MusicLibrary.ReadTrackMetadata(path, i + 1, isCloudOnly);
+                        if (cache != null && cache.TryGetValue(path, out var prior))
+                        {
+                            item.PlayCount = prior.PlayCount;
+                            item.LastPlayedUtc = prior.LastPlayedUtc;
+                            if (item.Rating == null && prior.Rating != null)
+                                item.Rating = prior.Rating;
+                        }
+                    }
                     results[i] = item;
 
                     if (onBatch != null)

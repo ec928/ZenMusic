@@ -16,12 +16,13 @@ public enum VisualizerMode
 {
     Spectrum = 0,
     Waveform = 1,
-    Off = 2
+    Off = 2,
+    BarsAndWaveform = 3
 }
 
 /// <summary>
 /// Hardware-accelerated 60 fps Win2D audio visualizer supporting Spectrum Bars with peak hold,
-/// Silk Waveform, and zero-GPU Off mode.
+/// Silk Waveform, combined Bars + Waveform, and zero-GPU Off mode.
 /// </summary>
 public sealed class VisualizerControl : UserControl
 {
@@ -33,6 +34,7 @@ public sealed class VisualizerControl : UserControl
     private FftAnalyzer? _analyzer;
     private VisualizerMode _mode = VisualizerMode.Spectrum;
     private bool _isPlaying;
+    private bool _isStageVisible = true;
 
     public VisualizerMode Mode
     {
@@ -50,6 +52,16 @@ public sealed class VisualizerControl : UserControl
         set
         {
             _isPlaying = value;
+            UpdatePausedState();
+        }
+    }
+
+    public bool IsStageVisible
+    {
+        get => _isStageVisible;
+        set
+        {
+            _isStageVisible = value;
             UpdatePausedState();
         }
     }
@@ -75,7 +87,7 @@ public sealed class VisualizerControl : UserControl
 
     private void UpdatePausedState()
     {
-        bool shouldRun = _mode != VisualizerMode.Off && _isPlaying;
+        bool shouldRun = _mode != VisualizerMode.Off && _isPlaying && _isStageVisible;
         _canvas.Paused = !shouldRun;
         _canvas.Visibility = _mode == VisualizerMode.Off ? Visibility.Collapsed : Visibility.Visible;
         if (!shouldRun)
@@ -93,7 +105,7 @@ public sealed class VisualizerControl : UserControl
 
         if (_mode == VisualizerMode.Off) return;
 
-        if (_analyzer != null && _isPlaying)
+        if (_analyzer != null && _isPlaying && _isStageVisible)
         {
             _analyzer.ComputeFrame(_bands, _peaks, _waveform);
         }
@@ -110,6 +122,11 @@ public sealed class VisualizerControl : UserControl
         }
         else if (_mode == VisualizerMode.Waveform)
         {
+            DrawWaveform(ds, w, h);
+        }
+        else if (_mode == VisualizerMode.BarsAndWaveform)
+        {
+            DrawSpectrum(ds, w, h);
             DrawWaveform(ds, w, h);
         }
     }

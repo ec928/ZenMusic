@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,11 +8,29 @@ using ZenMusic.Audio;
 
 namespace ZenMusic.Library;
 
-public sealed class SavedPlaylist
+public sealed class SavedPlaylist : INotifyPropertyChanged
 {
+    private string _name = string.Empty;
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = string.Empty;
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (string.Equals(_name, value, StringComparison.Ordinal)) return;
+            _name = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+        }
+    }
     public List<string> TrackPaths { get; set; } = new();
+
+    [JsonIgnore]
+    public int TrackCount => TrackPaths.Count;
+
+    public void NotifyTracksChanged()
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TrackCount)));
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public sealed class CustomFilterCriteria
@@ -36,6 +55,15 @@ public sealed class AppSettings
     public double Volume { get; set; } = 70;
     public bool Shuffle { get; set; }
     public bool RepeatAll { get; set; } = true;
+    public int RepeatMode { get; set; } = 1; // 0 = Off, 1 = All, 2 = One
+
+    // Persistent workspace layout & view mode
+    public int LayoutSchemaVersion { get; set; } = 2;
+    public bool LeftPaneOpen { get; set; } = false;
+    public bool RightPaneOpen { get; set; } = true;
+    public double InspectorHeight { get; set; } = 208;
+    public int InspectorArtMode { get; set; } = 2;
+    public string ViewMode { get; set; } = "Table"; // Table | Grid
 
     // Persistent sort state
     public string SortColumn { get; set; } = "Index";
@@ -50,6 +78,12 @@ public sealed class AppSettings
 
     public List<SavedPlaylist> Playlists { get; set; } = new();
     public List<CustomFilterCriteria> CustomFilters { get; set; } = new();
+    public List<string> FavouriteFolders { get; set; } = new();
+    public List<string> RecentFolders { get; set; } = new();
+    public List<string> SavedQueuePaths { get; set; } = new();
+    public int SavedQueueIndex { get; set; } = -1;
+    public double SavedPositionSeconds { get; set; }
+    public Dictionary<string, bool> ColumnVisibility { get; set; } = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -67,6 +101,11 @@ public sealed class AppSettings
         VisualizerMode = "Spectrum";
         VisualizerEnabled = true;
         Theme = "Dark";
+        LeftPaneOpen = false;
+        RightPaneOpen = true;
+        InspectorHeight = 208;
+        InspectorArtMode = 2;
+        ViewMode = "Table";
         WindowWidth = 1480;
         WindowHeight = 900;
         WindowX = null;
@@ -81,7 +120,14 @@ public sealed class AppSettings
         try
         {
             string json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            if (settings.LayoutSchemaVersion < 2)
+            {
+                settings.LeftPaneOpen = false;
+                settings.LayoutSchemaVersion = 2;
+                settings.Save();
+            }
+            return settings;
         }
         catch
         {

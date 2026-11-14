@@ -14,16 +14,28 @@
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#D97706"/>
                     <SolidColorBrush x:Key="AppCanvasBrush" Color="#F9F9F9"/>
                     <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#F2F2F2"/>
+                    <SolidColorBrush x:Key="EvenRowBrush" Color="#09000000"/>
+                    <SolidColorBrush x:Key="PlayingRowBrush" Color="#22D97706"/>
+                    <SolidColorBrush x:Key="SplitterHandleBrush" Color="#40000000"/>
+                    <AcrylicBrush x:Key="PlaybarAcrylicBrush" TintColor="#181818" TintOpacity="0.85" FallbackColor="#1A1A1A"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFC83B"/>
                     <SolidColorBrush x:Key="AppCanvasBrush" Color="#141414"/>
                     <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#1C1C1C"/>
+                    <SolidColorBrush x:Key="EvenRowBrush" Color="#07FFFFFF"/>
+                    <SolidColorBrush x:Key="PlayingRowBrush" Color="#1CFFC83B"/>
+                    <SolidColorBrush x:Key="SplitterHandleBrush" Color="#30FFFFFF"/>
+                    <AcrylicBrush x:Key="PlaybarAcrylicBrush" TintColor="#181818" TintOpacity="0.85" FallbackColor="#1A1A1A"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFD700"/>
                     <SolidColorBrush x:Key="AppCanvasBrush" Color="#000000"/>
                     <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#000000"/>
+                    <SolidColorBrush x:Key="EvenRowBrush" Color="#12FFFFFF"/>
+                    <SolidColorBrush x:Key="PlayingRowBrush" Color="#33FFD700"/>
+                    <SolidColorBrush x:Key="SplitterHandleBrush" Color="#80FFFFFF"/>
+                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#000000"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

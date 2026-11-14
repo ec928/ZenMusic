@@ -104,6 +104,13 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
         return framesRead * _outChannels;
     }
 
+    public static float SoftClip(float x)
+    {
+        float abs = MathF.Abs(x);
+        if (abs <= 0.85f) return x;
+        return MathF.Sign(x) * (0.85f + 0.15f * MathF.Tanh((abs - 0.85f) / 0.15f));
+    }
+
     private void WriteStereoFrame(float[] src, int s, float[] dst, int d, SpeakerRoutingOptions opts)
     {
         float l, r;
@@ -119,8 +126,8 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
             float fc = src[s + 2] * 0.707f;
             float bl = src[s + 4] * 0.707f;
             float br = src[s + 5] * 0.707f;
-            l = Math.Clamp(fl + fc + bl, -1f, 1f);
-            r = Math.Clamp(fr + fc + br, -1f, 1f);
+            l = SoftClip(fl + fc + bl);
+            r = SoftClip(fr + fc + br);
         }
         else
         {
@@ -128,22 +135,27 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
             r = src[s + 1];
         }
 
-        // If user selected 5.1 Upmix / 2.1 on a 2-channel Windows endpoint, apply subtle spatial & LFE warmth
-        if (opts.Layout == SpeakerLayout.Surround51Upmix)
+        // If user selected 5.1 Upmix / 2.1 on a 2-channel Windows endpoint, apply subtle spatial & LFE warmth with soft limiting
+        if (opts.Layout is SpeakerLayout.Surround51Upmix or SpeakerLayout.Stereo21)
         {
             float mono = 0.5f * (l + r);
             _lfeLp1 += _lfeAlpha * (mono - _lfeLp1);
             _lfeLp2 += _lfeAlpha * (_lfeLp1 - _lfeLp2);
             float lfe = _lfeLp2 * (opts.LfeGain * 0.25f);
-            float diff = 0.5f * (l - r) * (opts.RearLevel * 0.35f);
-            float delayedL = _rearDelayL[_rearDelayPos];
-            float delayedR = _rearDelayR[_rearDelayPos];
-            _rearDelayL[_rearDelayPos] = diff;
-            _rearDelayR[_rearDelayPos] = -diff;
-            _rearDelayPos = (_rearDelayPos + 1) % _rearDelayL.Length;
+            float delayedL = 0f;
+            float delayedR = 0f;
+            if (opts.Layout == SpeakerLayout.Surround51Upmix)
+            {
+                float diff = 0.5f * (l - r) * (opts.RearLevel * 0.35f);
+                delayedL = _rearDelayL[_rearDelayPos];
+                delayedR = _rearDelayR[_rearDelayPos];
+                _rearDelayL[_rearDelayPos] = diff;
+                _rearDelayR[_rearDelayPos] = -diff;
+                _rearDelayPos = (_rearDelayPos + 1) % _rearDelayL.Length;
+            }
 
-            dst[d] = Math.Clamp(l + lfe + delayedL, -1f, 1f);
-            dst[d + 1] = Math.Clamp(r + lfe + delayedR, -1f, 1f);
+            dst[d] = SoftClip(l + lfe + delayedL);
+            dst[d + 1] = SoftClip(r + lfe + delayedR);
             return;
         }
 
@@ -170,7 +182,7 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
 
         _lfeLp1 += _lfeAlpha * (mono - _lfeLp1);
         _lfeLp2 += _lfeAlpha * (_lfeLp1 - _lfeLp2);
-        float lfe = Math.Clamp(_lfeLp2 * opts.LfeGain, -1f, 1f);
+        float lfe = SoftClip(_lfeLp2 * opts.LfeGain);
 
         if (opts.Layout == SpeakerLayout.Stereo21)
         {
@@ -183,7 +195,7 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
             return;
         }
 
-        float center = Math.Clamp(mono * opts.CenterLevel, -1f, 1f);
+        float center = SoftClip(mono * opts.CenterLevel);
         float diff = 0.5f * (l - r);
 
         float delayedL = _rearDelayL[_rearDelayPos];
@@ -196,7 +208,7 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
         dst[d + 1] = r;
         dst[d + 2] = center;
         dst[d + 3] = lfe;
-        dst[d + 4] = Math.Clamp(delayedL, -1f, 1f);
-        dst[d + 5] = Math.Clamp(delayedR, -1f, 1f);
+        dst[d + 4] = SoftClip(delayedL);
+        dst[d + 5] = SoftClip(delayedR);
     }
 }

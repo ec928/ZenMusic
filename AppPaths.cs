@@ -30,4 +30,5 @@ public static class AppPaths
     }
 
     public static string SettingsPath => Path.Combine(LocalDirectory, "settings.json");
+    public static string LibraryCachePath => Path.Combine(LocalDirectory, "library-cache.json");
 }

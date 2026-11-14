@@ -9,17 +9,35 @@ using Windows.UI;
 namespace ZenMusic.UI;
 
 /// <summary>
-/// Lightweight 5-star interactive rating cell for virtualized track rows (supports 0.5–5.0★).
+/// Lightweight 5-star interactive rating cell for virtualized track rows (supports 0.5–5.0★)
+/// with automatic Light/Dark theme legibility.
 /// </summary>
 public sealed class StarRatingCell : Grid
 {
     private const double StarWidth = 14.0;
-    private static readonly SolidColorBrush DimBrush = new(Color.FromArgb(42, 160, 160, 160));
-    private static readonly SolidColorBrush GoldBrush = new(Color.FromArgb(255, 255, 200, 59));
-    private static readonly SolidColorBrush HoverGoldBrush = new(Color.FromArgb(215, 255, 222, 110));
+    private static readonly SolidColorBrush DarkDimBrush = new(Color.FromArgb(52, 255, 255, 255));
+    private static readonly SolidColorBrush DarkGoldBrush = new(Color.FromArgb(255, 255, 200, 59));
+    private static readonly SolidColorBrush DarkHoverBrush = new(Color.FromArgb(220, 255, 222, 110));
 
+    private static readonly SolidColorBrush LightDimBrush = new(Color.FromArgb(72, 96, 96, 96));
+    private static readonly SolidColorBrush LightAmberBrush = new(Color.FromArgb(255, 217, 119, 6));
+    private static readonly SolidColorBrush LightHoverBrush = new(Color.FromArgb(225, 180, 83, 9));
+
+    private readonly TextBlock[] _bgs = new TextBlock[5];
     private readonly TextBlock[] _fills = new TextBlock[5];
     private double? _hoverValue;
+    private bool _forceDarkPalette;
+
+    public bool ForceDarkPalette
+    {
+        get => _forceDarkPalette;
+        set
+        {
+            if (_forceDarkPalette == value) return;
+            _forceDarkPalette = value;
+            UpdateVisuals();
+        }
+    }
 
     public static readonly DependencyProperty ValueProperty =
         DependencyProperty.Register(
@@ -52,19 +70,20 @@ public sealed class StarRatingCell : Grid
             {
                 Text = "★",
                 FontSize = 12,
-                Foreground = DimBrush,
+                Foreground = DarkDimBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false
             };
             SetColumn(bg, i);
             Children.Add(bg);
+            _bgs[i] = bg;
 
             var fill = new TextBlock
             {
                 Text = "★",
                 FontSize = 12,
-                Foreground = GoldBrush,
+                Foreground = DarkGoldBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Visibility = Visibility.Collapsed,
@@ -78,6 +97,8 @@ public sealed class StarRatingCell : Grid
         PointerPressed += StarRatingCell_PointerPressed;
         PointerMoved += StarRatingCell_PointerMoved;
         PointerExited += StarRatingCell_PointerExited;
+        Loaded += (_, _) => UpdateVisuals();
+        ActualThemeChanged += (_, _) => UpdateVisuals();
     }
 
     private double ComputeRatingAtX(double x)
@@ -116,10 +137,16 @@ public sealed class StarRatingCell : Grid
 
     private void UpdateVisuals()
     {
+        bool useDark = _forceDarkPalette || ActualTheme != ElementTheme.Light;
+        var dim = useDark ? DarkDimBrush : LightDimBrush;
+        var active = useDark ? DarkGoldBrush : LightAmberBrush;
+        var hover = useDark ? DarkHoverBrush : LightHoverBrush;
+
         double r = _hoverValue ?? Value ?? 0;
-        var brush = _hoverValue.HasValue ? HoverGoldBrush : GoldBrush;
+        var brush = _hoverValue.HasValue ? hover : active;
         for (int i = 0; i < 5; i++)
         {
+            _bgs[i].Foreground = dim;
             _fills[i].Foreground = brush;
             double threshold = i + 1;
             if (r >= threshold)

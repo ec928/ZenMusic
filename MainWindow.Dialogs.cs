@@ -1,0 +1,1621 @@
+using Microsoft.UI;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using Windows.Storage.Pickers;
+using Windows.UI;
+using WinRT.Interop;
+using ZenMusic.Audio;
+using ZenMusic.Library;
+using ZenMusic.Tagging;
+using ZenMusic.UI;
+
+namespace ZenMusic;
+
+public sealed partial class MainWindow
+{
+    private const int MaxFavouriteFolders = 10;
+    private const int MaxRecentFolders = 12;
+
+    private async Task SwitchToFolderAsync(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            await ShowErrorDialogAsync("Folder unavailable", $"The folder could not be found:\n{path}");
+            return;
+        }
+        _settings.MusicFolder = path;
+        RecordRecentFolder(path);
+        _settings.Save();
+        await ScanFolderAsync(path);
+    }
+
+    private void RecordRecentFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        string normalized = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (_settings.FavouriteFolders.Any(f => string.Equals(f.TrimEnd('\\', '/'), normalized, StringComparison.OrdinalIgnoreCase)))
+            return;
+        _settings.RecentFolders.RemoveAll(f => string.Equals(f.TrimEnd('\\', '/'), normalized, StringComparison.OrdinalIgnoreCase));
+        _settings.RecentFolders.Insert(0, normalized);
+        if (_settings.RecentFolders.Count > MaxRecentFolders)
+            _settings.RecentFolders.RemoveRange(MaxRecentFolders, _settings.RecentFolders.Count - MaxRecentFolders);
+    }
+
+    private void RecentFoldersMenu_Opening(object sender, object e)
+    {
+        BuildRecentFoldersFlyoutContent();
+    }
+
+    private void BuildRecentFoldersFlyoutContent()
+    {
+        var panel = new StackPanel { MinWidth = 300, MaxWidth = 420 };
+        var favs = _settings.FavouriteFolders;
+        var favSet = new HashSet<string>(favs.Select(f => f.TrimEnd('\\', '/')), StringComparer.OrdinalIgnoreCase);
+
+        var favHeader = new TextBlock
+        {
+            Text = favs.Count > 0 ? $"Favourites ({favs.Count} of {MaxFavouriteFolders})" : "Favourites",
+            Style = (Style)RootGrid.Resources["FolderMenuHeaderTextStyle"]
+        };
+        panel.Children.Add(favHeader);
+
+        if (favs.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Star a recent folder to pin it here",
+                Style = (Style)RootGrid.Resources["FolderMenuEmptyTextStyle"]
+            });
+        }
+        else
+        {
+            foreach (string path in favs.ToList())
+            {
+                panel.Children.Add(BuildFolderFlyoutRow(path, isFavourite: true, favCount: favs.Count));
+            }
+        }
+
+        panel.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Style = (Style)RootGrid.Resources["FolderMenuDividerStyle"]
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Recent",
+            Style = (Style)RootGrid.Resources["FolderMenuHeaderTextStyle"]
+        });
+
+        var recents = _settings.RecentFolders
+            .Where(r => !favSet.Contains(r.TrimEnd('\\', '/')))
+            .ToList();
+        if (recents.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "No recent folders",
+                Style = (Style)RootGrid.Resources["FolderMenuEmptyTextStyle"]
+            });
+        }
+        else
+        {
+            foreach (string path in recents)
+            {
+                panel.Children.Add(BuildFolderFlyoutRow(path, isFavourite: false, favCount: favs.Count));
+            }
+        }
+
+        RecentFoldersMenu.Content = panel;
+    }
+
+    private Grid BuildFolderFlyoutRow(string path, bool isFavourite, int favCount)
+    {
+        bool exists = Directory.Exists(path);
+        bool isCurrent = !string.IsNullOrEmpty(_settings.MusicFolder) &&
+                         string.Equals(_settings.MusicFolder.TrimEnd('\\', '/'), path.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+
+        var row = new Grid { ColumnSpacing = 4 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        string leaf = Path.GetFileName(path.TrimEnd('\\', '/'));
+        if (string.IsNullOrEmpty(leaf)) leaf = path;
+
+        var labelStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        labelStack.Children.Add(new FontIcon
+        {
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            Glyph = isCurrent ? "\uE8D6" : "\uE8B7",
+            FontSize = 13,
+            Opacity = exists ? 0.85 : 0.4
+        });
+        labelStack.Children.Add(new TextBlock
+        {
+            Text = exists ? leaf : $"{leaf} (unavailable)",
+            FontSize = 13,
+            FontWeight = isCurrent ? FontWeights.SemiBold : FontWeights.Normal,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Opacity = exists ? 1.0 : 0.45
+        });
+
+        var pathBtn = new Button
+        {
+            Style = (Style)RootGrid.Resources["FolderMenuRowButtonStyle"],
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(10, 6, 10, 6),
+            IsEnabled = exists,
+            Content = labelStack
+        };
+        ToolTipService.SetToolTip(pathBtn, path);
+        pathBtn.Click += async (_, _) =>
+        {
+            RecentFoldersMenu.Hide();
+            await SwitchToFolderAsync(path);
+        };
+
+        bool atCap = !isFavourite && favCount >= MaxFavouriteFolders;
+        var starBtn = new Button
+        {
+            Style = (Style)RootGrid.Resources["FolderMenuStarButtonStyle"],
+            IsEnabled = !atCap,
+            Content = new FontIcon
+            {
+                Style = (Style)RootGrid.Resources[isFavourite ? "FolderMenuStarFilledIconStyle" : "FolderMenuStarEmptyIconStyle"]
+            }
+        };
+        var starWrapper = new Border { Background = new SolidColorBrush(Colors.Transparent), Child = starBtn };
+        ToolTipService.SetToolTip(starWrapper, atCap
+            ? $"Favourites limit reached ({MaxFavouriteFolders} of {MaxFavouriteFolders})"
+            : (isFavourite ? "Remove from Favourites" : "Pin to Favourites"));
+
+        starBtn.Click += (_, _) =>
+        {
+            string norm = path.TrimEnd('\\', '/');
+            if (isFavourite)
+            {
+                _settings.FavouriteFolders.RemoveAll(f => string.Equals(f.TrimEnd('\\', '/'), norm, StringComparison.OrdinalIgnoreCase));
+                RecordRecentFolder(norm);
+            }
+            else if (_settings.FavouriteFolders.Count < MaxFavouriteFolders)
+            {
+                _settings.RecentFolders.RemoveAll(f => string.Equals(f.TrimEnd('\\', '/'), norm, StringComparison.OrdinalIgnoreCase));
+                _settings.FavouriteFolders.Add(norm);
+            }
+            _settings.Save();
+            BuildRecentFoldersFlyoutContent();
+        };
+
+        Grid.SetColumn(pathBtn, 0);
+        Grid.SetColumn(starWrapper, 1);
+        row.Children.Add(pathBtn);
+        row.Children.Add(starWrapper);
+        return row;
+    }
+
+    private void ClearRecentFolders_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.RecentFolders.Clear();
+        _settings.Save();
+        ShowHudPill("Recent folders cleared");
+    }
+
+    private void SpeakerBadgeBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var devices = WasapiAudioEngine.GetOutputDevices();
+        var deviceBox = new ComboBox { Header = "Output device", HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 260 };
+        foreach (var d in devices) deviceBox.Items.Add(new ComboBoxItem { Content = d.FriendlyName, Tag = d.Id });
+        deviceBox.SelectedIndex = Math.Max(0, devices.ToList().FindIndex(d => d.Id == _settings.OutputDeviceId));
+
+        var layoutBox = new ComboBox { Header = "Speaker configuration", HorizontalAlignment = HorizontalAlignment.Stretch };
+        layoutBox.Items.Add(new ComboBoxItem { Content = "2.0 Stereo (Default)", Tag = SpeakerLayout.Stereo20 });
+        layoutBox.Items.Add(new ComboBoxItem { Content = "2.1 Stereo + Subwoofer", Tag = SpeakerLayout.Stereo21 });
+        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Smart Stereo Upmix)", Tag = SpeakerLayout.Surround51Upmix });
+        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Direct Multichannel)", Tag = SpeakerLayout.Surround51Direct });
+        layoutBox.SelectedIndex = (int)_settings.SpeakerLayout;
+
+        var noteText = new TextBlock { FontSize = 11, Opacity = 0.72, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 };
+        void ApplyQuickAudio()
+        {
+            _settings.OutputDeviceId = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+            _settings.SpeakerLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? SpeakerLayout.Stereo20);
+            _settings.Save();
+            ApplyAudioConfigFromSettings();
+            int ch = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
+            noteText.Text = _settings.SpeakerLayout != SpeakerLayout.Stereo20 && ch < 6
+                ? $"Device reports {ch}ch; spatial stereo fold-down active."
+                : $"Endpoint active: {ch}ch WASAPI.";
+        }
+
+        int initCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
+        noteText.Text = _settings.SpeakerLayout != SpeakerLayout.Stereo20 && initCh < 6
+            ? $"Device reports {initCh}ch; spatial stereo fold-down active."
+            : $"Endpoint active: {initCh}ch WASAPI.";
+
+        bool ready = false;
+        deviceBox.SelectionChanged += (_, _) => { if (ready) ApplyQuickAudio(); };
+        layoutBox.SelectionChanged += (_, _) => { if (ready) ApplyQuickAudio(); };
+        ready = true;
+
+        var panel = new StackPanel { Spacing = 10, Padding = new Thickness(4) };
+        panel.Children.Add(deviceBox);
+        panel.Children.Add(layoutBox);
+        panel.Children.Add(noteText);
+
+        var flyout = new Flyout
+        {
+            Content = panel,
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Top
+        };
+        var presenterStyle = new Style(typeof(FlyoutPresenter));
+        presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromArgb(245, 28, 28, 28))));
+        presenterStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(51, 255, 255, 255))));
+        presenterStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+        presenterStyle.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(10)));
+        presenterStyle.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, ElementTheme.Dark));
+        flyout.FlyoutPresenterStyle = presenterStyle;
+        flyout.ShowAt(SpeakerBadgeBtn);
+    }
+
+    private async void SettingsBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var devices = WasapiAudioEngine.GetOutputDevices();
+        var deviceBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 240 };
+        foreach (var d in devices) deviceBox.Items.Add(new ComboBoxItem { Content = d.FriendlyName, Tag = d.Id });
+        deviceBox.SelectedIndex = Math.Max(0, devices.ToList().FindIndex(d => d.Id == _settings.OutputDeviceId));
+
+        var layoutBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 240 };
+        layoutBox.Items.Add(new ComboBoxItem { Content = "2.0 Stereo (Default)", Tag = SpeakerLayout.Stereo20 });
+        layoutBox.Items.Add(new ComboBoxItem { Content = "2.1 Stereo + Subwoofer", Tag = SpeakerLayout.Stereo21 });
+        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Smart Stereo Upmix)", Tag = SpeakerLayout.Surround51Upmix });
+        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Direct Multichannel)", Tag = SpeakerLayout.Surround51Direct });
+        layoutBox.SelectedIndex = (int)_settings.SpeakerLayout;
+
+        var centerSlider = new Slider { Minimum = 0, Maximum = 100, Value = _settings.CenterLevel * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
+        var lfeSlider = new Slider { Minimum = 0, Maximum = 150, Value = _settings.LfeGain * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
+        var rearSlider = new Slider { Minimum = 0, Maximum = 100, Value = _settings.RearLevel * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
+
+        var (deviceRow, _, _) = SettingsCard.Row("\uE7F5", "Output device", "WASAPI audio endpoint", deviceBox);
+        var (layoutRow, _, layoutDetail) = SettingsCard.Row("\uE7F4", "Speaker layout", "Checking endpoint...", layoutBox);
+        var (centerRow, _, _) = SettingsCard.Row("\uE720", "5.1 Center vocal fill", "Center channel balance (%)", centerSlider);
+        var (lfeRow, _, _) = SettingsCard.Row("\uE995", "Subwoofer (LFE) boost", "Low-pass <80 Hz crossover gain (%)", lfeSlider);
+        var (rearRow, _, _) = SettingsCard.Row("\uE8D6", "5.1 Rear surround stage", "Ambient rear fill (%)", rearSlider);
+
+        void UpdateEndpointAndSliders()
+        {
+            string id = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+            int ch = WasapiAudioEngine.GetEndpointChannelCount(id);
+            var selLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? SpeakerLayout.Stereo20);
+            layoutDetail.Text = selLayout != SpeakerLayout.Stereo20 && ch < 6
+                ? $"Windows reports {ch}ch; applying spatial stereo fold-down until 5.1 is enabled."
+                : $"Detected Windows endpoint channels: {ch}ch.";
+
+            bool usesLfe = selLayout is SpeakerLayout.Stereo21 or SpeakerLayout.Surround51Upmix;
+            bool usesSurround = selLayout == SpeakerLayout.Surround51Upmix;
+            lfeSlider.IsEnabled = usesLfe;
+            centerSlider.IsEnabled = usesSurround;
+            rearSlider.IsEnabled = usesSurround;
+            lfeRow.Opacity = usesLfe ? 1.0 : 0.45;
+            centerRow.Opacity = usesSurround ? 1.0 : 0.45;
+            rearRow.Opacity = usesSurround ? 1.0 : 0.45;
+        }
+        deviceBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders();
+        layoutBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders();
+        UpdateEndpointAndSliders();
+
+        var vizBox = new ComboBox { MinWidth = 210 };
+        vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum Bars (60 fps Win2D)", Tag = "Spectrum" });
+        vizBox.Items.Add(new ComboBoxItem { Content = "Silk Waveform", Tag = "Waveform" });
+        vizBox.Items.Add(new ComboBoxItem { Content = "Bars + Waveform", Tag = "BarsAndWaveform" });
+        vizBox.Items.Add(new ComboBoxItem { Content = "Off (0% GPU/CPU)", Tag = "Off" });
+        vizBox.SelectedIndex = !_settings.VisualizerEnabled || _settings.VisualizerMode == "Off" ? 3
+            : _settings.VisualizerMode == "Waveform" ? 1
+            : _settings.VisualizerMode == "BarsAndWaveform" ? 2 : 0;
+
+        var themeBox = new ComboBox { MinWidth = 140 };
+        themeBox.Items.Add(new ComboBoxItem { Content = "Dark", Tag = "Dark" });
+        themeBox.Items.Add(new ComboBoxItem { Content = "Light", Tag = "Light" });
+        themeBox.SelectedIndex = string.Equals(_settings.Theme, "Light", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+
+        string appVersion = typeof(MainWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?.Split('+')[0]
+            ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
+            ?? "0.1.0";
+
+        var rescanNowBtn = new Button { Content = "Rescan now" };
+        string librarySubtitle = string.IsNullOrWhiteSpace(_settings.MusicFolder)
+            ? "No music folder selected"
+            : $"{_settings.MusicFolder} · Watched automatically for changes (F5)";
+        var (rescanRow, _, _) = SettingsCard.Row("\uE72C", "Music library folder", librarySubtitle, rescanNowBtn);
+
+        var aboutBtn = new Button { Content = "About..." };
+        var (aboutRow, _, _) = SettingsCard.Row("\uE946", $"ZenMusic v{appVersion}", "WASAPI · TagLib# · Win2D · WinUI 3", aboutBtn);
+
+        var panel = new StackPanel { Width = 500, Padding = new Thickness(0, 0, 12, 0) };
+        panel.Children.Add(SettingsCard.Section("Audio & Speakers", first: true));
+        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, centerRow, lfeRow, rearRow));
+        panel.Children.Add(SettingsCard.Section("Visualizer & Appearance"));
+        panel.Children.Add(SettingsCard.Card(
+            SettingsCard.Row("\uE9D9", "Visualizer style", "Playbar & F11 Focus Stage", vizBox).Row,
+            SettingsCard.Row("\uE790", "App theme", "Floating playbar stays pinned dark", themeBox).Row));
+        panel.Children.Add(SettingsCard.Section("Library & Application"));
+        panel.Children.Add(SettingsCard.Card(rescanRow, aboutRow));
+
+        bool openAbout = false;
+        bool triggerRescan = false;
+        ContentDialog? dlg = null;
+        rescanNowBtn.Click += (_, _) =>
+        {
+            triggerRescan = true;
+            dlg?.Hide();
+        };
+        aboutBtn.Click += (_, _) =>
+        {
+            openAbout = true;
+            dlg?.Hide();
+        };
+
+        dlg = new ContentDialog
+        {
+            Title = "Settings",
+            Content = new ScrollViewer { Content = panel, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            PrimaryButtonText = "Apply & Save",
+            SecondaryButtonText = "Reset to defaults",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 580.0;
+        DialogFooter.MainButtonOnRight(dlg);
+
+        var result = await dlg.ShowAsync();
+        if (triggerRescan)
+        {
+            RescanBtn_Click(this, new RoutedEventArgs());
+            return;
+        }
+        if (openAbout)
+        {
+            var aboutDlg = new ContentDialog
+            {
+                Title = "About ZenMusic",
+                Content = new StackPanel
+                {
+                    Spacing = 8,
+                    MinWidth = 360,
+                    Children =
+                    {
+                        new TextBlock { Text = "ZenMusic", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 200, 59)) },
+                        new TextBlock { Text = $"Version {appVersion}", FontSize = 13, Opacity = 0.8 },
+                        new TextBlock { Text = "A fast, distraction-free desktop music manager and player with WASAPI multi-channel audio, 60 fps Win2D visualizers, synced .LRC lyrics, and built-in Auto-Tagging.", FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Opacity = 0.9 },
+                        new TextBlock { Text = $"Runtime: .NET {Environment.Version} · Windows App SDK / WinUI 3\nAudio Engine: NAudio WASAPI\nMetadata: TagLib# · MusicBrainz · iTunes · LRCLIB", FontSize = 11.5, Opacity = 0.65, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }
+                    }
+                },
+                CloseButtonText = "OK",
+                XamlRoot = RootGrid.XamlRoot,
+                RequestedTheme = RootGrid.RequestedTheme
+            };
+            await aboutDlg.ShowAsync();
+            return;
+        }
+        if (result == ContentDialogResult.Secondary)
+        {
+            _settings.ResetAudioAndUiToDefaults();
+            _settings.Save();
+            if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p &&
+                p.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
+            {
+                p.Restore();
+            }
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(_settings.WindowWidth, _settings.WindowHeight));
+            _leftPaneOpen = _settings.LeftPaneOpen;
+            _rightPaneOpen = _settings.RightPaneOpen;
+            ApplyPaneWidths();
+            SelectedInspectorScroll.MaxHeight = _settings.InspectorHeight;
+            _inspectorArtMode = _settings.InspectorArtMode;
+            ApplyInspectorArtMode();
+            ApplyTheme(_settings.Theme);
+            ApplyAudioConfigFromSettings();
+            ApplyVisualizerFromSettings();
+            return;
+        }
+        if (result != ContentDialogResult.Primary) return;
+
+        _settings.OutputDeviceId = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+        _settings.SpeakerLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? SpeakerLayout.Stereo20);
+        _settings.CenterLevel = (float)(centerSlider.Value / 100.0);
+        _settings.LfeGain = (float)(lfeSlider.Value / 100.0);
+        _settings.RearLevel = (float)(rearSlider.Value / 100.0);
+
+        string vizTag = (vizBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Spectrum";
+        _settings.VisualizerMode = vizTag;
+        _settings.VisualizerEnabled = vizTag != "Off";
+
+        string themeTag = (themeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Dark";
+        if (!string.Equals(_settings.Theme, themeTag, StringComparison.OrdinalIgnoreCase))
+        {
+            _settings.Theme = themeTag;
+            ApplyTheme(themeTag);
+        }
+
+        _settings.Save();
+        ApplyAudioConfigFromSettings();
+        ApplyVisualizerFromSettings();
+    }
+
+    private async Task OpenPropertiesDialogAsync(IReadOnlyList<TrackItem> tracks)
+    {
+        if (tracks.Count == 0) return;
+        if (tracks.Count > 1)
+        {
+            await OpenBatchPropertiesDialogAsync(tracks);
+            return;
+        }
+
+        var track = tracks[0];
+        var details = await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path));
+        string origDir = Path.GetDirectoryName(track.Path) ?? string.Empty;
+        string origExt = Path.GetExtension(track.Path);
+        string origNameNoExt = Path.GetFileNameWithoutExtension(track.Path);
+        DateTime origLocalDate = track.DateAddedUtc.ToLocalTime();
+
+        var artPreview = new Image { Width = 72, Height = 72, Stretch = Stretch.UniformToFill };
+        var artPlaceholder = new FontIcon
+        {
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            Glyph = "\uE93C",
+            FontSize = 24,
+            Opacity = 0.45
+        };
+        var artBox = new Border
+        {
+            Width = 72,
+            Height = 72,
+            CornerRadius = new CornerRadius(6),
+            Background = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            Child = new Grid { Children = { artPlaceholder, artPreview } }
+        };
+
+        byte[]? currentArtBytes = details.ArtBytes;
+        string currentArtMime = details.ArtMimeType;
+        bool artChanged = false;
+        await SetImageFromBytesAsync(currentArtBytes, artPreview);
+
+        Button MakeCompactIconBtn(string glyph, string text, Color? fg = null)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+            var icon = new FontIcon { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), Glyph = glyph, FontSize = 11.5 };
+            var lbl = new TextBlock { Text = text, FontSize = 11.5 };
+            if (fg.HasValue)
+            {
+                var brush = new SolidColorBrush(fg.Value);
+                icon.Foreground = brush;
+                lbl.Foreground = brush;
+            }
+            sp.Children.Add(icon);
+            sp.Children.Add(lbl);
+            return new Button { Content = sp, Padding = new Thickness(9, 4, 9, 4), MinHeight = 0, MinWidth = 0 };
+        }
+
+        var changeArtBtn = MakeCompactIconBtn("\uE722", "Art...");
+        var removeArtBtn = MakeCompactIconBtn("\uE74D", "Clear");
+        removeArtBtn.IsEnabled = currentArtBytes is { Length: > 0 };
+        changeArtBtn.Click += async (_, _) =>
+        {
+            var picker = new FileOpenPicker();
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            picker.FileTypeFilter.Add(".jpg");
+            picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".png");
+            picker.FileTypeFilter.Add(".bmp");
+            picker.FileTypeFilter.Add(".webp");
+            var picked = await picker.PickSingleFileAsync();
+            if (picked == null) return;
+            currentArtBytes = await File.ReadAllBytesAsync(picked.Path);
+            string ext = Path.GetExtension(picked.Path).ToLowerInvariant();
+            currentArtMime = ext == ".png" ? "image/png" : ext == ".webp" ? "image/webp" : ext == ".bmp" ? "image/bmp" : "image/jpeg";
+            artChanged = true;
+            removeArtBtn.IsEnabled = true;
+            await SetImageFromBytesAsync(currentArtBytes, artPreview);
+        };
+        removeArtBtn.Click += (_, _) =>
+        {
+            currentArtBytes = null;
+            artChanged = true;
+            removeArtBtn.IsEnabled = false;
+            artPreview.Source = null;
+        };
+
+        var artBtnStack = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        artBtnStack.Children.Add(changeArtBtn);
+        artBtnStack.Children.Add(removeArtBtn);
+
+        var heroArtSection = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        heroArtSection.Children.Add(artBox);
+        heroArtSection.Children.Add(artBtnStack);
+
+        Border MakeSpecPill(string text) => new()
+        {
+            Background = new SolidColorBrush(Color.FromArgb(26, 128, 128, 128)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 2, 6, 2),
+            Child = new TextBlock { Text = text, FontSize = 11, Opacity = 0.85 }
+        };
+
+        var heroTitleText = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(details.Title) ? track.DisplayTitle : details.Title.Trim(),
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+
+        var specStrip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 2, 0, 2) };
+        string codecPart = $"{track.Codec} {track.BitrateText}".Trim();
+        if (!string.IsNullOrEmpty(codecPart)) specStrip.Children.Add(MakeSpecPill(codecPart));
+        string ratePart = track.SampleRate > 0 ? $"{track.SampleRate / 1000.0:0.#} kHz · {track.ChannelsText}" : track.ChannelsText;
+        if (!string.IsNullOrEmpty(ratePart)) specStrip.Children.Add(MakeSpecPill(ratePart));
+        if (!string.IsNullOrEmpty(track.DurationText)) specStrip.Children.Add(MakeSpecPill(track.DurationText));
+
+        var heroFolderText = new TextBlock
+        {
+            Text = origDir,
+            FontSize = 11,
+            Opacity = 0.62,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        ToolTipService.SetToolTip(heroFolderText, track.Path);
+
+        var heroSummary = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        heroSummary.Children.Add(heroTitleText);
+        heroSummary.Children.Add(specStrip);
+        heroSummary.Children.Add(heroFolderText);
+
+        double? selectedRating = details.Rating;
+        var ratingCell = new StarRatingCell { Value = selectedRating, HorizontalAlignment = HorizontalAlignment.Right };
+        ToolTipService.SetToolTip(ratingCell, "Click stars (left half = .5, right half = .0; click same rating again to clear)");
+        ratingCell.RatingSelected += (_, val) =>
+        {
+            selectedRating = val;
+            ratingCell.Value = val;
+        };
+
+        bool deletedFromDialog = false;
+        ContentDialog? dlg = null;
+
+        var explorerBtn = MakeCompactIconBtn("\uE8DA", "Folder");
+        ToolTipService.SetToolTip(explorerBtn, "Open containing folder in File Explorer");
+        explorerBtn.Click += (_, _) => OpenInExplorer(track.Path);
+
+        var deleteBtn = MakeCompactIconBtn("\uE74D", "Delete", Color.FromArgb(255, 255, 118, 118));
+        ToolTipService.SetToolTip(deleteBtn, "Move file to Recycle Bin");
+
+        var fileQuickBtns = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+        fileQuickBtns.Children.Add(explorerBtn);
+        fileQuickBtns.Children.Add(deleteBtn);
+
+        var heroRight = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+        heroRight.Children.Add(ratingCell);
+        heroRight.Children.Add(fileQuickBtns);
+
+        var heroGrid = new Grid { ColumnSpacing = 14 };
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(heroArtSection, 0);
+        Grid.SetColumn(heroSummary, 1);
+        Grid.SetColumn(heroRight, 2);
+        heroGrid.Children.Add(heroArtSection);
+        heroGrid.Children.Add(heroSummary);
+        heroGrid.Children.Add(heroRight);
+
+        var heroCard = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(18, 128, 128, 128)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(36, 128, 128, 128)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 10, 12, 10),
+            Child = heroGrid
+        };
+
+        StackPanel MakeField(string label, FrameworkElement input)
+        {
+            var sp = new StackPanel { Spacing = 3 };
+            sp.Children.Add(new TextBlock { Text = label, FontSize = 11.5, Opacity = 0.72, Margin = new Thickness(2, 0, 0, 0) });
+            sp.Children.Add(input);
+            return sp;
+        }
+
+        var titleBox = new TextBox { Text = details.Title };
+        titleBox.TextChanged += (_, _) =>
+        {
+            string t = titleBox.Text.Trim();
+            heroTitleText.Text = string.IsNullOrEmpty(t) ? track.FileName : t;
+        };
+        var artistBox = new TextBox { Text = details.Artist };
+        var albumArtistBox = new TextBox { Text = details.AlbumArtist };
+        var albumBox = new TextBox { Text = details.Album };
+        var genreBox = new TextBox { Text = details.Genre };
+        var yearBox = new NumberBox { Value = details.Year > 0 ? details.Year : double.NaN, Minimum = 0, Maximum = 2100, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        var trackNumBox = new NumberBox { Value = details.TrackNumber > 0 ? details.TrackNumber : double.NaN, Minimum = 0, Maximum = 999, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+
+        var dateTextBox = new TextBox
+        {
+            Text = origLocalDate.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
+            PlaceholderText = "dd/MM/yyyy HH:mm"
+        };
+        var nowBtn = new Button { Content = "Now", Padding = new Thickness(9, 4, 9, 4), MinHeight = 0, VerticalAlignment = VerticalAlignment.Stretch };
+        nowBtn.Click += (_, _) => dateTextBox.Text = DateTime.Now.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+        var dateInputGrid = new Grid { ColumnSpacing = 4 };
+        dateInputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        dateInputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(dateTextBox, 0); Grid.SetColumn(nowBtn, 1);
+        dateInputGrid.Children.Add(dateTextBox); dateInputGrid.Children.Add(nowBtn);
+
+        var row3Grid = new Grid { ColumnSpacing = 8 };
+        row3Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(92) });
+        row3Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
+        row3Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var yearField = MakeField("Year", yearBox);
+        var trackField = MakeField("Track #", trackNumBox);
+        var dateField = MakeField("Date Added", dateInputGrid);
+        Grid.SetColumn(yearField, 0); Grid.SetColumn(trackField, 1); Grid.SetColumn(dateField, 2);
+        row3Grid.Children.Add(yearField); row3Grid.Children.Add(trackField); row3Grid.Children.Add(dateField);
+
+        var fileNameBox = new TextBox { Text = origNameNoExt };
+        var extBadge = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(24, 128, 128, 128)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(9, 0, 9, 0),
+            Child = new TextBlock { Text = origExt, FontSize = 12, Opacity = 0.78, VerticalAlignment = VerticalAlignment.Center }
+        };
+        var fileNameGrid = new Grid { ColumnSpacing = 6 };
+        fileNameGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        fileNameGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(fileNameBox, 0); Grid.SetColumn(extBadge, 1);
+        fileNameGrid.Children.Add(fileNameBox); fileNameGrid.Children.Add(extBadge);
+
+        var leftFormGrid = new Grid { ColumnSpacing = 10, RowSpacing = 9 };
+        leftFormGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        leftFormGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int r = 0; r < 5; r++)
+            leftFormGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var titleField = MakeField("Title", titleBox);
+        var artistField = MakeField("Artist", artistBox);
+        var albumArtistField = MakeField("Album Artist", albumArtistBox);
+        var albumField = MakeField("Album", albumBox);
+        var genreField = MakeField("Genre", genreBox);
+        var fileNameField = MakeField("File Name", fileNameGrid);
+
+        Grid.SetRow(titleField, 0); Grid.SetColumn(titleField, 0); Grid.SetColumnSpan(titleField, 2);
+        Grid.SetRow(artistField, 1); Grid.SetColumn(artistField, 0);
+        Grid.SetRow(albumArtistField, 1); Grid.SetColumn(albumArtistField, 1);
+        Grid.SetRow(albumField, 2); Grid.SetColumn(albumField, 0);
+        Grid.SetRow(genreField, 2); Grid.SetColumn(genreField, 1);
+        Grid.SetRow(row3Grid, 3); Grid.SetColumn(row3Grid, 0); Grid.SetColumnSpan(row3Grid, 2);
+        Grid.SetRow(fileNameField, 4); Grid.SetColumn(fileNameField, 0); Grid.SetColumnSpan(fileNameField, 2);
+
+        leftFormGrid.Children.Add(titleField);
+        leftFormGrid.Children.Add(artistField);
+        leftFormGrid.Children.Add(albumArtistField);
+        leftFormGrid.Children.Add(albumField);
+        leftFormGrid.Children.Add(genreField);
+        leftFormGrid.Children.Add(row3Grid);
+        leftFormGrid.Children.Add(fileNameField);
+
+        var lyricsBox = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            PlaceholderText = "Paste lyrics or [mm:ss.xx] synced .LRC lines, or click Fetch from web...",
+            FontSize = 12.5,
+            Height = 250,
+            Text = details.Lyrics.Replace("\r\n", "\r").Replace("\n", "\r")
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(lyricsBox, ScrollBarVisibility.Auto);
+
+        var lyricsStatusText = new TextBlock { FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        void UpdateLyricsBadge()
+        {
+            string raw = lyricsBox.Text ?? string.Empty;
+            if (LrcParser.IsSynced(raw))
+            {
+                lyricsStatusText.Text = "· Synced .LRC";
+                lyricsStatusText.Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 200, 59));
+                lyricsStatusText.Opacity = 0.95;
+            }
+            else if (!string.IsNullOrWhiteSpace(raw))
+            {
+                lyricsStatusText.Text = "· Plain text";
+                lyricsStatusText.ClearValue(TextBlock.ForegroundProperty);
+                lyricsStatusText.Opacity = 0.65;
+            }
+            else
+            {
+                lyricsStatusText.Text = "· None";
+                lyricsStatusText.ClearValue(TextBlock.ForegroundProperty);
+                lyricsStatusText.Opacity = 0.5;
+            }
+        }
+        UpdateLyricsBadge();
+        lyricsBox.TextChanged += (_, _) => UpdateLyricsBadge();
+
+        var fetchLyricsBtn = MakeCompactIconBtn("\uE774", "Fetch lyrics");
+        ToolTipService.SetToolTip(fetchLyricsBtn, "Search LRCLIB for synced .LRC / plain lyrics");
+        fetchLyricsBtn.Click += async (_, _) =>
+        {
+            fetchLyricsBtn.IsEnabled = false;
+            try
+            {
+                string fetchedLyrics = await AutoTagger.FetchLyricsAsync(
+                    track.Path, titleBox.Text.Trim(), artistBox.Text.Trim(), track.Duration);
+                if (!string.IsNullOrWhiteSpace(fetchedLyrics))
+                {
+                    lyricsBox.Text = fetchedLyrics.Replace("\r\n", "\r").Replace("\n", "\r");
+                    UpdateLyricsBadge();
+                }
+                else
+                {
+                    lyricsStatusText.Text = "· Not found online";
+                }
+            }
+            finally
+            {
+                fetchLyricsBtn.IsEnabled = true;
+            }
+        };
+
+        var lyricsHeaderLeft = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        lyricsHeaderLeft.Children.Add(new TextBlock { Text = "Lyrics", FontSize = 11.5, FontWeight = FontWeights.SemiBold, Opacity = 0.85, VerticalAlignment = VerticalAlignment.Center });
+        lyricsHeaderLeft.Children.Add(lyricsStatusText);
+
+        var lyricsHeader = new Grid { Margin = new Thickness(2, 0, 0, 4) };
+        lyricsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        lyricsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(lyricsHeaderLeft, 0); Grid.SetColumn(fetchLyricsBtn, 1);
+        lyricsHeader.Children.Add(lyricsHeaderLeft); lyricsHeader.Children.Add(fetchLyricsBtn);
+
+        var rightLyricsPanel = new Grid();
+        rightLyricsPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rightLyricsPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(lyricsHeader, 0); Grid.SetRow(lyricsBox, 1);
+        rightLyricsPanel.Children.Add(lyricsHeader); rightLyricsPanel.Children.Add(lyricsBox);
+
+        var bodyGrid = new Grid { ColumnSpacing = 18 };
+        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(430) });
+        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(leftFormGrid, 0);
+        Grid.SetColumn(rightLyricsPanel, 1);
+        bodyGrid.Children.Add(leftFormGrid);
+        bodyGrid.Children.Add(rightLyricsPanel);
+
+        var rootPanel = new StackPanel { Spacing = 12, Width = 860 };
+        rootPanel.Children.Add(heroCard);
+        rootPanel.Children.Add(bodyGrid);
+
+        dlg = new ContentDialog
+        {
+            Title = "Song Properties & Lyrics",
+            Content = rootPanel,
+            PrimaryButtonText = "Save",
+            SecondaryButtonText = "Auto-Tag...",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 940.0;
+        DialogFooter.MainButtonOnRight(dlg);
+
+        deleteBtn.Click += (_, _) =>
+        {
+            deletedFromDialog = true;
+            dlg?.Hide();
+        };
+
+        var dlgResult = await dlg.ShowAsync();
+        if (dlgResult == ContentDialogResult.Secondary)
+        {
+            await OpenAutoTagDialogAsync(new[] { track });
+            return;
+        }
+        if (deletedFromDialog)
+        {
+            await DeleteTracksToRecycleBinAsync(new[] { track });
+            return;
+        }
+        if (dlgResult != ContentDialogResult.Primary) return;
+
+        var updated = new MusicLibrary.TrackDetails
+        {
+            Title = titleBox.Text.Trim(),
+            Artist = artistBox.Text.Trim(),
+            Album = albumBox.Text.Trim(),
+            AlbumArtist = albumArtistBox.Text.Trim(),
+            Genre = genreBox.Text.Trim(),
+            Year = double.IsNaN(yearBox.Value) ? 0 : (int)yearBox.Value,
+            TrackNumber = double.IsNaN(trackNumBox.Value) ? 0 : (int)trackNumBox.Value,
+            Rating = selectedRating,
+            Lyrics = lyricsBox.Text.Replace("\r", Environment.NewLine),
+            ArtBytes = currentArtBytes,
+            ArtMimeType = currentArtMime,
+            ArtChanged = artChanged
+        };
+
+        bool tagsSaved = await SaveTrackDetailsAsync(track, updated);
+        if (!tagsSaved) return;
+
+        string rawDate = dateTextBox.Text.Trim();
+        if (!string.IsNullOrEmpty(rawDate) &&
+            (DateTime.TryParseExact(rawDate, new[] { "dd/MM/yyyy HH:mm", "dd/MM/yyyy H:mm", "dd/MM/yyyy", "yyyy-MM-dd HH:mm", "yyyy-MM-dd" }, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var newLocal) ||
+             DateTime.TryParse(rawDate, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out newLocal)))
+        {
+            var newMinuteLocal = new DateTime(newLocal.Year, newLocal.Month, newLocal.Day, newLocal.Hour, newLocal.Minute, 0, DateTimeKind.Local);
+            var origMinuteLocal = new DateTime(origLocalDate.Year, origLocalDate.Month, origLocalDate.Day, origLocalDate.Hour, origLocalDate.Minute, 0, DateTimeKind.Local);
+            if (newMinuteLocal != origMinuteLocal)
+            {
+                DateTime newUtc = newMinuteLocal.ToUniversalTime();
+                var (dateOk, dateErr) = await _engine.WithFileReleasedAsync(track.Path, () => Task.Run(() =>
+                {
+                    try
+                    {
+                        File.SetLastWriteTimeUtc(track.Path, newUtc);
+                        return (true, (string?)null);
+                    }
+                    catch (Exception ex) { return (false, ex.Message); }
+                }));
+                if (dateOk)
+                {
+                    track.DateAddedUtc = newUtc;
+                    track.FileWriteUtcTicks = newUtc.Ticks;
+                    RefreshVisibleTracks();
+                }
+                else
+                {
+                    await ShowErrorDialogAsync("Could not update Date Added", dateErr ?? "Unknown error.");
+                }
+            }
+        }
+
+        string desiredName = fileNameBox.Text.Trim();
+        if (!string.IsNullOrEmpty(desiredName) && !string.Equals(desiredName, origNameNoExt, StringComparison.Ordinal))
+        {
+            if (desiredName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                await ShowErrorDialogAsync("Invalid file name", "The file name contains invalid characters (e.g. \\ / : * ? \" < > |).");
+                return;
+            }
+            string newPath = Path.Combine(origDir, desiredName + origExt);
+            if (File.Exists(newPath))
+            {
+                await ShowErrorDialogAsync("File already exists", $"A file named \"{desiredName + origExt}\" already exists in this folder.");
+                return;
+            }
+            string oldPath = track.Path;
+            var (renamed, renameErr) = await RenameTrackPathAsync(track, oldPath, newPath);
+            if (!renamed)
+            {
+                await ShowErrorDialogAsync("Could not rename file", renameErr ?? "Unknown error.");
+                return;
+            }
+            PushUndo(async () =>
+            {
+                await RenameTrackPathAsync(track, newPath, oldPath);
+                ShowHudPill("Undone: File rename");
+            });
+        }
+        SaveLibraryCacheSnapshot();
+    }
+
+    private async Task OpenBatchPropertiesDialogAsync(IReadOnlyList<TrackItem> tracks)
+    {
+        string CommonOrEmpty(Func<TrackItem, string> selector, out bool mixed)
+        {
+            var distinct = tracks.Select(selector).Distinct(StringComparer.Ordinal).Take(2).ToList();
+            mixed = distinct.Count > 1;
+            return mixed ? string.Empty : (distinct.Count == 1 ? distinct[0] : string.Empty);
+        }
+
+        string initArtist = CommonOrEmpty(t => t.Artist, out bool mixedArtist);
+        string initAlbum = CommonOrEmpty(t => t.Album, out bool mixedAlbum);
+        string initGenre = CommonOrEmpty(t => t.Genre, out bool mixedGenre);
+        var distinctYears = tracks.Select(t => t.Year).Distinct().Take(2).ToList();
+        bool mixedYear = distinctYears.Count > 1;
+        int initYear = !mixedYear && distinctYears.Count == 1 ? distinctYears[0] : 0;
+
+        var chkArtist = new CheckBox { Content = "Artist", MinWidth = 110 };
+        var chkAlbum = new CheckBox { Content = "Album", MinWidth = 110 };
+        var chkAlbumArtist = new CheckBox { Content = "Album Artist", MinWidth = 110 };
+        var chkGenre = new CheckBox { Content = "Genre", MinWidth = 110 };
+        var chkYear = new CheckBox { Content = "Year", MinWidth = 110 };
+        var chkRating = new CheckBox { Content = "Rating", MinWidth = 110 };
+        var chkArt = new CheckBox { Content = "Album Art", MinWidth = 110 };
+
+        var artistBox = new TextBox { Text = initArtist, PlaceholderText = mixedArtist ? "<Multiple values>" : "" };
+        var albumBox = new TextBox { Text = initAlbum, PlaceholderText = mixedAlbum ? "<Multiple values>" : "" };
+        var albumArtistBox = new TextBox { Text = initArtist, PlaceholderText = mixedArtist ? "<Multiple values>" : "" };
+        var genreBox = new TextBox { Text = initGenre, PlaceholderText = mixedGenre ? "<Multiple values>" : "" };
+        var yearBox = new NumberBox { Value = initYear > 0 ? initYear : double.NaN, PlaceholderText = mixedYear ? "<Multiple>" : "", Minimum = 0, Maximum = 2100, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+
+        var ratingCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        ratingCombo.Items.Add(new ComboBoxItem { Content = "Unrated", Tag = -1.0 });
+        for (double r = 0.5; r <= 5.0; r += 0.5)
+            ratingCombo.Items.Add(new ComboBoxItem { Content = $"{r:0.#} ★", Tag = r });
+        ratingCombo.SelectedIndex = 0;
+
+        artistBox.TextChanged += (_, _) => chkArtist.IsChecked = true;
+        albumBox.TextChanged += (_, _) => chkAlbum.IsChecked = true;
+        albumArtistBox.TextChanged += (_, _) => chkAlbumArtist.IsChecked = true;
+        genreBox.TextChanged += (_, _) => chkGenre.IsChecked = true;
+        yearBox.ValueChanged += (_, _) => chkYear.IsChecked = true;
+        ratingCombo.SelectionChanged += (_, _) => chkRating.IsChecked = true;
+
+        byte[]? batchArtBytes = null;
+        string batchArtMime = "image/jpeg";
+        var artPreview = new Image { Width = 56, Height = 56, Stretch = Stretch.UniformToFill };
+        var artBox = new Border
+        {
+            Width = 56,
+            Height = 56,
+            CornerRadius = new CornerRadius(6),
+            Background = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            Child = artPreview
+        };
+        var chooseArtBtn = new Button { Content = "Choose Cover Art..." };
+        var clearArtBtn = new Button { Content = "Remove Art" };
+        chooseArtBtn.Click += async (_, _) =>
+        {
+            var picker = new FileOpenPicker();
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            picker.FileTypeFilter.Add(".jpg"); picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".png"); picker.FileTypeFilter.Add(".webp");
+            var picked = await picker.PickSingleFileAsync();
+            if (picked == null) return;
+            batchArtBytes = await File.ReadAllBytesAsync(picked.Path);
+            string ext = Path.GetExtension(picked.Path).ToLowerInvariant();
+            batchArtMime = ext == ".png" ? "image/png" : ext == ".webp" ? "image/webp" : "image/jpeg";
+            await SetImageFromBytesAsync(batchArtBytes, artPreview);
+            chkArt.IsChecked = true;
+        };
+        clearArtBtn.Click += (_, _) =>
+        {
+            batchArtBytes = null;
+            artPreview.Source = null;
+            chkArt.IsChecked = true;
+        };
+
+        Grid MakeRow(CheckBox cb, FrameworkElement ctrl)
+        {
+            var g = new Grid { ColumnSpacing = 10 };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(cb, 0);
+            Grid.SetColumn(ctrl, 1);
+            g.Children.Add(cb);
+            g.Children.Add(ctrl);
+            return g;
+        }
+
+        var artControls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        artControls.Children.Add(artBox);
+        artControls.Children.Add(chooseArtBtn);
+        artControls.Children.Add(clearArtBtn);
+
+        var panel = new StackPanel { Spacing = 10, Width = 480 };
+        panel.Children.Add(new TextBlock { Text = $"Checked fields will be applied to all {tracks.Count:N0} selected tracks.", FontSize = 12, Opacity = 0.75 });
+        panel.Children.Add(MakeRow(chkArtist, artistBox));
+        panel.Children.Add(MakeRow(chkAlbum, albumBox));
+        panel.Children.Add(MakeRow(chkAlbumArtist, albumArtistBox));
+        panel.Children.Add(MakeRow(chkGenre, genreBox));
+        panel.Children.Add(MakeRow(chkYear, yearBox));
+        panel.Children.Add(MakeRow(chkRating, ratingCombo));
+        panel.Children.Add(MakeRow(chkArt, artControls));
+
+        var dlg = new ContentDialog
+        {
+            Title = $"Batch Properties ({tracks.Count:N0} tracks)",
+            Content = panel,
+            PrimaryButtonText = "Apply to all",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 560.0;
+        DialogFooter.MainButtonOnRight(dlg);
+
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var snapshots = new List<(TrackItem Track, MusicLibrary.TrackDetails Before)>();
+        foreach (var t in tracks)
+        {
+            var cur = await Task.Run(() => MusicLibrary.ReadFullDetails(t.Path));
+            snapshots.Add((t, new MusicLibrary.TrackDetails
+            {
+                Title = cur.Title,
+                Artist = cur.Artist,
+                Album = cur.Album,
+                AlbumArtist = cur.AlbumArtist,
+                Genre = cur.Genre,
+                Year = cur.Year,
+                TrackNumber = cur.TrackNumber,
+                Rating = cur.Rating,
+                Lyrics = cur.Lyrics,
+                ArtBytes = cur.ArtBytes,
+                ArtMimeType = cur.ArtMimeType,
+                ArtChanged = chkArt.IsChecked == true
+            }));
+
+            var updated = new MusicLibrary.TrackDetails
+            {
+                Title = cur.Title,
+                Artist = chkArtist.IsChecked == true ? artistBox.Text.Trim() : cur.Artist,
+                Album = chkAlbum.IsChecked == true ? albumBox.Text.Trim() : cur.Album,
+                AlbumArtist = chkAlbumArtist.IsChecked == true ? albumArtistBox.Text.Trim() : cur.AlbumArtist,
+                Genre = chkGenre.IsChecked == true ? genreBox.Text.Trim() : cur.Genre,
+                Year = chkYear.IsChecked == true ? (double.IsNaN(yearBox.Value) ? 0 : (int)yearBox.Value) : cur.Year,
+                TrackNumber = cur.TrackNumber,
+                Rating = chkRating.IsChecked == true
+                    ? ((ratingCombo.SelectedItem as ComboBoxItem)?.Tag is double rv && rv > 0 ? rv : null)
+                    : cur.Rating,
+                Lyrics = cur.Lyrics,
+                ArtBytes = chkArt.IsChecked == true ? batchArtBytes : cur.ArtBytes,
+                ArtMimeType = chkArt.IsChecked == true ? batchArtMime : cur.ArtMimeType,
+                ArtChanged = chkArt.IsChecked == true
+            };
+            await SaveTrackDetailsAsync(t, updated, pushUndo: false);
+        }
+
+        PushUndo(async () =>
+        {
+            foreach (var (tr, before) in snapshots)
+                await SaveTrackDetailsAsync(tr, before, pushUndo: false);
+            RefreshVisibleTracks();
+            ShowHudPill($"Undone: Batch edit ({snapshots.Count} tracks)");
+        });
+
+        RefreshVisibleTracks();
+        SaveLibraryCacheSnapshot();
+        ShowHudPill($"Updated {tracks.Count} tracks");
+    }
+
+    private async Task OpenBatchRenameDialogAsync(IReadOnlyList<TrackItem> tracks)
+    {
+        if (tracks.Count == 0) return;
+
+        var patternCombo = new ComboBox { Header = "Filename pattern preset", HorizontalAlignment = HorizontalAlignment.Stretch };
+        patternCombo.Items.Add("{Artist} - {Title}");
+        patternCombo.Items.Add("{Track:00} - {Title}");
+        patternCombo.Items.Add("{Track:00} - {Artist} - {Title}");
+        patternCombo.Items.Add("{Album} - {Track:00} - {Title}");
+        patternCombo.SelectedIndex = 0;
+
+        var patternBox = new TextBox { Header = "Custom pattern (tokens: {Artist}, {Title}, {Album}, {Track:00}, {Year})", Text = "{Artist} - {Title}" };
+        var previewList = new ListBox { MaxHeight = 280 };
+
+        string SanitizeSegment(string s)
+        {
+            string cleaned = s ?? string.Empty;
+            foreach (char c in Path.GetInvalidFileNameChars())
+                cleaned = cleaned.Replace(c, '_');
+            return Regex.Replace(cleaned.Trim(), @"\s{2,}", " ");
+        }
+
+        string ComputeNewName(TrackItem t, string pattern)
+        {
+            string result = pattern
+                .Replace("{Artist}", string.IsNullOrWhiteSpace(t.Artist) ? "Unknown Artist" : t.Artist, StringComparison.OrdinalIgnoreCase)
+                .Replace("{Title}", t.DisplayTitle, StringComparison.OrdinalIgnoreCase)
+                .Replace("{Album}", string.IsNullOrWhiteSpace(t.Album) ? "Unknown Album" : t.Album, StringComparison.OrdinalIgnoreCase)
+                .Replace("{Year}", t.Year > 0 ? t.Year.ToString() : string.Empty, StringComparison.OrdinalIgnoreCase)
+                .Replace("{Track:00}", t.TrackNumber > 0 ? t.TrackNumber.ToString("D2") : "00", StringComparison.OrdinalIgnoreCase)
+                .Replace("{Track}", t.TrackNumber > 0 ? t.TrackNumber.ToString() : string.Empty, StringComparison.OrdinalIgnoreCase);
+            return SanitizeSegment(result).Trim(' ', '-', '.');
+        }
+
+        List<(TrackItem Track, string OldPath, string NewPath)> ComputePlan()
+        {
+            var plan = new List<(TrackItem, string, string)>();
+            string pat = patternBox.Text ?? "{Artist} - {Title}";
+            foreach (var t in tracks)
+            {
+                string dir = Path.GetDirectoryName(t.Path) ?? string.Empty;
+                string ext = Path.GetExtension(t.Path);
+                string baseName = ComputeNewName(t, pat);
+                if (string.IsNullOrWhiteSpace(baseName)) continue;
+                string newPath = Path.Combine(dir, baseName + ext);
+                if (!string.Equals(newPath, t.Path, StringComparison.OrdinalIgnoreCase))
+                    plan.Add((t, t.Path, newPath));
+            }
+            return plan;
+        }
+
+        void RefreshPreview()
+        {
+            previewList.Items.Clear();
+            var plan = ComputePlan();
+            if (plan.Count == 0)
+            {
+                previewList.Items.Add("No files need renaming for this pattern.");
+                return;
+            }
+            foreach (var (t, oldP, newP) in plan.Take(100))
+            {
+                previewList.Items.Add($"{Path.GetFileName(oldP)}  →  {Path.GetFileName(newP)}");
+            }
+        }
+
+        patternCombo.SelectionChanged += (_, _) =>
+        {
+            if (patternCombo.SelectedItem is string s) patternBox.Text = s;
+        };
+        patternBox.TextChanged += (_, _) => RefreshPreview();
+        RefreshPreview();
+
+        var panel = new StackPanel { Spacing = 10, Width = 580 };
+        panel.Children.Add(patternCombo);
+        panel.Children.Add(patternBox);
+        panel.Children.Add(new TextBlock { Text = "Preview (Before → After):", FontSize = 12, FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(previewList);
+
+        var dlg = new ContentDialog
+        {
+            Title = $"Rename {tracks.Count} {(tracks.Count == 1 ? "file" : "files")} from tags",
+            Content = panel,
+            PrimaryButtonText = "Rename files",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 660.0;
+        DialogFooter.MainButtonOnRight(dlg);
+
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var finalPlan = ComputePlan();
+        var succeeded = new List<(TrackItem Track, string OldPath, string NewPath)>();
+        var errors = new List<string>();
+        foreach (var (t, oldP, newP) in finalPlan)
+        {
+            if (File.Exists(newP))
+            {
+                errors.Add($"{Path.GetFileName(newP)} already exists.");
+                continue;
+            }
+            var (ok, err) = await RenameTrackPathAsync(t, oldP, newP);
+            if (ok) succeeded.Add((t, oldP, newP));
+            else errors.Add($"{Path.GetFileName(oldP)}: {err}");
+        }
+
+        if (succeeded.Count > 0)
+        {
+            PushUndo(async () =>
+            {
+                foreach (var (t, oldP, newP) in succeeded)
+                {
+                    if (!File.Exists(oldP))
+                        await RenameTrackPathAsync(t, newP, oldP);
+                }
+                SaveLibraryCacheSnapshot();
+                ShowHudPill($"Undone: Renamed {succeeded.Count} file(s)");
+            });
+            SaveLibraryCacheSnapshot();
+            ShowHudPill($"Renamed {succeeded.Count} file(s)");
+        }
+        if (errors.Count > 0)
+            await ShowErrorDialogAsync("Some files could not be renamed", string.Join("\n", errors));
+    }
+
+    private async Task OpenAutoTagDialogAsync(IReadOnlyList<TrackItem> tracks)
+    {
+        if (tracks.Count == 0) return;
+
+        for (int trackIdx = 0; trackIdx < tracks.Count; trackIdx++)
+        {
+            var track = tracks[trackIdx];
+            var current = await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path));
+            var parsed = AutoTagger.ParseFromFilename(track.Path);
+
+            var queryTitleBox = new TextBox
+            {
+                Header = "Search Title",
+                Text = string.IsNullOrWhiteSpace(current.Title) ? parsed.Title : current.Title,
+                Width = 240
+            };
+            var queryArtistBox = new TextBox
+            {
+                Header = "Search Artist",
+                Text = string.IsNullOrWhiteSpace(current.Artist) ? parsed.Artist : current.Artist,
+                Width = 220
+            };
+            var searchBtn = new Button { Content = "Search", VerticalAlignment = VerticalAlignment.Bottom };
+            var loadingRing = new ProgressRing { Width = 20, Height = 20, IsActive = true, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(6, 0, 0, 6) };
+            var statusLabel = new TextBlock { FontSize = 11, Opacity = 0.75, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(6, 0, 0, 8), Text = "Searching MusicBrainz, iTunes & LRCLIB..." };
+
+            var searchRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            searchRow.Children.Add(queryTitleBox);
+            searchRow.Children.Add(queryArtistBox);
+            searchRow.Children.Add(searchBtn);
+            searchRow.Children.Add(loadingRing);
+            searchRow.Children.Add(statusLabel);
+
+            var matchCombo = new ComboBox { Header = "Matched Release / Source", HorizontalAlignment = HorizontalAlignment.Stretch };
+
+            var selectAllBtn = new Button { Content = "Select All (Recommended)", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
+            var emptyOnlyBtn = new Button { Content = "Only Empty Fields", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
+            var uncheckAllBtn = new Button { Content = "Uncheck All", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
+            var presetRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            presetRow.Children.Add(selectAllBtn);
+            presetRow.Children.Add(emptyOnlyBtn);
+            presetRow.Children.Add(uncheckAllBtn);
+
+            CheckBox MakeCheck(string label) => new() { Content = label, VerticalAlignment = VerticalAlignment.Center, MinWidth = 110 };
+            TextBox MakeProposedBox() => new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+            TextBlock MakeCurrentHint(string cur) => new()
+            {
+                Text = string.IsNullOrWhiteSpace(cur) ? "(empty)" : cur,
+                FontSize = 11,
+                Opacity = 0.65,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var chkTitle = MakeCheck("Title");
+            var chkArtist = MakeCheck("Artist");
+            var chkAlbum = MakeCheck("Album");
+            var chkAlbumArtist = MakeCheck("Album Artist");
+            var chkGenre = MakeCheck("Genre");
+            var chkYear = MakeCheck("Year");
+            var chkTrack = MakeCheck("Track #");
+            var chkLyrics = MakeCheck("Lyrics");
+            var chkArt = MakeCheck("Album Art");
+
+            var boxTitle = MakeProposedBox();
+            var boxArtist = MakeProposedBox();
+            var boxAlbum = MakeProposedBox();
+            var boxAlbumArtist = MakeProposedBox();
+            var boxGenre = MakeProposedBox();
+            var boxYear = MakeProposedBox();
+            var boxTrack = MakeProposedBox();
+            var boxLyrics = new TextBox
+            {
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Height = 140,
+                FontSize = 12
+            };
+            ScrollViewer.SetVerticalScrollBarVisibility(boxLyrics, ScrollBarVisibility.Auto);
+
+            Grid MakeDiffRow(CheckBox chk, string currentVal, Control proposedCtrl)
+            {
+                var g = new Grid { ColumnSpacing = 8 };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var curTb = MakeCurrentHint(currentVal);
+                Grid.SetColumn(chk, 0); Grid.SetColumn(curTb, 1); Grid.SetColumn(proposedCtrl, 2);
+                g.Children.Add(chk); g.Children.Add(curTb); g.Children.Add(proposedCtrl);
+                return g;
+            }
+
+            var diffHeader = new Grid { ColumnSpacing = 8 };
+            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
+            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var hField = new TextBlock { Text = "Apply Field", FontSize = 11, Opacity = 0.7 };
+            var hCur = new TextBlock { Text = "Current Tag", FontSize = 11, Opacity = 0.7 };
+            var hNew = new TextBlock { Text = "Proposed Tag (Editable)", FontSize = 11, Opacity = 0.7 };
+            Grid.SetColumn(hField, 0); Grid.SetColumn(hCur, 1); Grid.SetColumn(hNew, 2);
+            diffHeader.Children.Add(hField); diffHeader.Children.Add(hCur); diffHeader.Children.Add(hNew);
+
+            var leftCol = new StackPanel { Spacing = 6 };
+            leftCol.Children.Add(diffHeader);
+            leftCol.Children.Add(MakeDiffRow(chkTitle, current.Title, boxTitle));
+            leftCol.Children.Add(MakeDiffRow(chkArtist, current.Artist, boxArtist));
+            leftCol.Children.Add(MakeDiffRow(chkAlbum, current.Album, boxAlbum));
+            leftCol.Children.Add(MakeDiffRow(chkAlbumArtist, current.AlbumArtist, boxAlbumArtist));
+            leftCol.Children.Add(MakeDiffRow(chkGenre, current.Genre, boxGenre));
+            leftCol.Children.Add(MakeDiffRow(chkYear, current.Year > 0 ? current.Year.ToString() : "", boxYear));
+            leftCol.Children.Add(MakeDiffRow(chkTrack, current.TrackNumber > 0 ? current.TrackNumber.ToString() : "", boxTrack));
+            leftCol.Children.Add(MakeDiffRow(chkLyrics, string.IsNullOrWhiteSpace(current.Lyrics) ? "" : "(has lyrics)", boxLyrics));
+
+            var curArtImg = new Image { Width = 64, Height = 64, Stretch = Stretch.UniformToFill };
+            await SetImageFromBytesAsync(current.ArtBytes, curArtImg);
+            var curArtBorder = new Border
+            {
+                Width = 64,
+                Height = 64,
+                CornerRadius = new CornerRadius(6),
+                Background = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+                Child = curArtImg
+            };
+
+            var selArtImg = new Image { Width = 120, Height = 120, Stretch = Stretch.UniformToFill };
+            var selArtBorder = new Border
+            {
+                Width = 120,
+                Height = 120,
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(180, 255, 200, 59)),
+                BorderThickness = new Thickness(1.5),
+                Child = selArtImg
+            };
+
+            var artThumbsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            var artThumbsScroll = new ScrollViewer
+            {
+                Content = artThumbsPanel,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+            var artHintText = new TextBlock { Text = "No cover options yet", FontSize = 11, Opacity = 0.65 };
+
+            var rightCol = new StackPanel { Spacing = 8 };
+            rightCol.Children.Add(chkArt);
+            var artCompare = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            artCompare.Children.Add(new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Current", FontSize = 10.5, Opacity = 0.7 }, curArtBorder } });
+            artCompare.Children.Add(new StackPanel { Spacing = 2, Children = { new TextBlock { Text = "Selected New", FontSize = 10.5, Opacity = 0.7 }, selArtBorder } });
+            rightCol.Children.Add(artCompare);
+            rightCol.Children.Add(new TextBlock { Text = "Cover Art Options (click to choose):", FontSize = 11, Opacity = 0.8 });
+            rightCol.Children.Add(artHintText);
+            rightCol.Children.Add(artThumbsScroll);
+
+            byte[]? chosenArtBytes = null;
+            AutoTagSearchResult? latestResult = null;
+            var artThumbBorders = new List<Border>();
+
+            async Task SelectArtOptionAsync(byte[]? bytes, int thumbIndex)
+            {
+                chosenArtBytes = bytes;
+                await SetImageFromBytesAsync(bytes, selArtImg);
+                for (int i = 0; i < artThumbBorders.Count; i++)
+                {
+                    artThumbBorders[i].BorderBrush = i == thumbIndex
+                        ? new SolidColorBrush(Color.FromArgb(255, 255, 200, 59))
+                        : new SolidColorBrush(Color.FromArgb(50, 128, 128, 128));
+                    artThumbBorders[i].BorderThickness = new Thickness(i == thumbIndex ? 2 : 1);
+                }
+            }
+
+            void ApplyRecommendedChecks(bool onlyEmpty)
+            {
+                static string Norm(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+                bool ShouldCheck(string proposed, string existing) =>
+                    !string.IsNullOrWhiteSpace(proposed) &&
+                    !string.Equals(Norm(proposed), Norm(existing), StringComparison.Ordinal) &&
+                    (!onlyEmpty || string.IsNullOrWhiteSpace(existing));
+
+                chkTitle.IsChecked = ShouldCheck(boxTitle.Text, current.Title);
+                chkArtist.IsChecked = ShouldCheck(boxArtist.Text, current.Artist);
+                chkAlbum.IsChecked = ShouldCheck(boxAlbum.Text, current.Album);
+                chkAlbumArtist.IsChecked = ShouldCheck(boxAlbumArtist.Text, current.AlbumArtist);
+                chkGenre.IsChecked = ShouldCheck(boxGenre.Text, current.Genre);
+                chkYear.IsChecked = ShouldCheck(boxYear.Text, current.Year > 0 ? current.Year.ToString() : "");
+                chkTrack.IsChecked = ShouldCheck(boxTrack.Text, current.TrackNumber > 0 ? current.TrackNumber.ToString() : "");
+                chkLyrics.IsChecked = ShouldCheck(boxLyrics.Text, current.Lyrics);
+                bool sameArt = chosenArtBytes is { Length: > 0 } &&
+                               current.ArtBytes is { Length: > 0 } &&
+                               chosenArtBytes.AsSpan().SequenceEqual(current.ArtBytes);
+                chkArt.IsChecked = chosenArtBytes is { Length: > 0 } && !sameArt && (!onlyEmpty || current.ArtBytes is not { Length: > 0 });
+            }
+
+            void PopulateCandidate(AutoTagCandidate c)
+            {
+                boxTitle.Text = c.Title;
+                boxArtist.Text = c.Artist;
+                boxAlbum.Text = c.Album;
+                boxAlbumArtist.Text = c.AlbumArtist;
+                boxGenre.Text = c.Genre;
+                boxYear.Text = c.Year > 0 ? c.Year.ToString() : string.Empty;
+                boxTrack.Text = c.TrackNumber > 0 ? c.TrackNumber.ToString() : string.Empty;
+                ApplyRecommendedChecks(onlyEmpty: false);
+            }
+
+            selectAllBtn.Click += (_, _) => ApplyRecommendedChecks(onlyEmpty: false);
+            emptyOnlyBtn.Click += (_, _) => ApplyRecommendedChecks(onlyEmpty: true);
+            uncheckAllBtn.Click += (_, _) =>
+            {
+                foreach (var cb in new[] { chkTitle, chkArtist, chkAlbum, chkAlbumArtist, chkGenre, chkYear, chkTrack, chkLyrics, chkArt })
+                    cb.IsChecked = false;
+            };
+
+            matchCombo.SelectionChanged += async (_, _) =>
+            {
+                if (latestResult == null || matchCombo.SelectedIndex < 0 || matchCombo.SelectedIndex >= latestResult.Candidates.Count) return;
+                var c = latestResult.Candidates[matchCombo.SelectedIndex];
+                PopulateCandidate(c);
+                if (!string.IsNullOrEmpty(c.ArtUrl))
+                {
+                    int artIdx = latestResult.ArtOptions.FindIndex(a => string.Equals(a.Url, c.ArtUrl, StringComparison.OrdinalIgnoreCase));
+                    if (artIdx >= 0)
+                        await SelectArtOptionAsync(latestResult.ArtOptions[artIdx].Bytes, artIdx);
+                }
+            };
+
+            CancellationTokenSource? searchCts = null;
+            async Task RunSearchAsync()
+            {
+                searchCts?.Cancel();
+                searchCts = new CancellationTokenSource();
+                var token = searchCts.Token;
+
+                loadingRing.IsActive = true;
+                loadingRing.Visibility = Visibility.Visible;
+                statusLabel.Text = "Searching MusicBrainz, iTunes & LRCLIB...";
+                searchBtn.IsEnabled = false;
+
+                var res = await AutoTagger.SearchAsync(track.Path, queryTitleBox.Text, queryArtistBox.Text, track.Duration, token);
+                if (token.IsCancellationRequested) return;
+
+                latestResult = res;
+                loadingRing.IsActive = false;
+                loadingRing.Visibility = Visibility.Collapsed;
+                searchBtn.IsEnabled = true;
+
+                matchCombo.Items.Clear();
+                foreach (var c in res.Candidates) matchCombo.Items.Add(c.DisplayLabel);
+
+                boxLyrics.Text = res.Lyrics.Replace("\r\n", "\r").Replace("\n", "\r");
+
+                artThumbsPanel.Children.Clear();
+                artThumbBorders.Clear();
+                if (res.ArtOptions.Count > 0)
+                {
+                    artHintText.Visibility = Visibility.Collapsed;
+                    for (int i = 0; i < res.ArtOptions.Count; i++)
+                    {
+                        int capturedIdx = i;
+                        var opt = res.ArtOptions[i];
+                        var thumbImg = new Image { Width = 60, Height = 60, Stretch = Stretch.UniformToFill };
+                        await SetImageFromBytesAsync(opt.Bytes, thumbImg);
+                        var b = new Border
+                        {
+                            Width = 62,
+                            Height = 62,
+                            CornerRadius = new CornerRadius(6),
+                            BorderThickness = new Thickness(1),
+                            BorderBrush = new SolidColorBrush(Color.FromArgb(50, 128, 128, 128)),
+                            Child = thumbImg
+                        };
+                        ToolTipService.SetToolTip(b, $"{opt.Source} cover #{i + 1}");
+                        b.Tapped += async (_, _) => await SelectArtOptionAsync(opt.Bytes, capturedIdx);
+                        artThumbBorders.Add(b);
+                        artThumbsPanel.Children.Add(b);
+                    }
+                    await SelectArtOptionAsync(res.ArtOptions[0].Bytes, 0);
+                }
+                else
+                {
+                    artHintText.Visibility = Visibility.Visible;
+                    await SelectArtOptionAsync(null, -1);
+                }
+
+                if (res.Candidates.Count > 0)
+                    matchCombo.SelectedIndex = 0;
+
+                statusLabel.Text = $"{res.Candidates.Count} match(es), {res.ArtOptions.Count} cover(s){(string.IsNullOrEmpty(res.Lyrics) ? "" : ", lyrics found")}";
+            }
+
+            searchBtn.Click += async (_, _) => await RunSearchAsync();
+
+            var bodyGrid = new Grid { ColumnSpacing = 18, Width = 860 };
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
+            Grid.SetColumn(leftCol, 0); Grid.SetColumn(rightCol, 1);
+            bodyGrid.Children.Add(leftCol); bodyGrid.Children.Add(rightCol);
+
+            var rootPanel = new StackPanel { Spacing = 10, Width = 860 };
+            rootPanel.Children.Add(searchRow);
+            rootPanel.Children.Add(matchCombo);
+            rootPanel.Children.Add(presetRow);
+            rootPanel.Children.Add(bodyGrid);
+
+            var scroll = new ScrollViewer { Content = rootPanel, MaxHeight = 620 };
+            string trackCountSuffix = tracks.Count > 1 ? $" ({trackIdx + 1} / {tracks.Count})" : "";
+            var dlg = new ContentDialog
+            {
+                Title = $"Auto-Tag{trackCountSuffix} — {track.DisplayTitle}",
+                Content = scroll,
+                PrimaryButtonText = tracks.Count > 1 && trackIdx < tracks.Count - 1 ? "Apply & Next" : "Apply Selected",
+                SecondaryButtonText = tracks.Count > 1 && trackIdx < tracks.Count - 1 ? "Skip" : "",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = RootGrid.XamlRoot,
+                RequestedTheme = RootGrid.RequestedTheme
+            };
+            dlg.Resources["ContentDialogMaxWidth"] = 980.0;
+            dlg.Resources["ContentDialogMaxHeight"] = 800.0;
+            DialogFooter.MainButtonOnRight(dlg);
+
+            _ = RunSearchAsync();
+            var dlgResult = await dlg.ShowAsync();
+            searchCts?.Cancel();
+
+            if (dlgResult == ContentDialogResult.None) break;
+            if (dlgResult == ContentDialogResult.Secondary) continue;
+
+            var updated = new MusicLibrary.TrackDetails
+            {
+                Title = chkTitle.IsChecked == true ? boxTitle.Text.Trim() : current.Title,
+                Artist = chkArtist.IsChecked == true ? boxArtist.Text.Trim() : current.Artist,
+                Album = chkAlbum.IsChecked == true ? boxAlbum.Text.Trim() : current.Album,
+                AlbumArtist = chkAlbumArtist.IsChecked == true ? boxAlbumArtist.Text.Trim() : current.AlbumArtist,
+                Genre = chkGenre.IsChecked == true ? boxGenre.Text.Trim() : current.Genre,
+                Year = chkYear.IsChecked == true && int.TryParse(boxYear.Text.Trim(), out int yVal) ? yVal : current.Year,
+                TrackNumber = chkTrack.IsChecked == true && int.TryParse(boxTrack.Text.Trim(), out int tVal) ? tVal : current.TrackNumber,
+                Rating = current.Rating,
+                Lyrics = chkLyrics.IsChecked == true ? boxLyrics.Text.Replace("\r", Environment.NewLine) : current.Lyrics,
+                ArtBytes = chkArt.IsChecked == true ? chosenArtBytes : current.ArtBytes,
+                ArtMimeType = "image/jpeg",
+                ArtChanged = chkArt.IsChecked == true && chosenArtBytes is { Length: > 0 }
+            };
+
+            await SaveTrackDetailsAsync(track, updated);
+        }
+        SaveLibraryCacheSnapshot();
+    }
+
+    private async Task ShowShortcutsHelpAsync()
+    {
+        (string Key, string Desc)[] items =
+        {
+            ("Space", "Play / Pause"),
+            ("Left / Right", "Seek backward / forward 5 seconds"),
+            ("Ctrl+F", "Focus search box"),
+            ("Ctrl+B / Tab", "Toggle Library & Playlists sidebar"),
+            ("Ctrl+Z", "Undo last tag, rating, rename, or playlist deletion"),
+            ("F2", "Edit Song Properties & Lyrics (or Batch Properties)"),
+            ("F5", "Rescan current music folder"),
+            ("F11 / Esc", "Toggle / Exit Focus Visualizer Stage"),
+            ("Delete", "Remove from playlist or delete to Recycle Bin"),
+            ("A–Z / 0–9", "Type-to-jump in current track list")
+        };
+
+        var rows = new List<FrameworkElement>();
+        foreach (var (key, desc) in items)
+        {
+            var badge = new Border
+            {
+                Padding = new Thickness(8, 3, 8, 3),
+                CornerRadius = new CornerRadius(4),
+                Background = new SolidColorBrush(Color.FromArgb(26, 128, 128, 128)),
+                Child = new TextBlock { Text = key, FontSize = 11.5, FontWeight = FontWeights.SemiBold }
+            };
+            rows.Add(SettingsCard.Row("\uE765", desc, null, badge).Row);
+        }
+
+        var dlg = new ContentDialog
+        {
+            Title = "Keyboard shortcuts",
+            Content = new ScrollViewer { Content = SettingsCard.Card(rows.ToArray()), MaxHeight = 460 },
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 520.0;
+        await dlg.ShowAsync();
+    }
+}

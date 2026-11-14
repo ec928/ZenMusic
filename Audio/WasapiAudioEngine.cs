@@ -38,6 +38,7 @@ public sealed class WasapiAudioEngine : IDisposable
     // SMTC (Windows media keys & lock-screen overlay) via a silent dummy MediaPlayer
     private MediaPlayer? _smtcHost;
     private SystemMediaTransportControls? _smtc;
+    private Windows.Storage.Streams.InMemoryRandomAccessStream? _smtcArtStream;
 
     public FftAnalyzer Fft { get; } = new();
 
@@ -114,7 +115,7 @@ public sealed class WasapiAudioEngine : IDisposable
         });
     }
 
-    public void UpdateSmtcMetadata(string title, string artist, string album)
+    public void UpdateSmtcMetadata(string title, string artist, string album, byte[]? artBytes = null)
     {
         if (_smtc == null) return;
         try
@@ -124,6 +125,27 @@ public sealed class WasapiAudioEngine : IDisposable
             updater.MusicProperties.Title = title;
             updater.MusicProperties.Artist = artist;
             updater.MusicProperties.AlbumTitle = album;
+
+            _smtcArtStream?.Dispose();
+            _smtcArtStream = null;
+            if (artBytes is { Length: > 0 })
+            {
+                var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                using (var writer = new Windows.Storage.Streams.DataWriter(stream.GetOutputStreamAt(0)))
+                {
+                    writer.WriteBytes(artBytes);
+                    writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+                    writer.DetachStream();
+                }
+                stream.Seek(0);
+                _smtcArtStream = stream;
+                updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromStream(stream);
+            }
+            else
+            {
+                updater.Thumbnail = null;
+            }
+
             updater.Update();
         }
         catch { }
@@ -212,6 +234,22 @@ public sealed class WasapiAudioEngine : IDisposable
             Stop();
             PlaybackError?.Invoke($"Cannot play {Path.GetFileName(path)}: {ex.Message}");
         }
+    }
+
+    public void LoadPausedFile(string path, TimeSpan position)
+    {
+        if (_disposed || !File.Exists(path)) return;
+        try
+        {
+            lock (_lock)
+            {
+                StopInternal();
+                _currentPath = path;
+                OpenAndStartGraph(path, position, autoPlay: false);
+            }
+            UpdatePlaybackState(false);
+        }
+        catch { }
     }
 
     private void RebuildGraphPreservingPosition()
@@ -603,6 +641,8 @@ public sealed class WasapiAudioEngine : IDisposable
         if (_disposed) return;
         _disposed = true;
         Stop();
+        _smtcArtStream?.Dispose();
+        _smtcArtStream = null;
         if (_smtc != null) _smtc.ButtonPressed -= Smtc_ButtonPressed;
         _smtcHost?.Dispose();
         _smtcHost = null;
