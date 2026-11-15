@@ -225,9 +225,9 @@
                 <!-- Table Column Header (Clickable for Sorting, Right-Click to Show/Hide Columns) -->
                 <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,0" RightTapped="TableHeaderGrid_RightTapped">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="116"/>
-                        <ColumnDefinition Width="128"/>
+                        <ColumnDefinition x:Name="HeaderColTitle" Width="2.4*"/>
+                        <ColumnDefinition x:Name="HeaderColArtist" Width="1.1*"/>
+                        <ColumnDefinition x:Name="HeaderColAlbum" Width="1.2*"/>
                         <ColumnDefinition x:Name="HeaderColGenre" Width="0"/>
                         <ColumnDefinition x:Name="HeaderColYear" Width="48"/>
                         <ColumnDefinition x:Name="HeaderColRating" Width="78"/>
@@ -235,7 +235,8 @@
                         <ColumnDefinition x:Name="HeaderColDateAdded" Width="88"/>
                         <ColumnDefinition x:Name="HeaderColBitrate" Width="58"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Tag="Title" Content="Title ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="28,0,-4,0" Click="SortHeader_Click"/>
+                    <TextBlock x:Name="TileSortLabel" Grid.Column="0" Text="Sort by" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <Button x:Name="HeaderTitleBtn" Grid.Column="0" Tag="Title" Content="Title ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="28,0,-4,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="1" Tag="Artist" Content="Artist" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="2" Tag="Album" Content="Album" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="3" Tag="Genre" Content="Genre" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
@@ -265,9 +266,9 @@
                         <DataTemplate x:DataType="lib:TrackItem">
                             <Grid Height="30">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="116"/>
-                                    <ColumnDefinition Width="128"/>
+                                    <ColumnDefinition Width="2.4*"/>
+                                    <ColumnDefinition Width="1.1*"/>
+                                    <ColumnDefinition Width="1.2*"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColGenreWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColYearWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColRatingWidth()}"/>
@@ -275,7 +276,7 @@
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColDateAddedWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColBitrateWidth()}"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.ColumnSpan="9" Margin="-16,0" Background="{ThemeResource PlayingRowBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
+                                <Border Grid.ColumnSpan="9" Margin="-16,0" Background="{x:Bind local:MainWindow.PlayingRowTint}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
 
                                 <Border Grid.Column="0" Width="3" HorizontalAlignment="Left" Margin="-10,4,0,4" CornerRadius="2" Background="{ThemeResource FavouriteStarBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
 
@@ -309,7 +310,7 @@
                 </ListView>
 
                 <!-- Tile View (Shared Sort Order & Selection with Track Table) -->
-                <GridView x:Name="AlbumsGridView" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed"
+                <GridView x:Name="AlbumsGridView" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed" SizeChanged="AlbumsGridView_SizeChanged"
                           Padding="14,12,14,12"
                           SelectionMode="Extended"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
@@ -325,13 +326,13 @@
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="lib:TrackItem">
-                            <Grid Width="172" Height="244" Background="Transparent" PointerEntered="Tile_PointerEntered" PointerExited="Tile_PointerExited" PointerCanceled="Tile_PointerExited" PointerCaptureLost="Tile_PointerExited">
+                            <Grid Width="172" Height="246" Background="Transparent" PointerEntered="Tile_PointerEntered" PointerExited="Tile_PointerExited" PointerCanceled="Tile_PointerExited" PointerCaptureLost="Tile_PointerExited">
                                 <Grid.TranslationTransition>
                                     <Vector3Transition Duration="0:0:0.14"/>
                                 </Grid.TranslationTransition>
-                                <Border CornerRadius="8" Background="{ThemeResource PlayingRowBrush}" BorderBrush="{ThemeResource FavouriteStarBrush}" BorderThickness="1.5" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
+                                <Border CornerRadius="8" Background="{x:Bind local:MainWindow.PlayingRowTint}" BorderBrush="{ThemeResource FavouriteStarBrush}" BorderThickness="1.5" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
                                 <StackPanel Spacing="5" Padding="10">
-                                    <Grid Width="150" Height="150">
+                                    <Grid x:Name="TileArt" Width="150" Height="150">
                                         <Border CornerRadius="6" Background="{x:Bind local:MainWindow.PlaceholderBrush(Artist, Album, DisplayTitle), Mode=OneWay}" BorderBrush="#1AFFFFFF" BorderThickness="1">
                                             <Grid>
                                                 <TextBlock Text="{x:Bind ArtInitial, Mode=OneWay}" FontSize="64" FontWeight="SemiBold" Foreground="#B3FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -359,7 +360,7 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="{x:Bind TileMetaText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Text="{x:Bind RatingDisplay, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                        <ui:StarRatingCell Grid.Column="1" Value="{x:Bind Rating, Mode=OneWay}" Quiet="{x:Bind local:MainWindow.Not(IsNowPlaying), Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" VerticalAlignment="Center" Margin="6,0,-2,0"/>
                                     </Grid>
                                 </StackPanel>
                             </Grid>
@@ -492,8 +493,9 @@
                                 <!-- Large Album Art with Bespoke Vinyl Disc Placeholder -->
                                 <Border x:Name="SelectedArtBorder" Grid.Column="0" Width="112" Height="112" HorizontalAlignment="Left" CornerRadius="8" Background="{ThemeResource InspectorArtBgBrush}" BorderBrush="{ThemeResource PlaybarArtBorderBrush}" BorderThickness="1" Tapped="SelectedArtBorder_Tapped" ToolTipService.ToolTip="Click to cycle view: Compact / Full Art / Full Art + Overlay">
                                     <Grid>
+                                        <Border x:Name="SelectedEmptyBg" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"/>
                                         <Grid x:Name="SelectedDiscPlaceholder">
-                                            <Ellipse Width="74" Height="74" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#16FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Ellipse Width="74" Height="74" Stroke="{ThemeResource ControlStrongStrokeColorDisabledBrush}" StrokeThickness="1.5" Fill="{ThemeResource SubtleFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <Ellipse Width="24" Height="24" Stroke="#38FFC83B" StrokeThickness="1.5" Fill="#22000000" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="14" Foreground="#90FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Grid>

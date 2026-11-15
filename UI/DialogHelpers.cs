@@ -84,7 +84,8 @@ public static class SettingsCard
         return toggle;
     }
 
-    public static (Grid Row, TextBlock Title, TextBlock Detail) Row(string glyph, string title, string? detail, FrameworkElement control)
+    /// <param name="controlBelow">Put the control on its own line under the words, full width, instead of at the right.</param>
+    public static (Grid Row, TextBlock Title, TextBlock Detail) Row(string glyph, string title, string? detail, FrameworkElement control, bool controlBelow = false)
     {
         var row = new Grid { ColumnSpacing = 12, MinHeight = 44, Padding = new Thickness(14, 8, 14, 8) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -117,7 +118,23 @@ public static class SettingsCard
         line.Visibility = string.IsNullOrEmpty(detail) ? Visibility.Collapsed : Visibility.Visible;
 
         Grid.SetColumn(words, 1);
-        Grid.SetColumn(control, 2);
+        if (controlBelow)
+        {
+            row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            row.RowSpacing = 8;
+            Grid.SetColumnSpan(words, 2);
+            Grid.SetRow(control, 1);
+            Grid.SetColumn(control, 1);
+            Grid.SetColumnSpan(control, 2);
+            control.HorizontalAlignment = HorizontalAlignment.Stretch;
+            icon.VerticalAlignment = VerticalAlignment.Top;
+            icon.Margin = new Thickness(0, 4, 0, 0);
+        }
+        else
+        {
+            Grid.SetColumn(control, 2);
+        }
         row.Children.Add(icon);
         row.Children.Add(words);
         row.Children.Add(control);

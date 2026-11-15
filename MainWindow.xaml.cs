@@ -103,8 +103,8 @@ public sealed partial class MainWindow : Window
         GradientStops =
         {
             new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(120, 10, 10, 10), Offset = 0.32 },
-            new GradientStop { Color = Color.FromArgb(215, 8, 8, 8), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(170, 10, 10, 10), Offset = 0.30 },
+            new GradientStop { Color = Color.FromArgb(238, 8, 8, 8), Offset = 1.0 }
         }
     };
     private static readonly LinearGradientBrush InspectorLightOverlayBrush = new()
@@ -114,8 +114,8 @@ public sealed partial class MainWindow : Window
         GradientStops =
         {
             new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(120, 255, 255, 255), Offset = 0.42 },
-            new GradientStop { Color = Color.FromArgb(204, 248, 248, 248), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(175, 255, 255, 255), Offset = 0.32 },
+            new GradientStop { Color = Color.FromArgb(236, 248, 248, 248), Offset = 1.0 }
         }
     };
     private static readonly SolidColorBrush DarkOverlayPrimaryBrush = new(Color.FromArgb(255, 245, 245, 245));
@@ -422,6 +422,7 @@ public sealed partial class MainWindow : Window
         FocusArtistText.Text = NowPlayingArtistText.Text;
         FocusRatingCell.Value = current.Rating;
         _activePlayingPathForLyrics = current.Path;
+        UpdateInspectorForSelection(GetPrimarySelectedTrack());
 
         var startPos = TimeSpan.FromSeconds(Math.Max(0, _settings.SavedPositionSeconds));
         _engine.LoadPausedFile(current.Path, startPos);
@@ -525,6 +526,12 @@ public sealed partial class MainWindow : Window
         VolumeRailCanvas?.Invalidate();
         // The wash is lighter in the light theme, so re-apply it at the new strength.
         if (_lastCoverTint.HasValue && PlaybarTintLayer != null) ApplyCoverTint(_lastCoverTint);
+        else PlayingRowTint.Color = PlayingRowColor(null, !dark);
+        if (_inspectorTrack == null && SelectedTitleText != null)
+        {
+            _selectedArtIsLight = !dark;
+            ApplySelectedInfoTheme();
+        }
 
         try
         {
@@ -568,14 +575,75 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // Above the table the header buttons sit over their columns. Above the tiles there are no columns,
+    // so the same buttons close up into a "Sort by" strip at the left.
     private void ApplyColumnWidths()
     {
-        HeaderColGenre.Width = ColGenreWidth();
-        HeaderColYear.Width = ColYearWidth();
-        HeaderColRating.Width = ColRatingWidth();
-        HeaderColLength.Width = ColLengthWidth();
-        HeaderColDateAdded.Width = ColDateAddedWidth();
-        HeaderColBitrate.Width = ColBitrateWidth();
+        bool tiles = IsTileMode;
+        GridLength Fit(GridLength table) => tiles && table.Value > 0 ? GridLength.Auto : table;
+        HeaderColTitle.Width = tiles ? GridLength.Auto : new GridLength(2.4, GridUnitType.Star);
+        HeaderColArtist.Width = tiles ? GridLength.Auto : new GridLength(1.1, GridUnitType.Star);
+        HeaderColAlbum.Width = tiles ? GridLength.Auto : new GridLength(1.2, GridUnitType.Star);
+        HeaderColGenre.Width = Fit(ColGenreWidth());
+        HeaderColYear.Width = Fit(ColYearWidth());
+        HeaderColRating.Width = Fit(ColRatingWidth());
+        HeaderColLength.Width = Fit(ColLengthWidth());
+        HeaderColDateAdded.Width = Fit(ColDateAddedWidth());
+        HeaderColBitrate.Width = Fit(ColBitrateWidth());
+        TableHeaderGrid.Padding = new Thickness(tiles ? 26 : 16, 0, 16, 0);
+        TableHeaderGrid.BorderThickness = new Thickness(0, 0, 0, tiles ? 0 : 1);
+        TileSortLabel.Visibility = tiles ? Visibility.Visible : Visibility.Collapsed;
+
+        // Each button keeps the margin that lines it up with its column; in the strip they all get the same gap.
+        foreach (var button in TableHeaderGrid.Children.OfType<Button>())
+        {
+            if (!_headerTableMargins.TryGetValue(button, out var tableMargin))
+                _headerTableMargins[button] = tableMargin = button.Margin;
+            button.Margin = !tiles ? tableMargin
+                : ReferenceEquals(button, HeaderTitleBtn) ? new Thickness(50, 0, 8, 0)
+                : new Thickness(0, 0, 8, 0);
+        }
+    }
+
+    private readonly Dictionary<Button, Thickness> _headerTableMargins = new();
+
+    // Tiles are sized so a whole number of them fills the row: the spare width goes into the covers.
+    private double _tileWidth = 172;
+
+    private void AlbumsGridView_SizeChanged(object sender, SizeChangedEventArgs e) => FitTilesToWidth();
+
+    private void FitTilesToWidth()
+    {
+        double avail = AlbumsGridView.ActualWidth - AlbumsGridView.Padding.Left - AlbumsGridView.Padding.Right - 14;
+        if (avail < 184) return;
+        int columns = Math.Max(1, (int)(avail / 184));
+        double tile = Math.Floor(avail / columns) - 12;
+        var wrap = AlbumsGridView.ItemsPanelRoot as ItemsWrapGrid;
+        bool cellSet = wrap == null || Math.Abs(wrap.ItemWidth - (tile + 12)) < 0.5;
+        if (Math.Abs(tile - _tileWidth) < 0.5 && cellSet) return;
+        _tileWidth = tile;
+        if (wrap != null)
+        {
+            wrap.ItemWidth = tile + 12;
+            wrap.ItemHeight = tile - 22 + 96 + 12;
+        }
+        if (AlbumsGridView.ItemsPanelRoot is not Panel panel) return;
+        foreach (var child in panel.Children)
+            ApplyTileSize(child as SelectorItem);
+    }
+
+    private void ApplyTileSize(SelectorItem? container)
+    {
+        if (container?.ContentTemplateRoot is not Grid tile) return;
+        if (Math.Abs(tile.Width - _tileWidth) < 0.5) return;
+        double art = _tileWidth - 22;
+        tile.Width = _tileWidth;
+        tile.Height = art + 96;
+        if (tile.FindName("TileArt") is FrameworkElement cover)
+        {
+            cover.Width = art;
+            cover.Height = art;
+        }
     }
 
     private void ApplyViewModeVisuals()
@@ -585,6 +653,7 @@ public sealed partial class MainWindow : Window
         AlbumsGridView.Visibility = isGrid ? Visibility.Visible : Visibility.Collapsed;
         TableHeaderRowDef.Height = new GridLength(32);
         TableHeaderGrid.Visibility = Visibility.Visible;
+        ApplyColumnWidths();
         ViewToggleIcon.Glyph = isGrid ? "\uE8FD" : "\uE80A";
         ToolTipService.SetToolTip(ViewToggleBtn, isGrid ? "Switch to Track Table" : "Switch to Tile View");
     }
@@ -1016,6 +1085,11 @@ public sealed partial class MainWindow : Window
 
     private async void AlbumsGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
+        if (!args.InRecycleQueue && ReferenceEquals(sender, AlbumsGridView))
+        {
+            FitTilesToWidth();
+            ApplyTileSize(args.ItemContainer);
+        }
         if (args.InRecycleQueue || args.Item is not TrackItem track) return;
         if (track.CoverThumbnail != null || track.ArtLoadAttempted) return;
         if (!track.HasEmbeddedArt || track.IsCloudOnly)
@@ -2317,6 +2391,7 @@ public sealed partial class MainWindow : Window
         PlaybarTintEndStop.Color = to;
         PaneTintStop.Color = from;
         PaneTintEndStop.Color = to;
+        PlayingRowTint.Color = PlayingRowColor(cover.HasValue ? c : null, light);
         CanvasTintStop.Color = Color.FromArgb(canvasNear, c.R, c.G, c.B);
         CanvasTintEndStop.Color = Color.FromArgb(canvasFar, c.R, c.G, c.B);
         PlaybarTintLayer.Opacity = 1;
@@ -2326,6 +2401,19 @@ public sealed partial class MainWindow : Window
 
     private int _coverTintTicket;
     private Color? _lastCoverTint;
+
+    /// <summary>
+    /// Background of the playing row and playing tile. One shared brush, so recolouring it moves every
+    /// realised row at once: it takes the cover colour, and is amber when there is no tint.
+    /// </summary>
+    public static SolidColorBrush PlayingRowTint { get; } = new(Color.FromArgb(0x1C, 0xFF, 0xC8, 0x3B));
+
+    private static Color PlayingRowColor(Color? lifted, bool light)
+    {
+        if (lifted is not { } c)
+            return light ? Color.FromArgb(0x22, 0xD9, 0x77, 0x06) : Color.FromArgb(0x1C, 0xFF, 0xC8, 0x3B);
+        return Color.FromArgb((byte)(light ? 0x38 : 0x3C), c.R, c.G, c.B);
+    }
 
     private async Task LoadFocusLyricsAsync(string path)
     {
@@ -2954,11 +3042,21 @@ public sealed partial class MainWindow : Window
         UpdateInspectorForSelection(AlbumsGridView.SelectedItem as TrackItem);
     }
 
+    // The track the card is showing: the selection, or the playing track when nothing is selected.
+    private TrackItem? _inspectorTrack;
+
     private void UpdateInspectorForSelection(TrackItem? track)
     {
         UpdateStatusFooter();
+        if (track == null && _queueIndex >= 0 && _queueIndex < _queueTracks.Count)
+            track = _queueTracks[_queueIndex];
+        _inspectorTrack = track;
+        SelectedEmptyBg.Visibility = track == null ? Visibility.Visible : Visibility.Collapsed;
         if (track == null)
         {
+            // Empty card follows the app theme instead of sitting dark in a light window.
+            _selectedArtIsLight = RootGrid.RequestedTheme == ElementTheme.Light;
+            ApplySelectedInfoTheme();
             _selectedLyricsTrackPath = null;
             SelectedTitleText.Text = "No track selected";
             SelectedArtistText.Text = string.Empty;
@@ -3057,7 +3155,7 @@ public sealed partial class MainWindow : Window
     {
         // Generated-cover initial: small in the compact card, lifted clear of the text overlay in mode 2.
         SelectedArtInitial.FontSize = _inspectorArtMode == 0 ? 44 : _inspectorArtMode == 1 ? 80 : 60;
-        SelectedArtInitial.Margin = new Thickness(0, 0, 0, _inspectorArtMode == 2 ? 84 : 0);
+        SelectedArtInitial.Margin = new Thickness(0, 0, 0, _inspectorArtMode == 2 ? 100 : 0);
         SelectedDiscPlaceholder.Margin = SelectedArtInitial.Margin;
 
         if (_inspectorArtMode == 0)
@@ -3102,7 +3200,8 @@ public sealed partial class MainWindow : Window
             Grid.SetColumn(SelectedInfoOverlay, 0);
             Grid.SetColumnSpan(SelectedInfoOverlay, 2);
             SelectedInfoOverlay.VerticalAlignment = VerticalAlignment.Bottom;
-            SelectedInfoOverlay.Padding = new Thickness(8, 6, 8, 6);
+            // The top padding is where the fade under the text builds up, clear of the first line.
+            SelectedInfoOverlay.Padding = new Thickness(8, 26, 8, 6);
             SelectedInfoOverlay.CornerRadius = new CornerRadius(0, 0, 8, 8);
             ApplySelectedInfoTheme();
         }
@@ -3395,14 +3494,28 @@ public sealed partial class MainWindow : Window
         if (sender is not Button btn || !double.TryParse(btn.Tag?.ToString(), out double stars)) return;
         if (stars <= 0)
         {
-            ApplyRatingToSelection(null);
+            ApplyRatingToCard(null);
             return;
         }
         if ((DateTime.UtcNow - _lastStarPointerUtc).TotalMilliseconds > 300)
         {
-            var current = GetPrimarySelectedTrack()?.Rating;
-            ApplyRatingToSelection(Nullable.Equals(current, stars) ? null : stars);
+            var current = (GetPrimarySelectedTrack() ?? _inspectorTrack)?.Rating;
+            ApplyRatingToCard(Nullable.Equals(current, stars) ? null : stars);
         }
+    }
+
+    // The card's stars rate the selection, or the playing track it is showing when nothing is selected.
+    private void ApplyRatingToCard(double? value)
+    {
+        if (GetSelectedTracks().Count > 0 || _inspectorTrack is not { } shown)
+        {
+            ApplyRatingToSelection(value);
+            return;
+        }
+        var matching = _allTracks.Where(x => string.Equals(x.Path, shown.Path, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (!matching.Contains(shown)) matching.Add(shown);
+        ApplyRatingToTargets(matching, value, pushUndo: true);
+        UpdateSelectedRatingVisuals(shown.Rating);
     }
 
     private void ApplyRatingToSelection(double? value)
@@ -3439,6 +3552,8 @@ public sealed partial class MainWindow : Window
     private async void SelectedPropertiesBtn_Click(object sender, RoutedEventArgs e)
     {
         var selected = GetSelectedTracks();
+        if (selected.Count == 0 && _inspectorTrack != null)
+            selected.Add(_inspectorTrack);
         if (selected.Count > 0)
             await OpenPropertiesDialogAsync(selected);
     }
@@ -3702,7 +3817,7 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        if (GetPrimarySelectedTrack() == track)
+        if ((GetPrimarySelectedTrack() ?? _inspectorTrack) == track)
         {
             UpdateSelectedTrackLabels(track);
             UpdateSelectedRatingVisuals(track.Rating);
