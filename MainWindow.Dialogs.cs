@@ -1695,6 +1695,7 @@ public sealed partial class MainWindow
             XamlRoot = RootGrid.XamlRoot,
             RequestedTheme = RootGrid.RequestedTheme
         };
+        dlg.SetTint(_lastCoverTint.HasValue ? PlaybarTintStop.Color : null);
         await dlg.ShowAsync();
     }
 
