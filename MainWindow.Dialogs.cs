@@ -395,11 +395,11 @@ public sealed partial class MainWindow
         bool loading = true;
 
         var devices = WasapiAudioEngine.GetOutputDevices();
-        var deviceBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 220 };
+        var deviceBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Width = 280, FontSize = 10, Padding = new Thickness(8, 5, 2, 6) };
         foreach (var d in devices) deviceBox.Items.Add(new ComboBoxItem { Content = d.FriendlyName, Tag = d.Id });
         deviceBox.SelectedIndex = Math.Max(0, devices.ToList().FindIndex(d => d.Id == _settings.OutputDeviceId));
 
-        var layoutBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 220 };
+        var layoutBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Width = 280, FontSize = 10, Padding = new Thickness(8, 5, 2, 6) };
         int initSettingsCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
         PopulateSpeakerLayoutCombo(layoutBox, initSettingsCh, _settings.SpeakerLayout);
 
@@ -407,11 +407,11 @@ public sealed partial class MainWindow
         var lfeSlider = new Slider { Minimum = 0, Maximum = 150, Value = _settings.LfeGain * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
         var rearSlider = new Slider { Minimum = 0, Maximum = 100, Value = _settings.RearLevel * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
 
-        var (deviceRow, _, _) = SettingsCard.Row("", "Output device", "WASAPI audio endpoint", deviceBox);
-        var (layoutRow, _, layoutDetail) = SettingsCard.Row("", "Speaker layout", "Checking endpoint...", layoutBox);
-        var (centerRow, _, _) = SettingsCard.Row("", "5.1 Center vocal fill", "Center channel balance (%)", centerSlider);
-        var (lfeRow, _, _) = SettingsCard.Row("", "Subwoofer (LFE) boost", "Low-pass <80 Hz crossover gain (%)", lfeSlider);
-        var (rearRow, _, _) = SettingsCard.Row("", "5.1 Rear surround stage", "Ambient rear fill (%)", rearSlider);
+        var (deviceRow, _, _) = SettingsCard.Row("", "Output device", "WASAPI endpoint", deviceBox);
+        var (layoutRow, _, layoutDetail) = SettingsCard.Row("", "Speaker layout", "Checking...", layoutBox);
+        var (centerRow, _, _) = SettingsCard.Row("", "5.1 Center vocal fill", "Center balance (%)", centerSlider);
+        var (lfeRow, _, _) = SettingsCard.Row("", "Subwoofer (LFE) boost", "<80 Hz crossover gain (%)", lfeSlider);
+        var (rearRow, _, _) = SettingsCard.Row("", "5.1 Rear surround stage", "Rear ambient fill (%)", rearSlider);
 
         bool updatingSettingsAudio = false;
         void UpdateEndpointAndSliders(bool deviceChanged)
@@ -432,7 +432,16 @@ public sealed partial class MainWindow
                     PopulateSpeakerLayoutCombo(layoutBox, ch, selLayout);
                 }
 
-                layoutDetail.Text = DescribeEndpointStatus(ch, selLayout);
+                layoutDetail.Text = ch >= 6
+                    ? selLayout switch
+                    {
+                        SpeakerLayout.Surround51Direct => $"{ch}ch WASAPI (direct)",
+                        SpeakerLayout.Stereo20 => $"{ch}ch — 5.1 Direct best",
+                        _ => $"{ch}ch DSP upmix"
+                    }
+                    : (selLayout == SpeakerLayout.Stereo20
+                        ? $"{ch}ch WASAPI (direct)"
+                        : $"{ch}ch — stereo fold-down");
 
                 bool usesLfe = selLayout is SpeakerLayout.Stereo21 or SpeakerLayout.Surround51Upmix;
                 bool usesSurround = selLayout == SpeakerLayout.Surround51Upmix;
