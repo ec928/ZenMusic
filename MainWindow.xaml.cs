@@ -130,6 +130,7 @@ public sealed partial class MainWindow : Window
     public static Visibility NowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
     public static Visibility EvenRowVis(bool isNowPlaying, bool isEvenRow) => !isNowPlaying && isEvenRow ? Visibility.Visible : Visibility.Collapsed;
+    public static bool Not(bool value) => !value;
     public static Visibility BoolVis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNullVis(object? obj) => obj != null ? Visibility.Visible : Visibility.Collapsed;
     public static ImageSource? ToImageSource(object? obj) => obj as ImageSource;
@@ -1110,7 +1111,7 @@ public sealed partial class MainWindow : Window
                 _ => tag
             };
             child.Content = string.Equals(tag, _settings.SortColumn, StringComparison.Ordinal)
-                ? $"{label} {(_settings.SortAscending ? "\u25B2" : "\u25BC")}"
+                ? $"{label} {(_settings.SortAscending ? "\u25B4" : "\u25BE")}"
                 : label;
         }
     }
@@ -2049,7 +2050,41 @@ public sealed partial class MainWindow : Window
 
         Color glowColor = await ComputeDominantAccentColorAsync(bytes);
         FocusAmbientStop.Color = glowColor;
+        ApplyCoverTint(bytes is { Length: > 0 } ? glowColor : null);
     }
+
+    // Washes the playbar and right pane with the playing cover's colour; fades between tracks, clears when there is no art.
+    private async void ApplyCoverTint(Color? cover)
+    {
+        bool light = RootGrid.RequestedTheme == ElementTheme.Light;
+        Color c = cover ?? Color.FromArgb(0, 0, 0, 0);
+        if (cover.HasValue)
+        {
+            // Covers average out muddy: lift to a fixed brightness and widen the channel spread so the hue reads.
+            double max = Math.Max(c.R, Math.Max(c.G, c.B));
+            double scale = max > 0 ? 215.0 / max : 1.0;
+            byte Lift(byte v) => (byte)Math.Clamp(215.0 - (215.0 - v * scale) * 1.5, 0, 255);
+            c = Color.FromArgb(255, Lift(c.R), Lift(c.G), Lift(c.B));
+        }
+        byte strong = cover.HasValue ? (byte)(light ? 0x2E : 0x52) : (byte)0;
+        var from = Color.FromArgb(strong, c.R, c.G, c.B);
+        var to = Color.FromArgb(0, c.R, c.G, c.B);
+
+        // Fade out, swap colour, fade in (the layers carry an OpacityTransition).
+        int ticket = ++_coverTintTicket;
+        PlaybarTintLayer.Opacity = 0;
+        PaneTintLayer.Opacity = 0;
+        await Task.Delay(320);
+        if (ticket != _coverTintTicket) return;
+        PlaybarTintStop.Color = from;
+        PlaybarTintEndStop.Color = to;
+        PaneTintStop.Color = from;
+        PaneTintEndStop.Color = to;
+        PlaybarTintLayer.Opacity = 1;
+        PaneTintLayer.Opacity = 1;
+    }
+
+    private int _coverTintTicket;
 
     private async Task LoadFocusLyricsAsync(string path)
     {
@@ -2589,6 +2624,7 @@ public sealed partial class MainWindow : Window
             PlaybarBorder.Height = double.NaN;
             PlaybarBorder.Padding = new Thickness(16, 4, 16, 6);
             PlaybarBorder.BorderThickness = new Thickness(0);
+            SeekRailHost.Margin = new Thickness(-16, -4, -16, 0);
             MiniPlayerIcon.Glyph = "\uE740";
             ToolTipService.SetToolTip(MiniPlayerToggleBtn, "Expand to Full Window (Ctrl+M)");
 
@@ -2622,7 +2658,8 @@ public sealed partial class MainWindow : Window
             PlaybarBorder.Padding = new Thickness(16, 2, 16, 3);
             ApplyVisualizerFromSettings();
 
-            PlaybarBorder.BorderThickness = new Thickness(0, 1, 0, 0);
+            PlaybarBorder.BorderThickness = new Thickness(0);
+            SeekRailHost.Margin = new Thickness(-16, -10, -16, 0);
             MiniPlayerIcon.Glyph = "\uE73F";
             ToolTipService.SetToolTip(MiniPlayerToggleBtn, "Collapse to Mini Player (Ctrl+M)");
 

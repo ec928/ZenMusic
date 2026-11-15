@@ -39,6 +39,22 @@ public sealed class StarRatingCell : Grid
         }
     }
 
+    private static readonly SolidColorBrush DarkQuietBrush = new(Color.FromArgb(255, 150, 126, 66));
+    private static readonly SolidColorBrush LightQuietBrush = new(Color.FromArgb(255, 205, 160, 104));
+    private bool _quiet;
+
+    /// <summary>Muted fill for dense lists; full colour returns while the pointer is over the cell.</summary>
+    public bool Quiet
+    {
+        get => _quiet;
+        set
+        {
+            if (_quiet == value) return;
+            _quiet = value;
+            UpdateVisuals();
+        }
+    }
+
     public static readonly DependencyProperty ValueProperty =
         DependencyProperty.Register(
             nameof(Value),
@@ -143,7 +159,9 @@ public sealed class StarRatingCell : Grid
         var hover = useDark ? DarkHoverBrush : LightHoverBrush;
 
         double r = _hoverValue ?? Value ?? 0;
-        var brush = _hoverValue.HasValue ? hover : active;
+        var brush = _hoverValue.HasValue ? hover
+            : _quiet ? (useDark ? DarkQuietBrush : LightQuietBrush)
+            : active;
         for (int i = 0; i < 5; i++)
         {
             _bgs[i].Foreground = dim;

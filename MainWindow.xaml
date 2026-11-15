@@ -32,6 +32,7 @@
                 <Setter Property="Height" Value="30"/>
                 <Setter Property="MinWidth" Value="0"/>
                 <Setter Property="Padding" Value="4,0"/>
+                <Setter Property="Margin" Value="-4,0"/>
                 <Setter Property="CornerRadius" Value="4"/>
                 <Setter Property="FontSize" Value="11"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
@@ -95,7 +96,7 @@
         </Grid.RowDefinitions>
 
         <!-- Integrated Titlebar / Toolbar -->
-        <Grid x:Name="MainTitleBar" Grid.Row="0" Background="{ThemeResource SidebarSurfaceBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="10,0,145,0">
+        <Grid x:Name="MainTitleBar" Grid.Row="0" Background="{ThemeResource SidebarSurfaceBrush}" Padding="16,0,145,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -103,9 +104,9 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="2,0,6,0" IsHitTestVisible="False">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,6,0" IsHitTestVisible="False">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8D6;" FontSize="14" Foreground="{ThemeResource FavouriteStarBrush}"/>
-                    <TextBlock Text="ZenMusic" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="ZenMusic" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
                 <Button x:Name="OpenFolderBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Open music folder (Ctrl+O)" Click="OpenFolderBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE838;" FontSize="14"/>
@@ -153,7 +154,7 @@
                 </Button>
                 <Button x:Name="ScopeClearBtn" Height="26" MinWidth="0" MinHeight="0" Padding="10,0" CornerRadius="13" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" VerticalAlignment="Center" Margin="4,0,0,0" ToolTipService.ToolTip="Clear active filter" Click="ScopeClearBtn_Click">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <TextBlock x:Name="ScopeClearText" Text="" FontSize="11.5" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ScopeClearText" Text="" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center"/>
                         <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="9"/>
                     </StackPanel>
                 </Button>
@@ -198,7 +199,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Table Column Header (Clickable for Sorting, Right-Click to Show/Hide Columns) -->
-                <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="{ThemeResource SidebarSurfaceBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="14,0" RightTapped="TableHeaderGrid_RightTapped">
+                <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,0" RightTapped="TableHeaderGrid_RightTapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2.0*"/>
                         <ColumnDefinition Width="1.3*"/>
@@ -216,7 +217,7 @@
                     <Button Grid.Column="3" Tag="Genre" Content="Genre" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="4" Tag="Year" Content="Year" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="5" Tag="Rating" Content="Rating" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="6" Tag="Duration" Content="Length" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Click="SortHeader_Click"/>
+                    <Button Grid.Column="6" Tag="Duration" Content="Length" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Margin="-4,0,4,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="7" Tag="DateAdded" Content="Date Added" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="6,0,0,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="8" Tag="Bitrate" Content="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Click="SortHeader_Click"/>
                 </Grid>
@@ -231,7 +232,7 @@
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Padding" Value="14,0"/>
+                            <Setter Property="Padding" Value="16,0"/>
                             <Setter Property="MinHeight" Value="30"/>
                         </Style>
                     </ListView.ItemContainerStyle>
@@ -249,10 +250,9 @@
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColDateAddedWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColBitrateWidth()}"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.ColumnSpan="9" Margin="-14,0" Background="{ThemeResource EvenRowBrush}" Visibility="{x:Bind local:MainWindow.EvenRowVis(IsNowPlaying, IsEvenRow), Mode=OneWay}" IsHitTestVisible="False"/>
-                                <Border Grid.ColumnSpan="9" Margin="-14,0" Background="{ThemeResource PlayingRowBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
+                                <Border Grid.ColumnSpan="9" Margin="-16,0" Background="{ThemeResource PlayingRowBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
 
-                                <Border Grid.Column="0" Width="3" HorizontalAlignment="Left" Margin="-8,4,0,4" CornerRadius="2" Background="{ThemeResource FavouriteStarBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
+                                <Border Grid.Column="0" Width="3" HorizontalAlignment="Left" Margin="-10,4,0,4" CornerRadius="2" Background="{ThemeResource FavouriteStarBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
 
                                 <Grid Grid.Column="0" Margin="0,0,8,0">
                                     <Grid.ColumnDefinitions>
@@ -260,7 +260,6 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <FontIcon Grid.Column="0" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
                                     <TextBlock Grid.Column="1" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                     <FontIcon Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
                                 </Grid>
@@ -268,11 +267,11 @@
                                 <TextBlock Grid.Column="1" Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBlock Grid.Column="2" Text="{x:Bind Album, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBlock Grid.Column="3" Text="{x:Bind Genre, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="4" Text="{x:Bind YearText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <ui:StarRatingCell Grid.Column="5" Value="{x:Bind Rating, Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" Visibility="{x:Bind local:MainWindow.ColRatingVis()}" ToolTipService.ToolTip="Click stars (left half = .5, right half = .0; click again to clear)"/>
-                                <TextBlock Grid.Column="6" Text="{x:Bind DurationText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="7" Text="{x:Bind DateAddedText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0,0,0"/>
-                                <TextBlock Grid.Column="8" Text="{x:Bind BitrateText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="{x:Bind YearText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                <ui:StarRatingCell Grid.Column="5" Value="{x:Bind Rating, Mode=OneWay}" Quiet="{x:Bind local:MainWindow.Not(IsNowPlaying), Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" Visibility="{x:Bind local:MainWindow.ColRatingVis()}" ToolTipService.ToolTip="Click stars (left half = .5, right half = .0; click again to clear)"/>
+                                <TextBlock Grid.Column="6" Text="{x:Bind DurationText, Mode=OneWay}" FontSize="12" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="7" Text="{x:Bind DateAddedText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0,0,0"/>
+                                <TextBlock Grid.Column="8" Text="{x:Bind BitrateText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -317,15 +316,15 @@
                                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="12" Foreground="#FFFFFF"/>
                                         </Button>
                                     </Grid>
-                                    <TextBlock Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{x:Bind DisplayArtist, Mode=OneWay}" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind DisplayArtist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{x:Bind TileMetaText, Mode=OneWay}" FontSize="10.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Text="{x:Bind RatingDisplay, Mode=OneWay}" FontSize="10.5" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                        <TextBlock Grid.Column="0" Text="{x:Bind TileMetaText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind RatingDisplay, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                                     </Grid>
                                 </StackPanel>
                             </Grid>
@@ -351,12 +350,25 @@
             </Grid>
 
             <!-- Right Sidebar: Unified Playlist / Queue Workbench + Resizable Splitter + Selected Track Inspector -->
-            <Grid x:Name="RightSidebar" Grid.Column="1" Background="{ThemeResource SidebarSurfaceBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0" Padding="12,10,12,10">
+            <Grid x:Name="RightSidebar" Grid.Column="1" Background="{ThemeResource SidebarSurfaceBrush}" Padding="12,10,12,10">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="10"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
+
+                <!-- Cover-art colour wash rising from the inspector -->
+                <Border x:Name="PaneTintLayer" Grid.RowSpan="3" Margin="-12,-10,-12,-10" IsHitTestVisible="False">
+                    <Border.OpacityTransition>
+                        <ScalarTransition Duration="0:0:0.3"/>
+                    </Border.OpacityTransition>
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0.5,1" EndPoint="0.5,0.25">
+                            <GradientStop x:Name="PaneTintStop" Color="#00000000" Offset="0.0"/>
+                            <GradientStop x:Name="PaneTintEndStop" Color="#00000000" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
 
                 <!-- Top: Unified Playlist & Play Queue Workbench -->
                 <Grid Grid.Row="0">
@@ -376,7 +388,7 @@
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="11"/>
                         </Button>
                         <Button x:Name="RightListNewBtn" Grid.Column="2" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="New playlist..." Click="NewPlaylistBtn_Click">
-                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE710;" FontSize="11.5"/>
+                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE710;" FontSize="12"/>
                         </Button>
                         <Button x:Name="RightListMenuBtn" Grid.Column="3" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Playlist &amp; Queue actions" Click="RightListMenuBtn_Click">
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE712;" FontSize="12"/>
@@ -407,7 +419,7 @@
                     </ListView>
                     <TextBlock x:Name="RightListEmptyHint" Grid.Row="1"
                                Text="Play queue is empty.&#x0a;Double-click any song to play&#x0a;or drag tracks here."
-                               FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Center"
                                Margin="12" IsHitTestVisible="False" Visibility="Visible"/>
                 </Grid>
@@ -418,7 +430,7 @@
                 </ui:ResizeGripBorder>
 
                 <!-- Bottom: Selected Track Inspector (3-State Art Click + Scrollable Plain / Synced Lyrics) -->
-                <Border Grid.Row="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
+                <Border Grid.Row="2">
                     <ScrollViewer x:Name="SelectedInspectorScroll" MaxHeight="208" VerticalScrollBarVisibility="Hidden">
                         <StackPanel Spacing="8">
                             <Grid x:Name="SelectedHeroGrid" ColumnSpacing="12">
@@ -445,7 +457,7 @@
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock x:Name="SelectedTitleText" Grid.Column="0" Text="No track selected" FontSize="12.5" LineHeight="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="SelectedTitleText" Grid.Column="0" Text="No track selected" FontSize="13" LineHeight="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap" VerticalAlignment="Center"/>
                                             <Button x:Name="SelectedPropertiesBtn" Grid.Column="1" Width="24" Height="24" Padding="0" MinWidth="0" MinHeight="0" CornerRadius="4" VerticalAlignment="Top" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Song Properties &amp; Lyrics (F2)" Click="SelectedPropertiesBtn_Click" IsEnabled="False">
                                                 <FontIcon x:Name="SelectedPropertiesIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE70F;" FontSize="11"/>
                                             </Button>
@@ -455,32 +467,32 @@
                                         <StackPanel Orientation="Horizontal" Spacing="0" Margin="-2,0,0,0">
                                             <Button x:Name="StarBtn1" Tag="1" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 0.5★, right half for 1.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
-                                                    <TextBlock x:Name="StarBg1" Text="★" FontSize="12.5" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill1" Text="★" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <TextBlock x:Name="StarBg1" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="StarFill1" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn2" Tag="2" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 1.5★, right half for 2.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
-                                                    <TextBlock x:Name="StarBg2" Text="★" FontSize="12.5" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill2" Text="★" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <TextBlock x:Name="StarBg2" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="StarFill2" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn3" Tag="3" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 2.5★, right half for 3.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
-                                                    <TextBlock x:Name="StarBg3" Text="★" FontSize="12.5" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill3" Text="★" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <TextBlock x:Name="StarBg3" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="StarFill3" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn4" Tag="4" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 3.5★, right half for 4.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
-                                                    <TextBlock x:Name="StarBg4" Text="★" FontSize="12.5" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill4" Text="★" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <TextBlock x:Name="StarBg4" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="StarFill4" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn5" Tag="5" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 4.5★, right half for 5.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
-                                                    <TextBlock x:Name="StarBg5" Text="★" FontSize="12.5" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill5" Text="★" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <TextBlock x:Name="StarBg5" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="StarFill5" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                                 </Grid>
                                             </Button>
                                             <Button Tag="0" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Clear rating">
@@ -488,8 +500,8 @@
                                             </Button>
                                         </StackPanel>
 
-                                        <TextBlock x:Name="SelectedArtistText" Text="" FontSize="11.5" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" Tapped="SelectedArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
-                                        <TextBlock x:Name="SelectedSpecsText" Text="" FontSize="10.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock x:Name="SelectedArtistText" Text="" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" Tapped="SelectedArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
+                                        <TextBlock x:Name="SelectedSpecsText" Text="" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -497,7 +509,7 @@
                             <!-- Lyrics teaser directly below hero card; supports plain or time-synced .LRC lines -->
                             <Border x:Name="SelectedLyricsContainer" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,2" Visibility="Collapsed">
                                 <Grid>
-                                    <TextBlock x:Name="SelectedLyricsText" Text="" FontSize="11.5" LineHeight="17" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Name="SelectedLyricsText" Text="" FontSize="12" LineHeight="17" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     <ListView x:Name="SelectedSyncedLyricsList" MaxHeight="200" Visibility="Collapsed" SelectionMode="None" IsItemClickEnabled="True" ItemClick="LyricsLine_ItemClick" ScrollViewer.VerticalScrollBarVisibility="Hidden">
                                         <ListView.ItemContainerStyle>
                                             <Style TargetType="ListViewItem">
@@ -508,7 +520,7 @@
                                         </ListView.ItemContainerStyle>
                                         <ListView.ItemTemplate>
                                             <DataTemplate x:DataType="ui:LrcDisplayLine">
-                                                <TextBlock Text="{x:Bind Text}" FontSize="11.5" FontWeight="{x:Bind LineWeight, Mode=OneWay}" Foreground="{x:Bind LineBrush, Mode=OneWay}" TextAlignment="Center" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{x:Bind Text}" FontSize="12" FontWeight="{x:Bind LineWeight, Mode=OneWay}" Foreground="{x:Bind LineBrush, Mode=OneWay}" TextAlignment="Center" TextWrapping="Wrap"/>
                                             </DataTemplate>
                                         </ListView.ItemTemplate>
                                     </ListView>
@@ -606,8 +618,21 @@
         <Border x:Name="PlaybarBorder" Grid.Row="2"
                 VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
                 Margin="0" Height="74" CornerRadius="0"
-                Background="{ThemeResource PlaybarAcrylicBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0"
+                Background="{ThemeResource PlaybarAcrylicBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0"
                 Padding="16,2,16,3" PointerPressed="PlaybarBorder_PointerPressed">
+            <Grid>
+            <!-- Cover-art colour wash spreading from the now-playing art -->
+            <Border x:Name="PlaybarTintLayer" Margin="-16,-2,-16,-3" IsHitTestVisible="False">
+                <Border.OpacityTransition>
+                    <ScalarTransition Duration="0:0:0.3"/>
+                </Border.OpacityTransition>
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="0.7,0.5">
+                        <GradientStop x:Name="PlaybarTintStop" Color="#00000000" Offset="0.0"/>
+                        <GradientStop x:Name="PlaybarTintEndStop" Color="#00000000" Offset="1.0"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="248"/>
@@ -630,25 +655,25 @@
                     </Border>
                     <StackPanel VerticalAlignment="Center" Width="182" Spacing="1">
                         <TextBlock x:Name="NowPlayingTitleText" Text="Not playing" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock x:Name="NowPlayingArtistText" Text="Select a song to play" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" Tapped="NowPlayingArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
+                        <TextBlock x:Name="NowPlayingArtistText" Text="Select a song to play" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" Tapped="NowPlayingArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
                         <ui:StarRatingCell x:Name="NowPlayingRatingCell" Margin="-2,1,0,0" RatingSelected="NowPlayingRatingCell_RatingSelected" ToolTipService.ToolTip="Rate currently playing track"/>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Zone 2: Option B2 Symmetric Transport Wings + Unobstructed Seek Rail -->
-                <Grid Grid.Column="1" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" RowSpacing="1" Margin="0,0,0,1">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="50"/>
-                        <RowDefinition Height="16"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- Row 0: Symmetric Mirrored Spectrum Wings Flanking Centered Transport -->
-                    <Grid Grid.Row="0" Height="50" MaxWidth="604" HorizontalAlignment="Stretch" VerticalAlignment="Bottom">
+                <Grid Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+                    <!-- Elapsed · wing · transport · wing · total, centred in the bar -->
+                    <Grid Height="50" MaxWidth="700" HorizontalAlignment="Stretch" VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
+
+                        <TextBlock x:Name="ElapsedTimeText" Grid.Column="1" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                        <TextBlock x:Name="TotalTimeText" Grid.Column="3" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="14,0,0,0"/>
 
                         <Border x:Name="PlaybarVisualizerLeftHost" Grid.Column="0" Height="46" Margin="0,0,14,1" Background="Transparent" VerticalAlignment="Bottom"
                                 ContextFlyout="{StaticResource VisualizerContextFlyout}"
@@ -656,7 +681,7 @@
                             <ui:VisualizerControl x:Name="PlaybarVisualizerLeft" MirrorHorizontally="True"/>
                         </Border>
 
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3">
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Button x:Name="ShuffleToggle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Shuffle off" Click="ShuffleToggle_Click">
                                 <Grid Width="30" Height="30">
                                     <FontIcon x:Name="ShuffleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8B1;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -702,35 +727,19 @@
                             </Button>
                         </StackPanel>
 
-                        <Border x:Name="PlaybarVisualizerRightHost" Grid.Column="2" Height="46" Margin="14,0,0,1" Background="Transparent" VerticalAlignment="Bottom"
+                        <Border x:Name="PlaybarVisualizerRightHost" Grid.Column="4" Height="46" Margin="14,0,0,1" Background="Transparent" VerticalAlignment="Bottom"
                                 ContextFlyout="{StaticResource VisualizerContextFlyout}"
                                 ToolTipService.ToolTip="Click to open Focus Visualizer Stage (F11) · Right-click to change mode or turn off" Tapped="PlaybarVisualizerHost_Tapped">
                             <ui:VisualizerControl x:Name="PlaybarVisualizer"/>
                         </Border>
                     </Grid>
 
-                    <!-- Row 1: Unobstructed Precision Seek Rail -->
-                    <Grid Grid.Row="1" MaxWidth="620" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Margin="8,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="42"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="42"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="ElapsedTimeText" Grid.Column="0" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0"/>
-                        <Grid Grid.Column="1" Height="16" VerticalAlignment="Bottom">
-                            <canvas:CanvasControl x:Name="SeekRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="SeekRailCanvas_Draw"/>
-                            <Slider x:Name="SeekSlider" Opacity="0" Minimum="0" Maximum="100" Value="0" MinHeight="16" Height="16" Padding="0" VerticalAlignment="Center"
-                                    ValueChanged="SeekSlider_ValueChanged" PointerMoved="SeekSlider_PointerMoved" KeyUp="SeekSlider_KeyUp"
-                                    PointerEntered="SeekSlider_PointerEntered" PointerExited="SeekSlider_PointerExited"/>
-                        </Grid>
-                        <TextBlock x:Name="TotalTimeText" Grid.Column="2" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="6,0,0,0"/>
-                    </Grid>
                 </Grid>
 
                 <!-- Zone 3: Balanced Right Audio Output & Stage Utilities -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,14">
-                    <Button x:Name="SpeakerBadgeBtn" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Background="{ThemeResource PlaybarBadgeBgBrush}" BorderBrush="{ThemeResource PlaybarBadgeBorderBrush}" BorderThickness="1" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
-                        <TextBlock x:Name="SpeakerBadgeText" Text="2.0 ch" FontSize="10" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="SpeakerBadgeBtn" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Style="{StaticResource SubtleButtonStyle}" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
+                        <TextBlock x:Name="SpeakerBadgeText" Text="2.0 ch" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
                     <Button x:Name="MuteBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Mute / Unmute" Click="MuteBtn_Click">
                         <FontIcon x:Name="VolumeIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -741,9 +750,18 @@
                                 ValueChanged="VolumeSlider_ValueChanged" PointerEntered="VolumeSlider_PointerEntered" PointerExited="VolumeSlider_PointerExited"/>
                     </Grid>
                     <Button x:Name="MiniPlayerToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
-                        <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="12.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
                 </StackPanel>
+            </Grid>
+
+            <!-- Full-width seek rail straddling the playbar's top edge (replaces the divider line) -->
+            <Grid x:Name="SeekRailHost" Height="16" VerticalAlignment="Top" Margin="-16,-10,-16,0">
+                <canvas:CanvasControl x:Name="SeekRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="SeekRailCanvas_Draw"/>
+                <Slider x:Name="SeekSlider" Opacity="0" Minimum="0" Maximum="100" Value="0" MinHeight="16" Height="16" Padding="0" VerticalAlignment="Center"
+                        ValueChanged="SeekSlider_ValueChanged" PointerMoved="SeekSlider_PointerMoved" KeyUp="SeekSlider_KeyUp"
+                        PointerEntered="SeekSlider_PointerEntered" PointerExited="SeekSlider_PointerExited"/>
+            </Grid>
             </Grid>
         </Border>
     </Grid>

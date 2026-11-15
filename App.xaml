@@ -13,11 +13,11 @@
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#D97706"/>
                     <SolidColorBrush x:Key="AppCanvasBrush" Color="#F9F9F9"/>
-                    <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#F2F2F2"/>
+                    <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#99F3F3F3"/>
                     <SolidColorBrush x:Key="EvenRowBrush" Color="#09000000"/>
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#22D97706"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#40000000"/>
-                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#EFEFEF"/>
+                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#A6EFEFEF"/>
                     <SolidColorBrush x:Key="PlaybarArtBgBrush" Color="#E2E2E2"/>
                     <SolidColorBrush x:Key="PlaybarArtBorderBrush" Color="#1F000000"/>
                     <SolidColorBrush x:Key="PlaybarBadgeBgBrush" Color="#1FD97706"/>
@@ -25,12 +25,12 @@
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFC83B"/>
-                    <SolidColorBrush x:Key="AppCanvasBrush" Color="#141414"/>
-                    <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#1C1C1C"/>
+                    <SolidColorBrush x:Key="AppCanvasBrush" Color="#121212"/>
+                    <SolidColorBrush x:Key="SidebarSurfaceBrush" Color="#991C1C1C"/>
                     <SolidColorBrush x:Key="EvenRowBrush" Color="#07FFFFFF"/>
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#1CFFC83B"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#30FFFFFF"/>
-                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#181818"/>
+                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#A6181818"/>
                     <SolidColorBrush x:Key="PlaybarArtBgBrush" Color="#242424"/>
                     <SolidColorBrush x:Key="PlaybarArtBorderBrush" Color="#22FFFFFF"/>
                     <SolidColorBrush x:Key="PlaybarBadgeBgBrush" Color="#1AFFC83B"/>
