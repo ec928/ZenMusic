@@ -225,9 +225,9 @@
                 <!-- Table Column Header (Clickable for Sorting, Right-Click to Show/Hide Columns) -->
                 <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,0" RightTapped="TableHeaderGrid_RightTapped">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2.0*"/>
-                        <ColumnDefinition Width="1.3*"/>
-                        <ColumnDefinition Width="1.3*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="116"/>
+                        <ColumnDefinition Width="128"/>
                         <ColumnDefinition x:Name="HeaderColGenre" Width="0"/>
                         <ColumnDefinition x:Name="HeaderColYear" Width="48"/>
                         <ColumnDefinition x:Name="HeaderColRating" Width="78"/>
@@ -265,9 +265,9 @@
                         <DataTemplate x:DataType="lib:TrackItem">
                             <Grid Height="30">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="2.0*"/>
-                                    <ColumnDefinition Width="1.3*"/>
-                                    <ColumnDefinition Width="1.3*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="116"/>
+                                    <ColumnDefinition Width="128"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColGenreWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColYearWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColRatingWidth()}"/>
