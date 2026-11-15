@@ -17,7 +17,11 @@
                     <SolidColorBrush x:Key="EvenRowBrush" Color="#09000000"/>
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#22D97706"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#40000000"/>
-                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#181818"/>
+                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#EFEFEF"/>
+                    <SolidColorBrush x:Key="PlaybarArtBgBrush" Color="#E2E2E2"/>
+                    <SolidColorBrush x:Key="PlaybarArtBorderBrush" Color="#1F000000"/>
+                    <SolidColorBrush x:Key="PlaybarBadgeBgBrush" Color="#1FD97706"/>
+                    <SolidColorBrush x:Key="PlaybarBadgeBorderBrush" Color="#55D97706"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFC83B"/>
@@ -27,6 +31,10 @@
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#1CFFC83B"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#30FFFFFF"/>
                     <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#181818"/>
+                    <SolidColorBrush x:Key="PlaybarArtBgBrush" Color="#242424"/>
+                    <SolidColorBrush x:Key="PlaybarArtBorderBrush" Color="#22FFFFFF"/>
+                    <SolidColorBrush x:Key="PlaybarBadgeBgBrush" Color="#1AFFC83B"/>
+                    <SolidColorBrush x:Key="PlaybarBadgeBorderBrush" Color="#40FFC83B"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFD700"/>
@@ -36,6 +44,10 @@
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#33FFD700"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#80FFFFFF"/>
                     <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#000000"/>
+                    <SolidColorBrush x:Key="PlaybarArtBgBrush" Color="#1A1A1A"/>
+                    <SolidColorBrush x:Key="PlaybarArtBorderBrush" Color="#80FFFFFF"/>
+                    <SolidColorBrush x:Key="PlaybarBadgeBgBrush" Color="#33FFD700"/>
+                    <SolidColorBrush x:Key="PlaybarBadgeBorderBrush" Color="#80FFD700"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

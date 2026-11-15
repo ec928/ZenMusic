@@ -312,12 +312,13 @@ public sealed partial class MainWindow
             Content = panel,
             Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Top
         };
+        bool isDark = RootGrid.RequestedTheme != ElementTheme.Light;
         var presenterStyle = new Style(typeof(FlyoutPresenter));
-        presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromArgb(245, 28, 28, 28))));
-        presenterStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(51, 255, 255, 255))));
+        presenterStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(isDark ? Color.FromArgb(245, 28, 28, 28) : Color.FromArgb(250, 248, 248, 248))));
+        presenterStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(isDark ? Color.FromArgb(51, 255, 255, 255) : Color.FromArgb(36, 0, 0, 0))));
         presenterStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
         presenterStyle.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(10)));
-        presenterStyle.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, ElementTheme.Dark));
+        presenterStyle.Setters.Add(new Setter(FrameworkElement.RequestedThemeProperty, isDark ? ElementTheme.Dark : ElementTheme.Light));
         flyout.FlyoutPresenterStyle = presenterStyle;
         flyout.ShowAt(SpeakerBadgeBtn);
     }
@@ -1650,6 +1651,7 @@ public sealed partial class MainWindow
         {
             ("Space", "Play / Pause"),
             ("Left / Right", "Seek backward / forward 5 seconds"),
+            ("Home / End", "Jump to start / end of track list"),
             ("Ctrl+F", "Focus search box"),
             ("Ctrl+B / Tab", "Toggle Library & Playlists sidebar"),
             ("Ctrl+Z", "Undo last tag, rating, rename, or playlist deletion"),

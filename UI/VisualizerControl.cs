@@ -37,8 +37,20 @@ public sealed class VisualizerControl : UserControl
     private VisualizerMode _mode = VisualizerMode.Spectrum;
     private bool _isPlaying;
     private bool _isStageVisible = true;
+    private bool _useLightTheme;
 
     public bool MirrorHorizontally { get; set; }
+
+    public bool UseLightTheme
+    {
+        get => _useLightTheme;
+        set
+        {
+            if (_useLightTheme == value) return;
+            _useLightTheme = value;
+            _canvas.Invalidate();
+        }
+    }
 
     public VisualizerMode Mode
     {
@@ -154,19 +166,26 @@ public sealed class VisualizerControl : UserControl
         float barW = Math.Max(2f, (w - gap * (count - 1)) / count);
         float corner = Math.Min(2.5f, barW * 0.4f);
 
-        using var brush = new CanvasLinearGradientBrush(ds, new[]
-        {
-            new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(250, 255, 246, 214) }, // Crisp Ivory/White top
-            new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(230, 255, 200, 59) }, // Signature Warm Gold mid
-            new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(165, 217, 119, 6) }    // Deep Amber base
-        })
+        using var brush = new CanvasLinearGradientBrush(ds, _useLightTheme
+            ? new[]
+            {
+                new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(245, 180, 83, 9) },
+                new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(235, 217, 119, 6) },
+                new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(180, 245, 158, 11) }
+            }
+            : new[]
+            {
+                new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(250, 255, 246, 214) }, // Crisp Ivory/White top
+                new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(230, 255, 200, 59) }, // Signature Warm Gold mid
+                new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(165, 217, 119, 6) }    // Deep Amber base
+            })
         {
             StartPoint = new Vector2(0, 0),
             EndPoint = new Vector2(0, h)
         };
 
-        var peakColor = Color.FromArgb(235, 255, 255, 255);
-        var baselineColor = Color.FromArgb(45, 255, 200, 59);
+        var peakColor = _useLightTheme ? Color.FromArgb(210, 40, 40, 40) : Color.FromArgb(235, 255, 255, 255);
+        var baselineColor = _useLightTheme ? Color.FromArgb(55, 217, 119, 6) : Color.FromArgb(45, 255, 200, 59);
         float totalW = count * barW + (count - 1) * gap;
         float startX = Math.Max(0f, (w - totalW) * 0.5f);
 
@@ -233,7 +252,7 @@ public sealed class VisualizerControl : UserControl
         builder.EndFigure(CanvasFigureLoop.Open);
 
         using var geo = CanvasGeometry.CreatePath(builder);
-        ds.DrawGeometry(geo, Color.FromArgb(75, 255, 200, 59), 5f);
-        ds.DrawGeometry(geo, Color.FromArgb(245, 255, 245, 214), 1.75f);
+        ds.DrawGeometry(geo, _useLightTheme ? Color.FromArgb(65, 217, 119, 6) : Color.FromArgb(75, 255, 200, 59), 5f);
+        ds.DrawGeometry(geo, _useLightTheme ? Color.FromArgb(235, 180, 83, 9) : Color.FromArgb(245, 255, 245, 214), 1.75f);
     }
 }

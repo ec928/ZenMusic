@@ -47,6 +47,7 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<TrackItem> _queueTracks = new();
     private readonly List<TrackItem> _unshuffledQueue = new();
     private readonly ConcurrentDictionary<string, ImageSource?> _artThumbCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ImageSource> _artBitmapByHash = new(StringComparer.Ordinal);
     private readonly ObservableCollection<SavedPlaylist> _playlists = new();
     private readonly ObservableCollection<LrcDisplayLine> _selectedLrcLines = new();
     private readonly ObservableCollection<LrcDisplayLine> _focusLrcLines = new();
@@ -93,6 +94,8 @@ public sealed partial class MainWindow : Window
     private static readonly SolidColorBrush TransparentRowBrush = new(Color.FromArgb(0, 0, 0, 0));
     private static readonly SolidColorBrush PlaybarGoldBrush = new(Color.FromArgb(255, 255, 200, 59));
     private static readonly SolidColorBrush PlaybarMutedIconBrush = new(Color.FromArgb(166, 255, 255, 255));
+    private static readonly SolidColorBrush PlaybarLightAmberBrush = new(Color.FromArgb(255, 217, 119, 6));
+    private static readonly SolidColorBrush PlaybarLightMutedIconBrush = new(Color.FromArgb(150, 26, 26, 26));
     private static readonly LinearGradientBrush InspectorOverlayBrush = new()
     {
         StartPoint = new Point(0.5, 0),
@@ -128,6 +131,7 @@ public sealed partial class MainWindow : Window
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
     public static Visibility EvenRowVis(bool isNowPlaying, bool isEvenRow) => !isNowPlaying && isEvenRow ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility BoolVis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
+    public static Visibility NotNullVis(object? obj) => obj != null ? Visibility.Visible : Visibility.Collapsed;
     public static ImageSource? ToImageSource(object? obj) => obj as ImageSource;
 
     private bool IsTileMode => string.Equals(_settings.ViewMode, "Grid", StringComparison.OrdinalIgnoreCase);
@@ -454,6 +458,13 @@ public sealed partial class MainWindow : Window
 
         foreach (var line in _selectedLrcLines)
             line.UseLightTheme = !dark;
+
+        if (PlaybarVisualizerLeft != null) PlaybarVisualizerLeft.UseLightTheme = !dark;
+        if (PlaybarVisualizer != null) PlaybarVisualizer.UseLightTheme = !dark;
+        UpdateShuffleButtonVisual();
+        UpdateRepeatButtonVisual();
+        SeekRailCanvas?.Invalidate();
+        VolumeRailCanvas?.Invalidate();
 
         try
         {
@@ -928,32 +939,49 @@ public sealed partial class MainWindow : Window
     {
         if (args.InRecycleQueue || args.Item is not TrackItem track) return;
         if (track.CoverThumbnail != null || track.ArtLoadAttempted) return;
-        track.ArtLoadAttempted = true;
-        if (!track.HasEmbeddedArt || track.IsCloudOnly) return;
+        if (!track.HasEmbeddedArt || track.IsCloudOnly)
+        {
+            track.ArtLoadAttempted = true;
+            return;
+        }
 
-        string cacheKey = !string.IsNullOrWhiteSpace(track.Album)
-            ? $"{track.Album.Trim()}|{Path.GetDirectoryName(track.Path)}"
-            : track.Path;
-
+        string cacheKey = track.Path;
         if (_artThumbCache.TryGetValue(cacheKey, out var cachedImg))
         {
+            track.ArtLoadAttempted = true;
             track.CoverThumbnail = cachedImg;
             return;
         }
 
+        track.ArtLoadAttempted = true;
         string path = track.Path;
-        byte[]? bytes = await Task.Run(() => MusicLibrary.ReadEmbeddedArtBytes(path));
+        var (bytes, hash) = await Task.Run(() =>
+        {
+            byte[]? b = MusicLibrary.ReadEmbeddedArtBytes(path);
+            if (b == null || b.Length == 0) return ((byte[]?)null, string.Empty);
+            string h = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(b));
+            return (b, h);
+        });
+
         if (bytes == null || bytes.Length == 0)
         {
             _artThumbCache.TryAdd(cacheKey, null);
             return;
         }
 
+        if (_artBitmapByHash.TryGetValue(hash, out var sharedBmp))
+        {
+            _artThumbCache[cacheKey] = sharedBmp;
+            track.CoverThumbnail = sharedBmp;
+            return;
+        }
+
         var bmp = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 180);
         if (bmp != null)
         {
-            _artThumbCache[cacheKey] = bmp;
-            track.CoverThumbnail = bmp;
+            var finalBmp = _artBitmapByHash.GetOrAdd(hash, bmp);
+            _artThumbCache[cacheKey] = finalBmp;
+            track.CoverThumbnail = finalBmp;
         }
     }
 
@@ -1003,8 +1031,8 @@ public sealed partial class MainWindow : Window
             ("DateAdded", false) => source.OrderByDescending(t => t.DateAddedUtc).ThenBy(t => t.Index),
             ("Bitrate", true) => source.OrderBy(t => t.Bitrate).ThenBy(t => t.Index),
             ("Bitrate", false) => source.OrderByDescending(t => t.Bitrate).ThenBy(t => t.Index),
-            (_, false) => source.OrderByDescending(t => t.Index),
-            _ => source.OrderBy(t => t.Index)
+            (_, false) => source.OrderByDescending(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            _ => source.OrderBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index)
         };
     }
 
@@ -2295,7 +2323,8 @@ public sealed partial class MainWindow : Window
 
     private void SeekRailCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, _seekProgressRatio, _isHoveringSeek || _isDraggingSeek);
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
+        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, _seekProgressRatio, _isHoveringSeek || _isDraggingSeek, isLight);
     }
 
     private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -2323,10 +2352,11 @@ public sealed partial class MainWindow : Window
     private void VolumeRailCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         double ratio = VolumeSlider != null ? Math.Clamp(VolumeSlider.Value / 100.0, 0.0, 1.0) : 0.7;
-        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, ratio, _isHoveringVolume);
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
+        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, ratio, _isHoveringVolume, isLight);
     }
 
-    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering)
+    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering, bool isLight)
     {
         if (w <= 8f || h <= 4f) return;
 
@@ -2337,22 +2367,28 @@ public sealed partial class MainWindow : Window
         float clampedRatio = (float)Math.Clamp(ratio, 0.0, 1.0);
         float thumbX = padX + clampedRatio * trackW;
 
+        Color trackBg = isLight ? Color.FromArgb(42, 0, 0, 0) : Color.FromArgb(56, 255, 255, 255);
+        Color accentFill = isLight ? Color.FromArgb(255, 217, 119, 6) : Color.FromArgb(255, 255, 200, 59);
+        Color hoverHalo = isLight ? Color.FromArgb(55, 217, 119, 6) : Color.FromArgb(65, 255, 200, 59);
+        Color thumbRing = isLight ? Color.FromArgb(65, 0, 0, 0) : Color.FromArgb(95, 0, 0, 0);
+        Color thumbCenter = isLight ? Color.FromArgb(255, 34, 34, 34) : Color.FromArgb(255, 255, 255, 255);
+
         const float railH = 2.5f;
         float railY = midY - railH * 0.5f;
-        ds.FillRoundedRectangle(padX, railY, trackW, railH, 1.25f, 1.25f, Color.FromArgb(56, 255, 255, 255));
+        ds.FillRoundedRectangle(padX, railY, trackW, railH, 1.25f, 1.25f, trackBg);
 
         float activeW = Math.Max(0f, thumbX - padX);
         if (activeW > 0.5f)
         {
-            ds.FillRoundedRectangle(padX, railY, activeW, railH, 1.25f, 1.25f, Color.FromArgb(255, 255, 200, 59));
+            ds.FillRoundedRectangle(padX, railY, activeW, railH, 1.25f, 1.25f, accentFill);
         }
 
         if (hovering)
         {
-            ds.FillCircle(thumbX, midY, 7.2f, Color.FromArgb(65, 255, 200, 59));
+            ds.FillCircle(thumbX, midY, 7.2f, hoverHalo);
         }
-        ds.FillCircle(thumbX, midY, hovering ? 5.6f : 5.4f, Color.FromArgb(95, 0, 0, 0));
-        ds.FillCircle(thumbX, midY, hovering ? 5.0f : 4.8f, Color.FromArgb(255, 255, 255, 255));
+        ds.FillCircle(thumbX, midY, hovering ? 5.6f : 5.4f, thumbRing);
+        ds.FillCircle(thumbX, midY, hovering ? 5.0f : 4.8f, thumbCenter);
     }
 
     private void MuteBtn_Click(object sender, RoutedEventArgs e)
@@ -2418,7 +2454,10 @@ public sealed partial class MainWindow : Window
     private void UpdateShuffleButtonVisual()
     {
         bool active = _settings.Shuffle;
-        ShuffleIcon.Foreground = active ? PlaybarGoldBrush : PlaybarMutedIconBrush;
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
+        ShuffleIcon.Foreground = active
+            ? (isLight ? PlaybarLightAmberBrush : PlaybarGoldBrush)
+            : (isLight ? PlaybarLightMutedIconBrush : PlaybarMutedIconBrush);
         ShuffleActiveDot.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(ShuffleToggle, active ? "Shuffle on" : "Shuffle off");
     }
@@ -2434,8 +2473,11 @@ public sealed partial class MainWindow : Window
     private void UpdateRepeatButtonVisual()
     {
         bool active = _settings.RepeatMode != 0;
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
         RepeatIcon.Glyph = _settings.RepeatMode == 2 ? "\uE8ED" : "\uE8EE";
-        RepeatIcon.Foreground = active ? PlaybarGoldBrush : PlaybarMutedIconBrush;
+        RepeatIcon.Foreground = active
+            ? (isLight ? PlaybarLightAmberBrush : PlaybarGoldBrush)
+            : (isLight ? PlaybarLightMutedIconBrush : PlaybarMutedIconBrush);
         RepeatActiveDot.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(RepeatToggle, _settings.RepeatMode switch
         {
@@ -2910,6 +2952,8 @@ public sealed partial class MainWindow : Window
     private async Task LoadArtAsync(string path, params Image[] targets)
     {
         byte[]? bytes = await Task.Run(() => MusicLibrary.ReadEmbeddedArtBytes(path));
+        if (targets.Contains(SelectedArtImage) && !string.Equals(_selectedLyricsTrackPath, path, StringComparison.OrdinalIgnoreCase))
+            return;
         await SetImageFromBytesAsync(bytes, targets);
         if (targets.Contains(SelectedArtImage))
         {
@@ -3105,6 +3149,8 @@ public sealed partial class MainWindow : Window
         if (!renamed) return (false, renameErr);
 
         track.Path = newPath;
+        if (_artThumbCache.TryRemove(oldPath, out var cachedThumb))
+            _artThumbCache[newPath] = cachedThumb;
         if (string.Equals(_selectedLyricsTrackPath, oldPath, StringComparison.OrdinalIgnoreCase))
             _selectedLyricsTrackPath = newPath;
         if (string.Equals(_activePlayingPathForLyrics, oldPath, StringComparison.OrdinalIgnoreCase))
@@ -3281,10 +3327,7 @@ public sealed partial class MainWindow : Window
             track.HasEmbeddedArt = updated.ArtBytes is { Length: > 0 };
             track.ArtLoadAttempted = false;
             track.CoverThumbnail = null;
-            string cacheKey = !string.IsNullOrWhiteSpace(track.Album)
-                ? $"{track.Album.Trim()}|{Path.GetDirectoryName(track.Path)}"
-                : track.Path;
-            _artThumbCache.TryRemove(cacheKey, out _);
+            _artThumbCache.TryRemove(track.Path, out _);
         }
 
         if (GetPrimarySelectedTrack() == track)
@@ -3869,6 +3912,30 @@ public sealed partial class MainWindow : Window
             var target = _engine.Position + TimeSpan.FromSeconds(delta);
             _engine.Seek(target);
             SyncPlaybackProgressUi(_engine.Position, _engine.Duration);
+        }
+        else if ((e.Key == VirtualKey.Home || e.Key == VirtualKey.End) && !inTextBox && !ctrl && !alt && focused is not Slider)
+        {
+            if (IsInsideElement(focused as DependencyObject, QueueListView))
+            {
+                var rightList = _editingPlaylist != null ? _editingPlaylistTracks : _queueTracks;
+                if (rightList.Count > 0)
+                {
+                    var target = e.Key == VirtualKey.Home ? rightList[0] : rightList[rightList.Count - 1];
+                    QueueListView.SelectedItem = target;
+                    QueueListView.UpdateLayout();
+                    QueueListView.ScrollIntoView(target, e.Key == VirtualKey.Home ? ScrollIntoViewAlignment.Leading : ScrollIntoViewAlignment.Default);
+                    e.Handled = true;
+                }
+            }
+            else if (_visibleTracks.Count > 0)
+            {
+                var target = e.Key == VirtualKey.Home ? _visibleTracks[0] : _visibleTracks[_visibleTracks.Count - 1];
+                SyncSelectionAcrossViews(target);
+                UpdateInspectorForSelection(target);
+                ScrollActiveViewToTrack(target, e.Key == VirtualKey.Home ? ScrollIntoViewAlignment.Leading : ScrollIntoViewAlignment.Default);
+                (IsTileMode ? (Control)AlbumsGridView : TracksListView).Focus(FocusState.Programmatic);
+                e.Handled = true;
+            }
         }
         else if (e.Key == VirtualKey.Space && !inTextBox)
         {

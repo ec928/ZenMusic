@@ -200,7 +200,6 @@
                 <!-- Table Column Header (Clickable for Sorting, Right-Click to Show/Hide Columns) -->
                 <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="{ThemeResource SidebarSurfaceBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="14,0" RightTapped="TableHeaderGrid_RightTapped">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="36"/>
                         <ColumnDefinition Width="2.0*"/>
                         <ColumnDefinition Width="1.3*"/>
                         <ColumnDefinition Width="1.3*"/>
@@ -211,16 +210,15 @@
                         <ColumnDefinition x:Name="HeaderColDateAdded" Width="124"/>
                         <ColumnDefinition x:Name="HeaderColBitrate" Width="68"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Tag="Index" Content="# ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="1" Tag="Title" Content="Title" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="2" Tag="Artist" Content="Artist" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="3" Tag="Album" Content="Album" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="4" Tag="Genre" Content="Genre" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="5" Tag="Year" Content="Year" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="6" Tag="Rating" Content="Rating" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
-                    <Button Grid.Column="7" Tag="Duration" Content="Length" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Click="SortHeader_Click"/>
-                    <Button Grid.Column="8" Tag="DateAdded" Content="Date Added" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="6,0,0,0" Click="SortHeader_Click"/>
-                    <Button Grid.Column="9" Tag="Bitrate" Content="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Click="SortHeader_Click"/>
+                    <Button Grid.Column="0" Tag="Title" Content="Title ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="1" Tag="Artist" Content="Artist" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="2" Tag="Album" Content="Album" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="3" Tag="Genre" Content="Genre" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="4" Tag="Year" Content="Year" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="5" Tag="Rating" Content="Rating" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="6" Tag="Duration" Content="Length" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Click="SortHeader_Click"/>
+                    <Button Grid.Column="7" Tag="DateAdded" Content="Date Added" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="6,0,0,0" Click="SortHeader_Click"/>
+                    <Button Grid.Column="8" Tag="Bitrate" Content="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Click="SortHeader_Click"/>
                 </Grid>
 
                 <!-- Virtualized Track List -->
@@ -241,7 +239,6 @@
                         <DataTemplate x:DataType="lib:TrackItem">
                             <Grid Height="30">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="36"/>
                                     <ColumnDefinition Width="2.0*"/>
                                     <ColumnDefinition Width="1.3*"/>
                                     <ColumnDefinition Width="1.3*"/>
@@ -252,30 +249,30 @@
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColDateAddedWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColBitrateWidth()}"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.ColumnSpan="10" Margin="-14,0" Background="{ThemeResource EvenRowBrush}" Visibility="{x:Bind local:MainWindow.EvenRowVis(IsNowPlaying, IsEvenRow), Mode=OneWay}" IsHitTestVisible="False"/>
-                                <Border Grid.ColumnSpan="10" Margin="-14,0" Background="{ThemeResource PlayingRowBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
+                                <Border Grid.ColumnSpan="9" Margin="-14,0" Background="{ThemeResource EvenRowBrush}" Visibility="{x:Bind local:MainWindow.EvenRowVis(IsNowPlaying, IsEvenRow), Mode=OneWay}" IsHitTestVisible="False"/>
+                                <Border Grid.ColumnSpan="9" Margin="-14,0" Background="{ThemeResource PlayingRowBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
 
                                 <Border Grid.Column="0" Width="3" HorizontalAlignment="Left" Margin="-8,4,0,4" CornerRadius="2" Background="{ThemeResource FavouriteStarBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
-                                <FontIcon Grid.Column="0" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
-                                <TextBlock Grid.Column="0" Text="{x:Bind Index, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.NotNowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
 
-                                <Grid Grid.Column="1" Margin="0,0,8,0">
+                                <Grid Grid.Column="0" Margin="0,0,8,0">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                    <FontIcon Grid.Column="1" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
+                                    <FontIcon Grid.Column="0" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="12.5" Foreground="{ThemeResource FavouriteStarBrush}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    <FontIcon Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
                                 </Grid>
 
-                                <TextBlock Grid.Column="2" Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="3" Text="{x:Bind Album, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="4" Text="{x:Bind Genre, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="5" Text="{x:Bind YearText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <ui:StarRatingCell Grid.Column="6" Value="{x:Bind Rating, Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" Visibility="{x:Bind local:MainWindow.ColRatingVis()}" ToolTipService.ToolTip="Click stars (left half = .5, right half = .0; click again to clear)"/>
-                                <TextBlock Grid.Column="7" Text="{x:Bind DurationText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="8" Text="{x:Bind DateAddedText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0,0,0"/>
-                                <TextBlock Grid.Column="9" Text="{x:Bind BitrateText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="2" Text="{x:Bind Album, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="3" Text="{x:Bind Genre, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="4" Text="{x:Bind YearText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <ui:StarRatingCell Grid.Column="5" Value="{x:Bind Rating, Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" Visibility="{x:Bind local:MainWindow.ColRatingVis()}" ToolTipService.ToolTip="Click stars (left half = .5, right half = .0; click again to clear)"/>
+                                <TextBlock Grid.Column="6" Text="{x:Bind DurationText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="7" Text="{x:Bind DateAddedText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0,0,0"/>
+                                <TextBlock Grid.Column="8" Text="{x:Bind BitrateText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -307,7 +304,7 @@
                                             <Grid>
                                                 <Ellipse Width="84" Height="84" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#12FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="20" Foreground="#90FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
+                                                <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
                                             </Grid>
                                         </Border>
                                         <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,6,0,0" CornerRadius="4" Padding="6,2" Background="#D9181818" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}">
@@ -606,10 +603,10 @@
         </Grid>
 
         <!-- Full-Width Bottom-Docked Symmetric 3-Zone Transport Console + Option B2 Symmetric Wings -->
-        <Border x:Name="PlaybarBorder" Grid.Row="2" RequestedTheme="Dark"
+        <Border x:Name="PlaybarBorder" Grid.Row="2"
                 VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
                 Margin="0" Height="74" CornerRadius="0"
-                Background="{ThemeResource PlaybarAcrylicBrush}" BorderBrush="#26FFFFFF" BorderThickness="0,1,0,0"
+                Background="{ThemeResource PlaybarAcrylicBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0"
                 Padding="16,2,16,3" PointerPressed="PlaybarBorder_PointerPressed">
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
@@ -620,9 +617,9 @@
 
                 <!-- Zone 1: Now Playing Track Identity (54x54 Art + 3-Line Stack) -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" Background="Transparent" Tapped="NowPlayingInfo_Tapped" PointerEntered="NowPlayingInfo_PointerEntered" PointerExited="NowPlayingInfo_PointerExited" ToolTipService.ToolTip="Click to locate playing song in list (Ctrl+L)">
-                    <Border Width="54" Height="54" CornerRadius="8" Background="#242424" BorderBrush="#22FFFFFF" BorderThickness="1">
+                    <Border Width="54" Height="54" CornerRadius="8" Background="{ThemeResource PlaybarArtBgBrush}" BorderBrush="{ThemeResource PlaybarArtBorderBrush}" BorderThickness="1">
                         <Grid>
-                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="20" Foreground="#80FFFFFF"/>
+                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="20" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <Image x:Name="NowPlayingArtImage" Stretch="UniformToFill"/>
                             <Border x:Name="NowPlayingLocateBadge" Width="17" Height="17" CornerRadius="8.5"
                                     HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2"
@@ -632,9 +629,9 @@
                         </Grid>
                     </Border>
                     <StackPanel VerticalAlignment="Center" Width="182" Spacing="1">
-                        <TextBlock x:Name="NowPlayingTitleText" Text="Not playing" FontSize="13" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock x:Name="NowPlayingArtistText" Text="Select a song to play" FontSize="11.5" Foreground="#B3FFFFFF" TextTrimming="CharacterEllipsis" Tapped="NowPlayingArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
-                        <ui:StarRatingCell x:Name="NowPlayingRatingCell" Margin="-2,1,0,0" ForceDarkPalette="True" RatingSelected="NowPlayingRatingCell_RatingSelected" ToolTipService.ToolTip="Rate currently playing track"/>
+                        <TextBlock x:Name="NowPlayingTitleText" Text="Not playing" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="NowPlayingArtistText" Text="Select a song to play" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" Tapped="NowPlayingArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
+                        <ui:StarRatingCell x:Name="NowPlayingRatingCell" Margin="-2,1,0,0" RatingSelected="NowPlayingRatingCell_RatingSelected" ToolTipService.ToolTip="Rate currently playing track"/>
                     </StackPanel>
                 </StackPanel>
 
@@ -662,31 +659,45 @@
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3">
                             <Button x:Name="ShuffleToggle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Shuffle off" Click="ShuffleToggle_Click">
                                 <Grid Width="30" Height="30">
-                                    <FontIcon x:Name="ShuffleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8B1;" FontSize="13" Foreground="#A6FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Ellipse x:Name="ShuffleActiveDot" Width="3.5" Height="3.5" Fill="#FFC83B" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5" Visibility="Collapsed"/>
+                                    <FontIcon x:Name="ShuffleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8B1;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Ellipse x:Name="ShuffleActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5" Visibility="Collapsed"/>
                                 </Grid>
                             </Button>
                             <Button Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Previous" Click="PrevBtn_Click">
-                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE892;" FontSize="13.5" Foreground="#E6FFFFFF"/>
+                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE892;" FontSize="13.5" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             </Button>
                             <Button x:Name="PlayPauseBtn" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18" BorderThickness="0" ToolTipService.ToolTip="Play / Pause (Space)" Click="PlayPauseBtn_Click">
                                 <Button.Resources>
-                                    <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFF"/>
-                                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FFF3D1"/>
-                                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#FFE082"/>
-                                    <SolidColorBrush x:Key="ButtonForeground" Color="#121212"/>
-                                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#121212"/>
-                                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#121212"/>
+                                    <ResourceDictionary>
+                                        <ResourceDictionary.ThemeDictionaries>
+                                            <ResourceDictionary x:Key="Light">
+                                                <SolidColorBrush x:Key="ButtonBackground" Color="#1E1E1E"/>
+                                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#333333"/>
+                                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#B45309"/>
+                                                <SolidColorBrush x:Key="ButtonForeground" Color="#FFFFFF"/>
+                                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF"/>
+                                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF"/>
+                                            </ResourceDictionary>
+                                            <ResourceDictionary x:Key="Dark">
+                                                <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFF"/>
+                                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FFF3D1"/>
+                                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#FFE082"/>
+                                                <SolidColorBrush x:Key="ButtonForeground" Color="#121212"/>
+                                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#121212"/>
+                                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#121212"/>
+                                            </ResourceDictionary>
+                                        </ResourceDictionary.ThemeDictionaries>
+                                    </ResourceDictionary>
                                 </Button.Resources>
                                 <FontIcon x:Name="PlayPauseIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="15"/>
                             </Button>
                             <Button Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Next" Click="NextBtn_Click">
-                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE893;" FontSize="13.5" Foreground="#E6FFFFFF"/>
+                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE893;" FontSize="13.5" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             </Button>
                             <Button x:Name="RepeatToggle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Repeat all (Click to cycle: Off / All / One)" Click="RepeatToggle_Click">
                                 <Grid Width="30" Height="30">
-                                    <FontIcon x:Name="RepeatIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8EE;" FontSize="13" Foreground="#FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Ellipse x:Name="RepeatActiveDot" Width="3.5" Height="3.5" Fill="#FFC83B" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5"/>
+                                    <FontIcon x:Name="RepeatIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8EE;" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Ellipse x:Name="RepeatActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5"/>
                                 </Grid>
                             </Button>
                         </StackPanel>
@@ -705,24 +716,24 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="42"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="ElapsedTimeText" Grid.Column="0" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="#B3FFFFFF" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0"/>
+                        <TextBlock x:Name="ElapsedTimeText" Grid.Column="0" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0"/>
                         <Grid Grid.Column="1" Height="16" VerticalAlignment="Bottom">
                             <canvas:CanvasControl x:Name="SeekRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="SeekRailCanvas_Draw"/>
                             <Slider x:Name="SeekSlider" Opacity="0" Minimum="0" Maximum="100" Value="0" MinHeight="16" Height="16" Padding="0" VerticalAlignment="Center"
                                     ValueChanged="SeekSlider_ValueChanged" PointerMoved="SeekSlider_PointerMoved" KeyUp="SeekSlider_KeyUp"
                                     PointerEntered="SeekSlider_PointerEntered" PointerExited="SeekSlider_PointerExited"/>
                         </Grid>
-                        <TextBlock x:Name="TotalTimeText" Grid.Column="2" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="#78FFFFFF" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="6,0,0,0"/>
+                        <TextBlock x:Name="TotalTimeText" Grid.Column="2" Text="00:00" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="6,0,0,0"/>
                     </Grid>
                 </Grid>
 
                 <!-- Zone 3: Balanced Right Audio Output & Stage Utilities -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,14">
-                    <Button x:Name="SpeakerBadgeBtn" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Background="#1AFFC83B" BorderBrush="#40FFC83B" BorderThickness="1" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
-                        <TextBlock x:Name="SpeakerBadgeText" Text="2.0 ch" FontSize="10" FontWeight="SemiBold" Foreground="#FFC83B"/>
+                    <Button x:Name="SpeakerBadgeBtn" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Background="{ThemeResource PlaybarBadgeBgBrush}" BorderBrush="{ThemeResource PlaybarBadgeBorderBrush}" BorderThickness="1" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
+                        <TextBlock x:Name="SpeakerBadgeText" Text="2.0 ch" FontSize="10" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}"/>
                     </Button>
                     <Button x:Name="MuteBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Mute / Unmute" Click="MuteBtn_Click">
-                        <FontIcon x:Name="VolumeIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="13" Foreground="#B3FFFFFF"/>
+                        <FontIcon x:Name="VolumeIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
                     <Grid Width="72" Height="22" VerticalAlignment="Center">
                         <canvas:CanvasControl x:Name="VolumeRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="VolumeRailCanvas_Draw"/>
@@ -730,7 +741,7 @@
                                 ValueChanged="VolumeSlider_ValueChanged" PointerEntered="VolumeSlider_PointerEntered" PointerExited="VolumeSlider_PointerExited"/>
                     </Grid>
                     <Button x:Name="MiniPlayerToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
-                        <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="12.5" Foreground="#B3FFFFFF"/>
+                        <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="12.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
                 </StackPanel>
             </Grid>

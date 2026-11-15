@@ -66,7 +66,7 @@ public sealed class AppSettings
     public string ViewMode { get; set; } = "Table"; // Table | Grid
 
     // Persistent sort state
-    public string SortColumn { get; set; } = "Index";
+    public string SortColumn { get; set; } = "Title";
     public bool SortAscending { get; set; } = true;
 
     // Persistent window geometry
@@ -141,6 +141,11 @@ public sealed class AppSettings
                     settings.SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(settings.OutputDeviceId);
                 }
                 settings.LayoutSchemaVersion = 3;
+                migrated = true;
+            }
+            if (string.Equals(settings.SortColumn, "Index", StringComparison.OrdinalIgnoreCase))
+            {
+                settings.SortColumn = "Title";
                 migrated = true;
             }
             if (migrated)
