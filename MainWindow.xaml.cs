@@ -201,8 +201,8 @@ public sealed partial class MainWindow : Window
     public static GridLength ColYearWidth() => IsColVisible("Year") ? new GridLength(48) : new GridLength(0);
     public static GridLength ColRatingWidth() => IsColVisible("Rating") ? new GridLength(78) : new GridLength(0);
     public static GridLength ColLengthWidth() => IsColVisible("Length") ? new GridLength(56) : new GridLength(0);
-    public static GridLength ColDateAddedWidth() => IsColVisible("DateAdded") ? new GridLength(124) : new GridLength(0);
-    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(68) : new GridLength(0);
+    public static GridLength ColDateAddedWidth() => IsColVisible("DateAdded") ? new GridLength(88) : new GridLength(0);
+    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(58) : new GridLength(0);
     public static Visibility ColRatingVis() => IsColVisible("Rating") ? Visibility.Visible : Visibility.Collapsed;
 
     private SavedPlaylist? _editingPlaylist;
@@ -223,9 +223,20 @@ public sealed partial class MainWindow : Window
     private DateTime _lastTypeJumpUtc = DateTime.MinValue;
     private CancellationTokenSource? _jumpPillCts;
 
-    public MainWindow()
+    private bool _hasLaunchFiles;
+
+    public MainWindow(IReadOnlyList<string>? launchFiles = null)
     {
+        _hasLaunchFiles = launchFiles is { Count: > 0 };
         InitializeComponent();
+
+        try
+        {
+            string iconPath = Path.Combine(AppContext.BaseDirectory, "ZenMusic.ico");
+            if (File.Exists(iconPath))
+                AppWindow.SetIcon(iconPath);
+        }
+        catch { }
 
         try { SystemBackdrop = new MicaBackdrop(); } catch { }
 
@@ -318,7 +329,54 @@ public sealed partial class MainWindow : Window
             StartFolderWatcher(_settings.MusicFolder);
             _ = ScanFolderAsync(_settings.MusicFolder, isStartupDelta: true);
         }
+        if (_hasLaunchFiles && launchFiles != null)
+        {
+            _ = OpenLaunchFilesAsync(launchFiles);
+        }
         _initialized = true;
+    }
+
+    private async Task OpenLaunchFilesAsync(IReadOnlyList<string> filePaths)
+    {
+        var byPath = new Dictionary<string, TrackItem>(_allTracks.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var t in _allTracks)
+            byPath[t.Path] = t;
+
+        var missingPaths = new List<string>();
+        foreach (string p in filePaths)
+        {
+            if (!byPath.ContainsKey(p))
+                missingPaths.Add(p);
+        }
+
+        if (missingPaths.Count > 0)
+        {
+            int startIndex = _allTracks.Count + 1;
+            var addedTracks = await Task.Run(() =>
+                missingPaths.Select((p, i) => MusicLibrary.ReadTrackMetadata(p, startIndex + i, false)).ToList());
+
+            foreach (var t in addedTracks)
+            {
+                if (!byPath.ContainsKey(t.Path))
+                {
+                    _allTracks.Add(t);
+                    byPath[t.Path] = t;
+                }
+            }
+            RefreshVisibleTracks();
+        }
+
+        var tracksToPlay = new List<TrackItem>(filePaths.Count);
+        foreach (string p in filePaths)
+        {
+            if (byPath.TryGetValue(p, out var item) && !tracksToPlay.Contains(item))
+                tracksToPlay.Add(item);
+        }
+
+        if (tracksToPlay.Count == 0) return;
+
+        EmptyStatePanel.Visibility = Visibility.Collapsed;
+        PlayFromList(tracksToPlay, tracksToPlay[0]);
     }
 
     private void LoadCachedLibraryAndRestoreSession(string folder)
@@ -335,7 +393,7 @@ public sealed partial class MainWindow : Window
 
     private void RestoreSessionQueue()
     {
-        if (_settings.SavedQueuePaths.Count == 0 || _queueTracks.Count > 0) return;
+        if (_hasLaunchFiles || _settings.SavedQueuePaths.Count == 0 || _queueTracks.Count > 0) return;
         var byPath = _allTracks.ToDictionary(t => t.Path, StringComparer.OrdinalIgnoreCase);
         _queueTracks.Clear();
         _unshuffledQueue.Clear();
@@ -3522,6 +3580,55 @@ public sealed partial class MainWindow : Window
             await ShowErrorDialogAsync("Some files could not be deleted", string.Join("\n", errors));
     }
 
+    private IEnumerable<TrackItem> EnumerateMatchingTrackItems(TrackItem primary)
+    {
+        var seen = new HashSet<TrackItem> { primary };
+        yield return primary;
+
+        foreach (var t in _allTracks)
+        {
+            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        }
+        foreach (var t in _queueTracks)
+        {
+            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        }
+        foreach (var t in _editingPlaylistTracks)
+        {
+            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        }
+    }
+
+    private async Task<ImageSource?> CacheAndBuildThumbnailAsync(string path, byte[]? artBytes)
+    {
+        _artThumbCache.TryRemove(path, out _);
+        if (artBytes == null || artBytes.Length == 0)
+        {
+            _artThumbCache[path] = null;
+            return null;
+        }
+
+        string hash = await Task.Run(() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(artBytes)));
+        if (_artBitmapByHash.TryGetValue(hash, out var sharedBmp))
+        {
+            _artThumbCache[path] = sharedBmp;
+            return sharedBmp;
+        }
+
+        var bmp = await CreateBitmapFromBytesAsync(artBytes, decodePixelWidth: 180);
+        if (bmp != null)
+        {
+            var finalBmp = _artBitmapByHash.GetOrAdd(hash, bmp);
+            _artThumbCache[path] = finalBmp;
+            return finalBmp;
+        }
+
+        return null;
+    }
+
     private async Task<bool> SaveTrackDetailsAsync(TrackItem track, MusicLibrary.TrackDetails updated, bool pushUndo = true)
     {
         MusicLibrary.TrackDetails? snapshotBefore = pushUndo ? await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path)) : null;
@@ -3558,19 +3665,41 @@ public sealed partial class MainWindow : Window
             });
         }
 
-        track.Title = updated.Title;
-        track.Artist = updated.Artist;
-        track.Album = updated.Album;
-        track.Genre = updated.Genre;
-        track.Year = updated.Year;
-        track.TrackNumber = updated.TrackNumber;
-        track.Rating = updated.Rating;
-        if (updated.ArtChanged)
+        if (updated.ArtChanged || (track.CoverThumbnail == null && updated.ArtBytes is { Length: > 0 }))
         {
-            track.HasEmbeddedArt = updated.ArtBytes is { Length: > 0 };
-            track.ArtLoadAttempted = false;
-            track.CoverThumbnail = null;
-            _artThumbCache.TryRemove(track.Path, out _);
+            bool hasArt = updated.ArtBytes is { Length: > 0 };
+            ImageSource? newThumb = hasArt
+                ? await CacheAndBuildThumbnailAsync(track.Path, updated.ArtBytes)
+                : null;
+            if (!hasArt)
+                _artThumbCache[track.Path] = null;
+
+            foreach (var peer in EnumerateMatchingTrackItems(track))
+            {
+                peer.Title = updated.Title;
+                peer.Artist = updated.Artist;
+                peer.Album = updated.Album;
+                peer.Genre = updated.Genre;
+                peer.Year = updated.Year;
+                peer.TrackNumber = updated.TrackNumber;
+                peer.Rating = updated.Rating;
+                peer.HasEmbeddedArt = hasArt;
+                peer.ArtLoadAttempted = true;
+                peer.CoverThumbnail = newThumb;
+            }
+        }
+        else
+        {
+            foreach (var peer in EnumerateMatchingTrackItems(track))
+            {
+                peer.Title = updated.Title;
+                peer.Artist = updated.Artist;
+                peer.Album = updated.Album;
+                peer.Genre = updated.Genre;
+                peer.Year = updated.Year;
+                peer.TrackNumber = updated.TrackNumber;
+                peer.Rating = updated.Rating;
+            }
         }
 
         if (GetPrimarySelectedTrack() == track)

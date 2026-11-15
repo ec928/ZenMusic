@@ -34,7 +34,39 @@ public partial class App : Application
 
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
+        var launchFiles = ExtractLaunchAudioFiles(args?.Arguments);
+        _window = new MainWindow(launchFiles);
         _window.Activate();
+    }
+
+    private static System.Collections.Generic.IReadOnlyList<string> ExtractLaunchAudioFiles(string? launchArgs)
+    {
+        var files = new System.Collections.Generic.List<string>();
+        foreach (string arg in Environment.GetCommandLineArgs().Skip(1))
+        {
+            TryAddAudioFile(arg, files);
+        }
+
+        if (files.Count == 0 && !string.IsNullOrWhiteSpace(launchArgs))
+        {
+            TryAddAudioFile(launchArgs, files);
+        }
+
+        return files;
+    }
+
+    private static void TryAddAudioFile(string? candidate, System.Collections.Generic.List<string> target)
+    {
+        if (string.IsNullOrWhiteSpace(candidate)) return;
+        try
+        {
+            string full = Path.GetFullPath(candidate.Trim().Trim('"'));
+            if (File.Exists(full) && Tagging.MusicLibrary.IsSupportedExtension(full) &&
+                !target.Contains(full, StringComparer.OrdinalIgnoreCase))
+            {
+                target.Add(full);
+            }
+        }
+        catch { }
     }
 }

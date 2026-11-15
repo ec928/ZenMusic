@@ -51,6 +51,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             _dateAddedUtc = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(DateAddedText));
+            OnPropertyChanged(nameof(DateAddedFullText));
         }
     }
     public bool IsCloudOnly { get; set; }
@@ -152,8 +153,10 @@ public sealed class TrackItem : INotifyPropertyChanged
         : $"{Duration.Minutes:D2}:{Duration.Seconds:D2}";
     public string TileMetaText => Year > 0 ? $"{Year} · {DurationText}" : DurationText;
     public string BitrateText => Bitrate > 0 ? $"{Bitrate} kbps" : string.Empty;
+    public string BitrateNumberText => Bitrate > 0 ? Bitrate.ToString() : string.Empty;
     public string ChannelsText => Channels >= 6 ? "5.1" : Channels == 1 ? "Mono" : "2.0";
-    public string DateAddedText => DateAddedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+    public string DateAddedText => DateAddedUtc.ToLocalTime().ToString("MM'/'yyyy");
+    public string DateAddedFullText => DateAddedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
 
     public void CopyMetadataFrom(TrackItem other)
     {

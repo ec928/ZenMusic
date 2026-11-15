@@ -518,8 +518,16 @@ public sealed partial class MainWindow
             CloseSettingsPanel();
             await ShowShortcutsHelpAsync();
         };
-        var (aboutRow, _, _) = SettingsCard.Row("", $"ZenMusic v{appVersion}",
-            $"NAudio WASAPI · TagLib# · Win2D · WinUI 3 · .NET {Environment.Version}", shortcutsBtn);
+        var (shortcutsRow, _, _) = SettingsCard.Row("", "Keyboard shortcuts", "Playback, navigation, F11 stage and editing (F1)", shortcutsBtn);
+
+        var aboutBtn = new Button { Content = "About" };
+        aboutBtn.Click += async (_, _) =>
+        {
+            CloseSettingsPanel();
+            await ShowAboutDialogAsync();
+        };
+        var (aboutRow, _, _) = SettingsCard.Row("", "About ZenMusic",
+            $"Version {appVersion} · Features, licence and GitHub", aboutBtn);
 
         var resetBtn = new Button { Content = "Reset" };
         var (resetRow, _, _) = SettingsCard.Row("", "Reset to defaults", "Audio, appearance and window layout", resetBtn);
@@ -553,7 +561,7 @@ public sealed partial class MainWindow
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
             SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row));
         panel.Children.Add(SettingsCard.Section("Library and application"));
-        panel.Children.Add(SettingsCard.Card(rescanRow, resetRow, aboutRow));
+        panel.Children.Add(SettingsCard.Card(rescanRow, resetRow, shortcutsRow, aboutRow));
 
         loading = false;
         return panel;
@@ -1680,6 +1688,16 @@ public sealed partial class MainWindow
         SaveLibraryCacheSnapshot();
     }
 
+    private async Task ShowAboutDialogAsync()
+    {
+        var dlg = new AboutDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        await dlg.ShowAsync();
+    }
+
     private async Task ShowShortcutsHelpAsync()
     {
         (string Key, string Desc)[] items =
@@ -1687,9 +1705,13 @@ public sealed partial class MainWindow
             ("Space", "Play / Pause"),
             ("Left / Right", "Seek backward / forward 5 seconds"),
             ("Home / End", "Jump to start / end of track list"),
+            ("Ctrl+O", "Open music folder"),
             ("Ctrl+F", "Focus search box"),
-            ("Ctrl+B / Tab", "Toggle Library & Playlists sidebar"),
+            ("Ctrl+L", "Locate currently playing track"),
+            ("Ctrl+B / Tab", "Toggle Playlists, Queue & Inspector sidebar"),
+            ("Ctrl+M", "Toggle Mini Player"),
             ("Ctrl+Z", "Undo last tag, rating, rename, or playlist deletion"),
+            ("F1", "Show keyboard shortcuts"),
             ("F2", "Edit Song Properties & Lyrics (or Batch Properties)"),
             ("F5", "Rescan current music folder"),
             ("F11 / Esc", "Toggle / Exit Focus Visualizer Stage"),
