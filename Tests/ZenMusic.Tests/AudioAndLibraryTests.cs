@@ -84,6 +84,34 @@ public sealed class AudioAndLibraryTests
     }
 
     [Fact]
+    public void SpeakerMatrix_Surround51Direct_PassesStereoUnalteredWithoutUpmixOnSixChannelEndpoint()
+    {
+        var src = new ConstantSampleProvider(44100, 0.8f, 0.2f);
+        var matrix = new SpeakerMatrixProvider(src, new SpeakerRoutingOptions
+        {
+            Layout = SpeakerLayout.Surround51Direct,
+            CenterLevel = 0.6f,
+            LfeGain = 1.0f,
+            RearLevel = 0.5f
+        }, endpointChannels: 6);
+
+        Assert.Equal(6, matrix.WaveFormat.Channels);
+        var buf = new float[6 * 4];
+        int read = matrix.Read(buf, 0, buf.Length);
+        Assert.Equal(24, read);
+        for (int f = 0; f < 4; f++)
+        {
+            int o = f * 6;
+            Assert.Equal(0.8f, buf[o], 4);     // FL
+            Assert.Equal(0.2f, buf[o + 1], 4); // FR
+            Assert.Equal(0f, buf[o + 2], 4);   // C
+            Assert.Equal(0f, buf[o + 3], 4);   // LFE
+            Assert.Equal(0f, buf[o + 4], 4);   // RL
+            Assert.Equal(0f, buf[o + 5], 4);   // RR
+        }
+    }
+
+    [Fact]
     public void FftAnalyzer_Detects1kHzSineEnergy()
     {
         var fft = new FftAnalyzer();

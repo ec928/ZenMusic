@@ -211,6 +211,49 @@ public sealed partial class MainWindow
         ShowHudPill("Recent folders cleared");
     }
 
+    private static void PopulateSpeakerLayoutCombo(ComboBox layoutBox, int endpointChannels, SpeakerLayout selectedLayout)
+    {
+        bool sixCh = endpointChannels >= 6;
+        layoutBox.Items.Clear();
+        layoutBox.Items.Add(new ComboBoxItem
+        {
+            Content = sixCh ? "2.0 Stereo" : "2.0 Stereo (Direct — Recommended)",
+            Tag = SpeakerLayout.Stereo20
+        });
+        layoutBox.Items.Add(new ComboBoxItem
+        {
+            Content = "2.1 Stereo + Subwoofer",
+            Tag = SpeakerLayout.Stereo21
+        });
+        layoutBox.Items.Add(new ComboBoxItem
+        {
+            Content = "5.1 Surround (Smart Stereo Upmix)",
+            Tag = SpeakerLayout.Surround51Upmix
+        });
+        layoutBox.Items.Add(new ComboBoxItem
+        {
+            Content = sixCh ? "5.1 Surround (Direct — Recommended)" : "5.1 Surround (Direct Multichannel)",
+            Tag = SpeakerLayout.Surround51Direct
+        });
+        layoutBox.SelectedIndex = (int)selectedLayout;
+    }
+
+    private static string DescribeEndpointStatus(int ch, SpeakerLayout layout)
+    {
+        if (ch >= 6)
+        {
+            return layout switch
+            {
+                SpeakerLayout.Surround51Direct => $"Endpoint active: {ch}ch native WASAPI (Direct — unadjusted signal).",
+                SpeakerLayout.Stereo20 => $"Endpoint is {ch}ch WASAPI — 5.1 Direct is recommended for native unadjusted output.",
+                _ => $"Endpoint active: {ch}ch WASAPI (DSP upmix active)."
+            };
+        }
+        return layout == SpeakerLayout.Stereo20
+            ? $"Endpoint active: {ch}ch native WASAPI (Direct — unadjusted signal)."
+            : $"Device reports {ch}ch; spatial stereo fold-down active (2.0 Direct recommended).";
+    }
+
     private void SpeakerBadgeBtn_Click(object sender, RoutedEventArgs e)
     {
         var devices = WasapiAudioEngine.GetOutputDevices();
@@ -219,34 +262,45 @@ public sealed partial class MainWindow
         deviceBox.SelectedIndex = Math.Max(0, devices.ToList().FindIndex(d => d.Id == _settings.OutputDeviceId));
 
         var layoutBox = new ComboBox { Header = "Speaker configuration", HorizontalAlignment = HorizontalAlignment.Stretch };
-        layoutBox.Items.Add(new ComboBoxItem { Content = "2.0 Stereo (Default)", Tag = SpeakerLayout.Stereo20 });
-        layoutBox.Items.Add(new ComboBoxItem { Content = "2.1 Stereo + Subwoofer", Tag = SpeakerLayout.Stereo21 });
-        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Smart Stereo Upmix)", Tag = SpeakerLayout.Surround51Upmix });
-        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Direct Multichannel)", Tag = SpeakerLayout.Surround51Direct });
-        layoutBox.SelectedIndex = (int)_settings.SpeakerLayout;
+        int initCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
+        PopulateSpeakerLayoutCombo(layoutBox, initCh, _settings.SpeakerLayout);
 
         var noteText = new TextBlock { FontSize = 11, Opacity = 0.72, TextWrapping = TextWrapping.Wrap, MaxWidth = 280 };
-        void ApplyQuickAudio()
+        noteText.Text = DescribeEndpointStatus(initCh, _settings.SpeakerLayout);
+
+        bool updating = false;
+        void ApplyQuickAudio(bool deviceChanged)
         {
-            _settings.OutputDeviceId = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
-            _settings.SpeakerLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? SpeakerLayout.Stereo20);
-            _settings.Save();
-            ApplyAudioConfigFromSettings();
-            int ch = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
-            noteText.Text = _settings.SpeakerLayout != SpeakerLayout.Stereo20 && ch < 6
-                ? $"Device reports {ch}ch; spatial stereo fold-down active."
-                : $"Endpoint active: {ch}ch WASAPI.";
+            if (updating) return;
+            updating = true;
+            try
+            {
+                string devId = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+                int ch = WasapiAudioEngine.GetEndpointChannelCount(devId);
+                var currentLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? _settings.SpeakerLayout);
+                if (deviceChanged)
+                {
+                    if (currentLayout is SpeakerLayout.Stereo20 or SpeakerLayout.Surround51Direct)
+                    {
+                        currentLayout = WasapiAudioEngine.GetRecommendedDirectLayout(devId);
+                    }
+                    PopulateSpeakerLayoutCombo(layoutBox, ch, currentLayout);
+                }
+
+                _settings.OutputDeviceId = devId;
+                _settings.SpeakerLayout = currentLayout;
+                _settings.Save();
+                ApplyAudioConfigFromSettings();
+                noteText.Text = DescribeEndpointStatus(ch, currentLayout);
+            }
+            finally
+            {
+                updating = false;
+            }
         }
 
-        int initCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
-        noteText.Text = _settings.SpeakerLayout != SpeakerLayout.Stereo20 && initCh < 6
-            ? $"Device reports {initCh}ch; spatial stereo fold-down active."
-            : $"Endpoint active: {initCh}ch WASAPI.";
-
-        bool ready = false;
-        deviceBox.SelectionChanged += (_, _) => { if (ready) ApplyQuickAudio(); };
-        layoutBox.SelectionChanged += (_, _) => { if (ready) ApplyQuickAudio(); };
-        ready = true;
+        deviceBox.SelectionChanged += (_, _) => ApplyQuickAudio(deviceChanged: true);
+        layoutBox.SelectionChanged += (_, _) => ApplyQuickAudio(deviceChanged: false);
 
         var panel = new StackPanel { Spacing = 10, Padding = new Thickness(4) };
         panel.Children.Add(deviceBox);
@@ -276,11 +330,8 @@ public sealed partial class MainWindow
         deviceBox.SelectedIndex = Math.Max(0, devices.ToList().FindIndex(d => d.Id == _settings.OutputDeviceId));
 
         var layoutBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 240 };
-        layoutBox.Items.Add(new ComboBoxItem { Content = "2.0 Stereo (Default)", Tag = SpeakerLayout.Stereo20 });
-        layoutBox.Items.Add(new ComboBoxItem { Content = "2.1 Stereo + Subwoofer", Tag = SpeakerLayout.Stereo21 });
-        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Smart Stereo Upmix)", Tag = SpeakerLayout.Surround51Upmix });
-        layoutBox.Items.Add(new ComboBoxItem { Content = "5.1 Surround (Direct Multichannel)", Tag = SpeakerLayout.Surround51Direct });
-        layoutBox.SelectedIndex = (int)_settings.SpeakerLayout;
+        int initSettingsCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
+        PopulateSpeakerLayoutCombo(layoutBox, initSettingsCh, _settings.SpeakerLayout);
 
         var centerSlider = new Slider { Minimum = 0, Maximum = 100, Value = _settings.CenterLevel * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
         var lfeSlider = new Slider { Minimum = 0, Maximum = 150, Value = _settings.LfeGain * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
@@ -292,27 +343,44 @@ public sealed partial class MainWindow
         var (lfeRow, _, _) = SettingsCard.Row("\uE995", "Subwoofer (LFE) boost", "Low-pass <80 Hz crossover gain (%)", lfeSlider);
         var (rearRow, _, _) = SettingsCard.Row("\uE8D6", "5.1 Rear surround stage", "Ambient rear fill (%)", rearSlider);
 
-        void UpdateEndpointAndSliders()
+        bool updatingSettingsAudio = false;
+        void UpdateEndpointAndSliders(bool deviceChanged)
         {
-            string id = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
-            int ch = WasapiAudioEngine.GetEndpointChannelCount(id);
-            var selLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? SpeakerLayout.Stereo20);
-            layoutDetail.Text = selLayout != SpeakerLayout.Stereo20 && ch < 6
-                ? $"Windows reports {ch}ch; applying spatial stereo fold-down until 5.1 is enabled."
-                : $"Detected Windows endpoint channels: {ch}ch.";
+            if (updatingSettingsAudio) return;
+            updatingSettingsAudio = true;
+            try
+            {
+                string id = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+                int ch = WasapiAudioEngine.GetEndpointChannelCount(id);
+                var selLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? _settings.SpeakerLayout);
+                if (deviceChanged)
+                {
+                    if (selLayout is SpeakerLayout.Stereo20 or SpeakerLayout.Surround51Direct)
+                    {
+                        selLayout = WasapiAudioEngine.GetRecommendedDirectLayout(id);
+                    }
+                    PopulateSpeakerLayoutCombo(layoutBox, ch, selLayout);
+                }
 
-            bool usesLfe = selLayout is SpeakerLayout.Stereo21 or SpeakerLayout.Surround51Upmix;
-            bool usesSurround = selLayout == SpeakerLayout.Surround51Upmix;
-            lfeSlider.IsEnabled = usesLfe;
-            centerSlider.IsEnabled = usesSurround;
-            rearSlider.IsEnabled = usesSurround;
-            lfeRow.Opacity = usesLfe ? 1.0 : 0.45;
-            centerRow.Opacity = usesSurround ? 1.0 : 0.45;
-            rearRow.Opacity = usesSurround ? 1.0 : 0.45;
+                layoutDetail.Text = DescribeEndpointStatus(ch, selLayout);
+
+                bool usesLfe = selLayout is SpeakerLayout.Stereo21 or SpeakerLayout.Surround51Upmix;
+                bool usesSurround = selLayout == SpeakerLayout.Surround51Upmix;
+                lfeSlider.IsEnabled = usesLfe;
+                centerSlider.IsEnabled = usesSurround;
+                rearSlider.IsEnabled = usesSurround;
+                lfeRow.Opacity = usesLfe ? 1.0 : 0.45;
+                centerRow.Opacity = usesSurround ? 1.0 : 0.45;
+                rearRow.Opacity = usesSurround ? 1.0 : 0.45;
+            }
+            finally
+            {
+                updatingSettingsAudio = false;
+            }
         }
-        deviceBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders();
-        layoutBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders();
-        UpdateEndpointAndSliders();
+        deviceBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders(deviceChanged: true);
+        layoutBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders(deviceChanged: false);
+        UpdateEndpointAndSliders(deviceChanged: false);
 
         var vizBox = new ComboBox { MinWidth = 210 };
         vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum Bars (60 fps Win2D)", Tag = "Spectrum" });
@@ -421,7 +489,6 @@ public sealed partial class MainWindow
                 p.Restore();
             }
             AppWindow.Resize(new Windows.Graphics.SizeInt32(_settings.WindowWidth, _settings.WindowHeight));
-            _leftPaneOpen = _settings.LeftPaneOpen;
             _rightPaneOpen = _settings.RightPaneOpen;
             ApplyPaneWidths();
             SelectedInspectorScroll.MaxHeight = _settings.InspectorHeight;

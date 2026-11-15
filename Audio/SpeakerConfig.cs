@@ -165,14 +165,14 @@ public sealed class SpeakerMatrixProvider : ISampleProvider
 
     private void WriteSixChannelFrame(float[] src, int s, float[] dst, int d, SpeakerRoutingOptions opts)
     {
-        if (opts.Layout == SpeakerLayout.Surround51Direct && _inChannels >= 6)
+        if (opts.Layout == SpeakerLayout.Surround51Direct)
         {
             dst[d] = src[s];
-            dst[d + 1] = src[s + 1];
-            dst[d + 2] = src[s + 2];
-            dst[d + 3] = src[s + 3];
-            dst[d + 4] = src[s + 4];
-            dst[d + 5] = src[s + 5];
+            dst[d + 1] = _inChannels >= 2 ? src[s + 1] : src[s];
+            dst[d + 2] = _inChannels >= 6 ? src[s + 2] : 0f;
+            dst[d + 3] = _inChannels >= 6 ? src[s + 3] : 0f;
+            dst[d + 4] = _inChannels >= 6 ? src[s + 4] : 0f;
+            dst[d + 5] = _inChannels >= 6 ? src[s + 5] : 0f;
             return;
         }
 

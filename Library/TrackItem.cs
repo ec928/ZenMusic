@@ -9,6 +9,7 @@ public sealed class TrackItem : INotifyPropertyChanged
 {
     private double? _rating;
     private bool _isNowPlaying;
+    private bool _isEvenRow;
     private string _path = string.Empty;
     private DateTime _dateAddedUtc;
     private int _playCount;
@@ -99,6 +100,17 @@ public sealed class TrackItem : INotifyPropertyChanged
         {
             if (_isNowPlaying == value) return;
             _isNowPlaying = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsEvenRow
+    {
+        get => _isEvenRow;
+        set
+        {
+            if (_isEvenRow == value) return;
+            _isEvenRow = value;
             OnPropertyChanged();
         }
     }

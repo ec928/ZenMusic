@@ -1,3 +1,5 @@
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
@@ -79,6 +81,9 @@ public sealed partial class MainWindow : Window
     private double _splitterStartY;
     private double _splitterStartHeight;
     private bool _isMuted;
+    private bool _isHoveringSeek;
+    private bool _isHoveringVolume;
+    private double _seekProgressRatio;
     private double _preMuteVolume = 70;
     private bool _selectedArtIsLight;
     private int _activeFocusLrcIndex = -1;
@@ -86,6 +91,8 @@ public sealed partial class MainWindow : Window
     private string? _activePlayingPathForLyrics;
 
     private static readonly SolidColorBrush TransparentRowBrush = new(Color.FromArgb(0, 0, 0, 0));
+    private static readonly SolidColorBrush PlaybarGoldBrush = new(Color.FromArgb(255, 255, 200, 59));
+    private static readonly SolidColorBrush PlaybarMutedIconBrush = new(Color.FromArgb(166, 255, 255, 255));
     private static readonly LinearGradientBrush InspectorOverlayBrush = new()
     {
         StartPoint = new Point(0.5, 0),
@@ -119,7 +126,7 @@ public sealed partial class MainWindow : Window
 
     public static Visibility NowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
-    public static Visibility EvenRowVis(bool isNowPlaying, int index) => !isNowPlaying && index % 2 == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public static Visibility EvenRowVis(bool isNowPlaying, bool isEvenRow) => !isNowPlaying && isEvenRow ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility BoolVis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static ImageSource? ToImageSource(object? obj) => obj as ImageSource;
 
@@ -181,6 +188,8 @@ public sealed partial class MainWindow : Window
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
         foreach (var t in _queueTracks)
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
+        foreach (var t in _editingPlaylistTracks)
+            t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsColVisible(string name) => _columnVisible.TryGetValue(name, out bool v) && v;
@@ -192,7 +201,9 @@ public sealed partial class MainWindow : Window
     public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(68) : new GridLength(0);
     public static Visibility ColRatingVis() => IsColVisible("Rating") ? Visibility.Visible : Visibility.Collapsed;
 
-    private bool _leftPaneOpen = true;
+    private SavedPlaylist? _editingPlaylist;
+    private readonly ObservableCollection<TrackItem> _editingPlaylistTracks = new();
+    private bool _suppressRightComboChanged;
     private bool _rightPaneOpen = true;
     private bool _isMiniPlayer;
     private RectInt32 _preMiniBounds;
@@ -221,7 +232,6 @@ public sealed partial class MainWindow : Window
         foreach (var kv in _settings.ColumnVisibility)
             _columnVisible[kv.Key] = kv.Value;
 
-        _leftPaneOpen = _settings.LeftPaneOpen;
         _rightPaneOpen = _settings.RightPaneOpen;
         _inspectorArtMode = Math.Clamp(_settings.InspectorArtMode, 0, 2);
         SelectedInspectorScroll.MaxHeight = Math.Clamp(_settings.InspectorHeight, 130, 460);
@@ -242,14 +252,17 @@ public sealed partial class MainWindow : Window
 
         ApplyAudioConfigFromSettings();
 
+        PlaybarVisualizerLeft.AttachAnalyzer(_engine.Fft);
         PlaybarVisualizer.AttachAnalyzer(_engine.Fft);
         FocusVisualizer.AttachAnalyzer(_engine.Fft);
         ApplyVisualizerFromSettings();
         SyncVisualizerStageVisibility();
 
         VolumeSlider.Value = _settings.Volume;
+        SeekRailCanvas.Invalidate();
+        VolumeRailCanvas.Invalidate();
         _engine.SetVolume(_settings.Volume);
-        ShuffleToggle.IsChecked = _settings.Shuffle;
+        UpdateShuffleButtonVisual();
         if (_settings.RepeatMode == 0 && !_settings.RepeatAll) _settings.RepeatMode = 0;
         UpdateRepeatButtonVisual();
 
@@ -260,8 +273,7 @@ public sealed partial class MainWindow : Window
         FocusSyncedLyricsList.ItemsSource = _focusLrcLines;
 
         foreach (var pl in _settings.Playlists) _playlists.Add(pl);
-        PlaylistsList.ItemsSource = _playlists;
-        PlaylistsEmptyHint.Visibility = _playlists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SyncRightPanelList();
         UpdateSortHeaders();
 
         _progressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
@@ -278,6 +290,8 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _progressTimer.Stop();
+            SeekRailCanvas.RemoveFromVisualTree();
+            VolumeRailCanvas.RemoveFromVisualTree();
             _scanCts?.Cancel();
             _watcherDebounceCts?.Cancel();
             if (_folderWatcher != null)
@@ -336,7 +350,8 @@ public sealed partial class MainWindow : Window
         var current = _queueTracks[idx];
         SetNowPlayingTrack(current.Path);
         UpdateQueueHeader();
-        QueueListView.SelectedIndex = idx;
+        if (_editingPlaylist == null)
+            QueueListView.SelectedIndex = idx;
 
         NowPlayingTitleText.Text = current.DisplayTitle;
         NowPlayingArtistText.Text = string.IsNullOrWhiteSpace(current.Artist) ? current.FileName : current.Artist;
@@ -350,18 +365,7 @@ public sealed partial class MainWindow : Window
         _engine.LoadPausedFile(current.Path, startPos);
 
         double durSec = current.Duration.TotalSeconds;
-        ElapsedTimeText.Text = FormatTime(startPos);
-        TotalTimeText.Text = FormatTime(current.Duration);
-        if (durSec > 0)
-        {
-            _isUpdatingSeekSlider = true;
-            try
-            {
-                SeekSlider.Maximum = durSec;
-                SeekSlider.Value = Math.Clamp(startPos.TotalSeconds, 0, durSec);
-            }
-            finally { _isUpdatingSeekSlider = false; }
-        }
+        SyncPlaybackProgressUi(startPos, TimeSpan.FromSeconds(Math.Max(0, durSec)));
 
         _ = LoadPlayingArtAndSmtcAsync(current);
         _ = LoadFocusLyricsAsync(current.Path);
@@ -369,7 +373,6 @@ public sealed partial class MainWindow : Window
 
     private void SaveSessionState()
     {
-        _settings.LeftPaneOpen = _leftPaneOpen;
         _settings.RightPaneOpen = _rightPaneOpen;
         _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
         _settings.InspectorArtMode = _inspectorArtMode;
@@ -471,9 +474,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyPaneWidths()
     {
-        LeftPaneCol.Width = _leftPaneOpen ? new GridLength(210) : new GridLength(0);
-        LeftSidebar.Visibility = _leftPaneOpen ? Visibility.Visible : Visibility.Collapsed;
-        RightPaneCol.Width = _rightPaneOpen ? new GridLength(276) : new GridLength(0);
+        RightPaneCol.Width = _rightPaneOpen ? new GridLength(288) : new GridLength(0);
         RightSidebar.Visibility = _rightPaneOpen ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -510,10 +511,10 @@ public sealed partial class MainWindow : Window
         int endpointCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
         SpeakerBadgeText.Text = _settings.SpeakerLayout switch
         {
-            SpeakerLayout.Stereo21 => endpointCh >= 6 ? "2.1" : "2.1*",
-            SpeakerLayout.Surround51Upmix => endpointCh >= 6 ? "5.1+" : "5.1*",
-            SpeakerLayout.Surround51Direct => endpointCh >= 6 ? "5.1" : "5.1*",
-            _ => "2.0"
+            SpeakerLayout.Stereo21 => endpointCh >= 6 ? "2.1 ch" : "2.1* ch",
+            SpeakerLayout.Surround51Upmix => endpointCh >= 6 ? "5.1+ ch" : "5.1* ch",
+            SpeakerLayout.Surround51Direct => endpointCh >= 6 ? "5.1 ch" : "5.1* ch",
+            _ => "2.0 ch"
         };
         ToolTipService.SetToolTip(SpeakerBadgeBtn, endpointCh >= 6 || _settings.SpeakerLayout == SpeakerLayout.Stereo20
             ? $"Output: {endpointCh}ch WASAPI (Click to switch)"
@@ -530,9 +531,12 @@ public sealed partial class MainWindow : Window
             _ => VisualizerMode.Spectrum
         };
 
+        PlaybarVisualizerLeft.Mode = mode;
         PlaybarVisualizer.Mode = mode;
-        FocusVisualizer.Mode = mode == VisualizerMode.Off ? VisualizerMode.Spectrum : mode;
-        PlaybarVisualizerHost.Visibility = mode == VisualizerMode.Off ? Visibility.Collapsed : Visibility.Visible;
+        PlaybarVisualizerLeftHost.Visibility = Visibility.Visible;
+        PlaybarVisualizerRightHost.Visibility = Visibility.Visible;
+        FocusVisualizer.Mode = mode;
+        PlaybarVisualizerLeft.IsAudioPlaying = _engine.IsPlaying;
         PlaybarVisualizer.IsAudioPlaying = _engine.IsPlaying;
         FocusVisualizer.IsAudioPlaying = _engine.IsPlaying;
         UpdateFocusVizLabel();
@@ -542,7 +546,9 @@ public sealed partial class MainWindow : Window
     private void SyncVisualizerStageVisibility()
     {
         bool focusVisible = FocusVisualizerOverlay.Visibility == Visibility.Visible;
-        PlaybarVisualizer.IsStageVisible = !_isMiniPlayer && !focusVisible;
+        bool barVisible = !focusVisible;
+        PlaybarVisualizerLeft.IsStageVisible = barVisible;
+        PlaybarVisualizer.IsStageVisible = barVisible;
         FocusVisualizer.IsStageVisible = focusVisible;
     }
 
@@ -552,6 +558,7 @@ public sealed partial class MainWindow : Window
         {
             VisualizerMode.Waveform => "Silk Waveform",
             VisualizerMode.BarsAndWaveform => "Bars + Wave",
+            VisualizerMode.Off => "Visualizer: Off",
             _ => "Spectrum"
         };
     }
@@ -653,7 +660,11 @@ public sealed partial class MainWindow : Window
                 _allTracks.AddRange(batch);
                 if (_activePlaylist == null && _activeFacet == "all" && string.IsNullOrWhiteSpace(SearchBox.Text))
                 {
-                    foreach (var t in batch) _visibleTracks.Add(t);
+                    foreach (var t in batch)
+                    {
+                        t.IsEvenRow = (_visibleTracks.Count & 1) == 1;
+                        _visibleTracks.Add(t);
+                    }
                 }
             });
         }, cacheMap);
@@ -804,10 +815,14 @@ public sealed partial class MainWindow : Window
         var previousSelection = GetPrimarySelectedTrack();
         var filtered = source.ToList();
 
-        string? playingPath = _engine.CurrentPath;
+        string? playingPath = _activePlayingPathForLyrics ?? _engine.CurrentPath;
         bool hasPlaying = !string.IsNullOrEmpty(playingPath);
-        foreach (var t in filtered)
+        for (int i = 0; i < filtered.Count; i++)
+        {
+            var t = filtered[i];
             t.IsNowPlaying = hasPlaying && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
+            t.IsEvenRow = (i & 1) == 1;
+        }
 
         if (!_visibleTracks.SequenceEqual(filtered))
         {
@@ -954,9 +969,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateSidebarCounts()
     {
-        int total = _allTracks.Count;
-        FacetAllText.Text = total > 0 ? $"All music ({total:N0})" : "All music";
-        PlaylistsEmptyHint.Visibility = _playlists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SyncRightPanelList();
     }
 
     private void UpdateStatusFooter() { }
@@ -1021,7 +1034,7 @@ public sealed partial class MainWindow : Window
             foreach (var t in _visibleTracks) _queueTracks.Add(t);
             _queueIndex = _queueTracks.IndexOf(playing);
             UpdateQueueHeader();
-            if (_queueIndex >= 0)
+            if (_editingPlaylist == null && _queueIndex >= 0)
             {
                 QueueListView.SelectedIndex = _queueIndex;
                 QueueListView.ScrollIntoView(playing);
@@ -1114,8 +1127,6 @@ public sealed partial class MainWindow : Window
         RefreshVisibleTracks();
     }
 
-    private void AllMusicBtn_Click(object sender, RoutedEventArgs e) => ScopeClearBtn_Click(sender, e);
-
     private void ScopeClearBtn_Click(object sender, RoutedEventArgs e)
     {
         _activeAlbumFilter = null;
@@ -1124,7 +1135,6 @@ public sealed partial class MainWindow : Window
         _activePlaylist = null;
         _activeCustomFilter = null;
         _activeFacet = "all";
-        PlaylistsList.SelectedIndex = -1;
         if (!string.IsNullOrEmpty(SearchBox.Text))
             SearchBox.Text = string.Empty;
         RefreshVisibleTracks();
@@ -1147,7 +1157,6 @@ public sealed partial class MainWindow : Window
     private void HygienePreset_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem item || item.Tag is not string key) return;
-        PlaylistsList.SelectedIndex = -1;
         _activePlaylist = null;
         _activeCustomFilter = null;
         _activeArtistFilter = null;
@@ -1156,39 +1165,163 @@ public sealed partial class MainWindow : Window
         RefreshVisibleTracks();
     }
 
-    private void PlaylistsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OpenRightPanel()
     {
-        if (!_initialized || PlaylistsList.SelectedItem is not SavedPlaylist pl) return;
-        _activeCustomFilter = null;
-        _activeHygiene = null;
-        _activeArtistFilter = null;
-        _activeAlbumFilter = null;
-        _activePlaylist = pl;
-        RefreshVisibleTracks();
+        if (_isMiniPlayer) SetMiniPlayerMode(false);
+        if (_rightPaneOpen) return;
+        _rightPaneOpen = true;
+        _settings.RightPaneOpen = true;
+        ApplyPaneWidths();
+        _settings.Save();
     }
 
-    private void PlaylistsList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private void RefreshRightListModeCombo()
     {
-        if (IsInsideButton(e.OriginalSource as DependencyObject)) return;
-        if (PlaylistsList.SelectedItem is SavedPlaylist pl)
-            PlayPlaylistTracks(pl);
+        _suppressRightComboChanged = true;
+        try
+        {
+            RightListModeCombo.Items.Clear();
+            string qLabel = _queueTracks.Count > 0 ? $"Play Queue ({_queueTracks.Count:N0})" : "Play Queue";
+            var qItem = new ComboBoxItem { Content = qLabel, Tag = "queue" };
+            RightListModeCombo.Items.Add(qItem);
+
+            ComboBoxItem selectedItem = qItem;
+            foreach (var pl in _playlists)
+            {
+                var item = new ComboBoxItem { Content = $"\u266B  {pl.Name} ({pl.TrackCount})", Tag = pl };
+                RightListModeCombo.Items.Add(item);
+                if (pl == _editingPlaylist)
+                    selectedItem = item;
+            }
+            RightListModeCombo.SelectedItem = selectedItem;
+        }
+        finally
+        {
+            _suppressRightComboChanged = false;
+        }
     }
 
-    private void PlaylistRowPlayBtn_Click(object sender, RoutedEventArgs e)
+    private Dictionary<string, TrackItem> BuildTrackLookupByPath()
     {
-        if ((sender as FrameworkElement)?.Tag is SavedPlaylist pl)
-            PlayPlaylistTracks(pl);
+        var byPath = new Dictionary<string, TrackItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in _allTracks)
+            byPath[t.Path] = t;
+        return byPath;
     }
 
-    private void PlaylistRowMenuBtn_Click(object sender, RoutedEventArgs e)
+    private void SyncRightPanelList(bool refreshCombo = true)
     {
-        if (sender is FrameworkElement fe && fe.Tag is SavedPlaylist pl)
-            ShowPlaylistContextMenu(pl, fe, null);
+        string? playingPath = _activePlayingPathForLyrics ?? _engine.CurrentPath;
+        bool hasPath = !string.IsNullOrEmpty(playingPath);
+
+        bool prevSuppress = _suppressSelectionChanged;
+        _suppressSelectionChanged = true;
+        try
+        {
+            if (_editingPlaylist == null)
+            {
+                foreach (var t in _queueTracks)
+                    t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
+
+                if (!ReferenceEquals(QueueListView.ItemsSource, _queueTracks))
+                    QueueListView.ItemsSource = _queueTracks;
+                RightListEmptyHint.Text = "Play queue is empty.\nDouble-click any song to play\nor drag tracks here.";
+                RightListEmptyHint.Visibility = _queueTracks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+                if (QueueListView.SelectedItem == null)
+                {
+                    var playingInQueue = (_queueIndex >= 0 && _queueIndex < _queueTracks.Count)
+                        ? _queueTracks[_queueIndex]
+                        : _queueTracks.FirstOrDefault(t => t.IsNowPlaying);
+                    if (playingInQueue != null)
+                    {
+                        QueueListView.SelectedItem = playingInQueue;
+                        QueueListView.ScrollIntoView(playingInQueue);
+                    }
+                }
+            }
+            else
+            {
+                var byPath = BuildTrackLookupByPath();
+                var desiredTracks = new List<TrackItem>();
+                foreach (string p in _editingPlaylist.TrackPaths)
+                {
+                    if (byPath.TryGetValue(p, out var item))
+                    {
+                        item.IsNowPlaying = hasPath && string.Equals(item.Path, playingPath, StringComparison.OrdinalIgnoreCase);
+                        desiredTracks.Add(item);
+                    }
+                }
+
+                if (!_editingPlaylistTracks.SequenceEqual(desiredTracks))
+                {
+                    _editingPlaylistTracks.Clear();
+                    foreach (var item in desiredTracks)
+                        _editingPlaylistTracks.Add(item);
+                }
+
+                if (!ReferenceEquals(QueueListView.ItemsSource, _editingPlaylistTracks))
+                    QueueListView.ItemsSource = _editingPlaylistTracks;
+                RightListEmptyHint.Text = $"\"{_editingPlaylist.Name}\" is empty.\nDrag songs here from your library\nor right-click songs \u2192 Add to playlist.";
+                RightListEmptyHint.Visibility = _editingPlaylistTracks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+                if (QueueListView.SelectedItem == null)
+                {
+                    var playingInPl = _editingPlaylistTracks.FirstOrDefault(t => t.IsNowPlaying);
+                    if (playingInPl != null)
+                    {
+                        QueueListView.SelectedItem = playingInPl;
+                        QueueListView.ScrollIntoView(playingInPl);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _suppressSelectionChanged = prevSuppress;
+        }
+
+        if (refreshCombo)
+            RefreshRightListModeCombo();
     }
 
-    private void PlayPlaylistTracks(SavedPlaylist pl)
+    private void QueueListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var byPath = _allTracks.ToDictionary(t => t.Path, StringComparer.OrdinalIgnoreCase);
+        if (_suppressSelectionChanged) return;
+        if (QueueListView.SelectedItem is not TrackItem track) return;
+        SyncSelectionAcrossViews(track);
+        UpdateInspectorForSelection(track);
+        ScrollActiveViewToTrack(track);
+    }
+
+    private void RightListModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressRightComboChanged) return;
+        _editingPlaylist = (RightListModeCombo.SelectedItem as ComboBoxItem)?.Tag as SavedPlaylist;
+        SyncRightPanelList(refreshCombo: false);
+    }
+
+    private void RightListPlayBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_editingPlaylist != null)
+        {
+            PlayPlaylistTracks(_editingPlaylist, QueueListView.SelectedItem as TrackItem);
+        }
+        else if (_queueTracks.Count > 0)
+        {
+            int idx = QueueListView.SelectedIndex >= 0 && QueueListView.SelectedIndex < _queueTracks.Count
+                ? QueueListView.SelectedIndex
+                : (_queueIndex >= 0 && _queueIndex < _queueTracks.Count ? _queueIndex : 0);
+            PlayQueueIndex(idx);
+        }
+    }
+
+    private void RightListMenuBtn_Click(object sender, RoutedEventArgs e)
+        => ShowRightPanelManagementMenu(RightListMenuBtn, null, null);
+
+    private void PlayPlaylistTracks(SavedPlaylist pl, TrackItem? startTrack = null)
+    {
+        var byPath = BuildTrackLookupByPath();
         var tracks = new List<TrackItem>();
         foreach (string p in pl.TrackPaths)
         {
@@ -1196,119 +1329,103 @@ public sealed partial class MainWindow : Window
         }
         if (tracks.Count == 0)
         {
-            PlaylistsList.SelectedItem = pl;
             ShowHudPill($"\"{pl.Name}\" has no tracks yet");
             return;
         }
-        PlaylistsList.SelectedItem = pl;
-        PlayFromList(tracks, tracks[0]);
+        var first = startTrack != null && tracks.Contains(startTrack) ? startTrack : tracks[0];
+        PlayFromList(tracks, first);
     }
 
-    private void PlaylistsList_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    private async Task RenamePlaylistAsync(SavedPlaylist pl)
     {
-        var src = e.OriginalSource as DependencyObject;
-        var lvi = FindAncestor<ListViewItem>(src);
-        var pl = (src as FrameworkElement)?.DataContext as SavedPlaylist
-            ?? (src as FrameworkElement)?.Tag as SavedPlaylist
-            ?? lvi?.Content as SavedPlaylist
-            ?? (lvi != null ? PlaylistsList.ItemFromContainer(lvi) as SavedPlaylist : null);
-        if (pl == null) return;
-        PlaylistsList.SelectedItem = pl;
-        ShowPlaylistContextMenu(pl, PlaylistsList, e.GetPosition(PlaylistsList));
-    }
-
-    private void ShowPlaylistContextMenu(SavedPlaylist pl, FrameworkElement target, Point? pos)
-    {
-        var menu = new MenuFlyout();
-
-        var playPlItem = new MenuFlyoutItem { Text = "Play playlist" };
-        playPlItem.Click += (_, _) => PlayPlaylistTracks(pl);
-        menu.Items.Add(playPlItem);
-
-        var selected = GetSelectedTracks();
-        if (selected.Count > 0 && _activePlaylist != pl)
+        var box = new TextBox { Text = pl.Name, PlaceholderText = "Playlist name" };
+        var dlg = new ContentDialog
         {
-            var addSelItem = new MenuFlyoutItem { Text = $"Add {selected.Count} selected track(s)" };
-            addSelItem.Click += (_, _) =>
-            {
-                int added = AddTracksToPlaylist(pl, selected);
-                ShowHudPill(added > 0 ? $"Added {added} track(s) to \"{pl.Name}\"" : $"Already in \"{pl.Name}\"");
-            };
-            menu.Items.Add(addSelItem);
-        }
-
-        menu.Items.Add(new MenuFlyoutSeparator());
-
-        var renameItem = new MenuFlyoutItem { Text = "Rename playlist..." };
-        renameItem.Click += async (_, _) =>
-        {
-            var box = new TextBox { Text = pl.Name, PlaceholderText = "Playlist name" };
-            var dlg = new ContentDialog
-            {
-                Title = "Rename playlist",
-                Content = box,
-                PrimaryButtonText = "Save",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = RootGrid.XamlRoot,
-                RequestedTheme = RootGrid.RequestedTheme
-            };
-            DialogFooter.MainButtonOnRight(dlg);
-            if (await dlg.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(box.Text))
-            {
-                pl.Name = box.Text.Trim();
-                _settings.Save();
-                if (_activePlaylist == pl) RefreshVisibleTracks();
-            }
+            Title = "Rename playlist",
+            Content = box,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
         };
-        menu.Items.Add(renameItem);
-
-        var exportItem = new MenuFlyoutItem { Text = "Export M3U8..." };
-        exportItem.Click += async (_, _) => await ExportPlaylistM3u8Async(pl);
-        menu.Items.Add(exportItem);
-
-        menu.Items.Add(new MenuFlyoutSeparator());
-
-        var deleteItem = new MenuFlyoutItem { Text = $"Delete \"{pl.Name}\"" };
-        deleteItem.Click += (_, _) =>
+        DialogFooter.MainButtonOnRight(dlg);
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(box.Text))
         {
-            int oldIdx = _playlists.IndexOf(pl);
-            _playlists.Remove(pl);
-            _settings.Playlists.Remove(pl);
+            pl.Name = box.Text.Trim();
             _settings.Save();
-            PlaylistsEmptyHint.Visibility = _playlists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (_activePlaylist == pl)
-            {
-                _activePlaylist = null;
-                PlaylistsList.SelectedIndex = -1;
-                RefreshVisibleTracks();
-            }
-            PushUndo(() =>
-            {
-                int insertIdx = Math.Clamp(oldIdx, 0, _playlists.Count);
-                _playlists.Insert(insertIdx, pl);
-                _settings.Playlists.Insert(insertIdx, pl);
-                _settings.Save();
-                PlaylistsEmptyHint.Visibility = Visibility.Collapsed;
-                ShowHudPill($"Restored playlist \"{pl.Name}\"");
-                return Task.CompletedTask;
-            });
-            ShowHudPill($"Deleted \"{pl.Name}\" (Ctrl+Z to undo)");
-        };
-        menu.Items.Add(deleteItem);
-
-        if (pos.HasValue)
-            menu.ShowAt(target, pos.Value);
-        else
-            menu.ShowAt(target);
+            if (_activePlaylist == pl) RefreshVisibleTracks();
+            else SyncRightPanelList();
+        }
     }
 
-    private void LeftPaneToggleBtn_Click(object sender, RoutedEventArgs e)
+    private void DuplicatePlaylist(SavedPlaylist source)
     {
-        _leftPaneOpen = !_leftPaneOpen;
-        _settings.LeftPaneOpen = _leftPaneOpen;
-        ApplyPaneWidths();
+        var copy = new SavedPlaylist
+        {
+            Name = $"{source.Name} (Copy)",
+            TrackPaths = source.TrackPaths.ToList()
+        };
+        _playlists.Add(copy);
+        _settings.Playlists.Add(copy);
         _settings.Save();
+        _editingPlaylist = copy;
+        SyncRightPanelList();
+        ShowHudPill($"Duplicated as \"{copy.Name}\" ({copy.TrackCount} tracks)");
+    }
+
+    private void DeletePlaylistWithUndo(SavedPlaylist pl)
+    {
+        int oldIdx = _playlists.IndexOf(pl);
+        _playlists.Remove(pl);
+        _settings.Playlists.Remove(pl);
+        _settings.Save();
+        if (_editingPlaylist == pl)
+            _editingPlaylist = null;
+        if (_activePlaylist == pl)
+        {
+            _activePlaylist = null;
+            RefreshVisibleTracks();
+        }
+        else
+        {
+            SyncRightPanelList();
+        }
+        PushUndo(() =>
+        {
+            int insertIdx = Math.Clamp(oldIdx, 0, _playlists.Count);
+            _playlists.Insert(insertIdx, pl);
+            _settings.Playlists.Insert(insertIdx, pl);
+            _settings.Save();
+            _editingPlaylist = pl;
+            SyncRightPanelList();
+            ShowHudPill($"Restored playlist \"{pl.Name}\"");
+            return Task.CompletedTask;
+        });
+        ShowHudPill($"Deleted \"{pl.Name}\" (Ctrl+Z to undo)");
+    }
+
+    private void ClearPlaylistTracksWithUndo(SavedPlaylist pl)
+    {
+        if (pl.TrackPaths.Count == 0) return;
+        var snapshot = pl.TrackPaths.ToList();
+        pl.TrackPaths.Clear();
+        pl.NotifyTracksChanged();
+        _settings.Save();
+        if (_activePlaylist == pl) RefreshVisibleTracks();
+        else SyncRightPanelList();
+        PushUndo(() =>
+        {
+            pl.TrackPaths.Clear();
+            pl.TrackPaths.AddRange(snapshot);
+            pl.NotifyTracksChanged();
+            _settings.Save();
+            if (_activePlaylist == pl) RefreshVisibleTracks();
+            else SyncRightPanelList();
+            ShowHudPill($"Undone: Restored tracks to \"{pl.Name}\"");
+            return Task.CompletedTask;
+        });
+        ShowHudPill($"Cleared \"{pl.Name}\" (Ctrl+Z to undo)");
     }
 
     private void RightPaneToggleBtn_Click(object sender, RoutedEventArgs e)
@@ -1345,70 +1462,51 @@ public sealed partial class MainWindow : Window
         e.Data.RequestedOperation = DataPackageOperation.Copy;
     }
 
-    private SavedPlaylist? HitTestPlaylistRow(DragEventArgs e)
-    {
-        for (int i = 0; i < _playlists.Count; i++)
-        {
-            if (PlaylistsList.ContainerFromIndex(i) is not UIElement container) continue;
-            try
-            {
-                var pt = e.GetPosition(container);
-                if (pt.X >= 0 && pt.Y >= 0 && pt.X <= container.ActualSize.X && pt.Y <= container.ActualSize.Y)
-                    return _playlists[i];
-            }
-            catch { }
-        }
-        return null;
-    }
-
-    private void PlaylistsList_DragOver(object sender, DragEventArgs e)
+    private void QueueListView_DragOver(object sender, DragEventArgs e)
     {
         if (_draggedTracks is not { Count: > 0 }) return;
         e.AcceptedOperation = DataPackageOperation.Copy;
-        var target = HitTestPlaylistRow(e);
-        e.DragUIOverride.Caption = target != null
-            ? $"Add {_draggedTracks.Count} track(s) to \"{target.Name}\""
-            : $"Create playlist from {_draggedTracks.Count} track(s)";
+        e.DragUIOverride.Caption = _editingPlaylist != null
+            ? $"Add {_draggedTracks.Count} track(s) to \"{_editingPlaylist.Name}\""
+            : $"Enqueue {_draggedTracks.Count} track(s)";
         e.DragUIOverride.IsCaptionVisible = true;
     }
 
-    private async void PlaylistsList_Drop(object sender, DragEventArgs e)
+    private void QueueListView_Drop(object sender, DragEventArgs e)
     {
         var tracks = _draggedTracks;
         _draggedTracks = null;
         if (tracks is not { Count: > 0 }) return;
 
-        var targetPl = HitTestPlaylistRow(e);
-        if (targetPl != null)
+        if (_editingPlaylist != null)
         {
-            int added = AddTracksToPlaylist(targetPl, tracks);
-            ShowHudPill(added > 0 ? $"Added {added} track(s) to \"{targetPl.Name}\"" : $"Already in \"{targetPl.Name}\"");
+            int added = AddTracksToPlaylist(_editingPlaylist, tracks);
+            ShowHudPill(added > 0
+                ? $"Added {added} track(s) to \"{_editingPlaylist.Name}\""
+                : $"Already in \"{_editingPlaylist.Name}\"");
             return;
         }
-        await CreatePlaylistAsync(tracks);
-    }
 
-    private void QueueListView_DragOver(object sender, DragEventArgs e)
-    {
-        if (_draggedTracks is { Count: > 0 })
-        {
-            e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = $"Enqueue {_draggedTracks.Count} track(s)";
-        }
-    }
-
-    private void QueueListView_Drop(object sender, DragEventArgs e)
-    {
-        if (_draggedTracks is not { Count: > 0 }) return;
-        foreach (var t in _draggedTracks)
+        foreach (var t in tracks)
             _queueTracks.Add(t);
         UpdateQueueHeader();
-        ShowHudPill($"Added {_draggedTracks.Count} track(s) to queue");
-        _draggedTracks = null;
+        ShowHudPill($"Added {tracks.Count} track(s) to queue");
     }
 
     private void QueueListView_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
     {
+        if (_editingPlaylist != null)
+        {
+            _editingPlaylist.TrackPaths.Clear();
+            foreach (var t in _editingPlaylistTracks)
+                _editingPlaylist.TrackPaths.Add(t.Path);
+            _editingPlaylist.NotifyTracksChanged();
+            _settings.Save();
+            if (_activePlaylist == _editingPlaylist) RefreshVisibleTracks();
+            else RefreshRightListModeCombo();
+            return;
+        }
+
         for (int i = 0; i < _queueTracks.Count; i++)
         {
             if (_queueTracks[i].IsNowPlaying)
@@ -1526,6 +1624,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private static bool IsInsideElement(DependencyObject? source, DependencyObject target)
+    {
+        while (source != null)
+        {
+            if (ReferenceEquals(source, target)) return true;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return false;
+    }
+
     private static bool IsInsideType<T>(DependencyObject? source) where T : DependencyObject
     {
         while (source != null)
@@ -1548,10 +1656,22 @@ public sealed partial class MainWindow : Window
 
     private void QueueListView_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (QueueListView.SelectedIndex >= 0 && QueueListView.SelectedIndex < _queueTracks.Count)
+        var tappedTrack = (e.OriginalSource as FrameworkElement)?.DataContext as TrackItem ?? QueueListView.SelectedItem as TrackItem;
+        if (_editingPlaylist != null)
         {
-            var track = _queueTracks[QueueListView.SelectedIndex];
-            PlayQueueIndex(QueueListView.SelectedIndex);
+            if (tappedTrack != null && _editingPlaylistTracks.Contains(tappedTrack))
+            {
+                PlayPlaylistTracks(_editingPlaylist, tappedTrack);
+                RevealTrackInMainList(tappedTrack);
+            }
+            return;
+        }
+
+        int qIdx = tappedTrack != null ? _queueTracks.IndexOf(tappedTrack) : QueueListView.SelectedIndex;
+        if (qIdx >= 0 && qIdx < _queueTracks.Count)
+        {
+            var track = _queueTracks[qIdx];
+            PlayQueueIndex(qIdx);
             RevealTrackInMainList(track);
         }
     }
@@ -1559,67 +1679,222 @@ public sealed partial class MainWindow : Window
     private void QueueListView_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         var hit = (e.OriginalSource as FrameworkElement)?.DataContext as TrackItem;
-        if (hit != null) QueueListView.SelectedItem = hit;
+        if (hit != null && !QueueListView.SelectedItems.Contains(hit))
+            QueueListView.SelectedItem = hit;
 
-        if (_queueTracks.Count == 0) return;
-        var menu = new MenuFlyout();
-
-        if (hit != null)
-        {
-            int idx = _queueTracks.IndexOf(hit);
-            var playHere = new MenuFlyoutItem { Text = "Play from here" };
-            playHere.Click += (_, _) =>
-            {
-                if (idx >= 0)
-                {
-                    PlayQueueIndex(idx);
-                    RevealTrackInMainList(hit);
-                }
-            };
-            menu.Items.Add(playHere);
-
-            var showInLib = new MenuFlyoutItem { Text = "Show in library" };
-            showInLib.Click += (_, _) => RevealTrackInMainList(hit);
-            menu.Items.Add(showInLib);
-
-            var removeOne = new MenuFlyoutItem { Text = "Remove from queue" };
-            removeOne.Click += (_, _) =>
-            {
-                if (idx < 0) return;
-                _queueTracks.RemoveAt(idx);
-                if (idx < _queueIndex) _queueIndex--;
-                else if (idx == _queueIndex) _queueIndex = Math.Min(_queueIndex, _queueTracks.Count - 1);
-                UpdateQueueHeader();
-            };
-            menu.Items.Add(removeOne);
-            menu.Items.Add(new MenuFlyoutSeparator());
-        }
-
-        var clearQueue = new MenuFlyoutItem { Text = "Clear queue" };
-        clearQueue.Click += (_, _) =>
-        {
-            _queueTracks.Clear();
-            _unshuffledQueue.Clear();
-            _queueIndex = -1;
-            SetNowPlayingTrack(null);
-            UpdateQueueHeader();
-        };
-        menu.Items.Add(clearQueue);
-
-        menu.ShowAt(QueueListView, e.GetPosition(QueueListView));
+        ShowRightPanelManagementMenu(QueueListView, e.GetPosition(QueueListView), hit);
     }
 
-    private void UpdateQueueHeader()
+    private void RemoveSelectedFromRightQueue(IReadOnlyList<TrackItem> selected)
     {
-        if (_queueTracks.Count == 0)
+        if (selected.Count == 0) return;
+        string? playingPath = _queueIndex >= 0 && _queueIndex < _queueTracks.Count ? _queueTracks[_queueIndex].Path : null;
+        var removeSet = new HashSet<TrackItem>(selected);
+        for (int i = _queueTracks.Count - 1; i >= 0; i--)
         {
-            QueueHeaderText.Text = "Now playing (0)";
-            return;
+            if (removeSet.Contains(_queueTracks[i]))
+                _queueTracks.RemoveAt(i);
         }
-        var total = TimeSpan.FromSeconds(_queueTracks.Sum(t => t.Duration.TotalSeconds));
-        int pos = _queueIndex >= 0 && _queueIndex < _queueTracks.Count ? _queueIndex + 1 : 0;
-        QueueHeaderText.Text = $"Now playing ({pos} / {_queueTracks.Count:N0} · {FormatLongDuration(total)})";
+        _queueIndex = playingPath != null
+            ? _queueTracks.Select((t, i) => (t, i)).FirstOrDefault(x => string.Equals(x.t.Path, playingPath, StringComparison.OrdinalIgnoreCase), (null!, -1)).i
+            : -1;
+        if (_queueTracks.Count == 0) _queueIndex = -1;
+        else if (_queueIndex < 0) _queueIndex = Math.Min(0, _queueTracks.Count - 1);
+        UpdateQueueHeader();
+        ShowHudPill($"Removed {selected.Count} track(s) from queue");
     }
+
+    private void ShowRightPanelManagementMenu(FrameworkElement target, Point? pos, TrackItem? hit = null)
+    {
+        var menu = new MenuFlyout();
+        var rightSel = QueueListView.SelectedItems.OfType<TrackItem>().ToList();
+        if (rightSel.Count == 0 && hit != null) rightSel.Add(hit);
+
+        if (_editingPlaylist != null)
+        {
+            var pl = _editingPlaylist;
+            if (hit != null)
+            {
+                var playHere = new MenuFlyoutItem { Text = "Play from here" };
+                playHere.Click += (_, _) => PlayPlaylistTracks(pl, hit);
+                menu.Items.Add(playHere);
+
+                var showInLib = new MenuFlyoutItem { Text = "Show in library" };
+                showInLib.Click += (_, _) => RevealTrackInMainList(hit);
+                menu.Items.Add(showInLib);
+            }
+            else
+            {
+                var playPl = new MenuFlyoutItem { Text = $"Play \"{pl.Name}\"" };
+                playPl.Click += (_, _) => PlayPlaylistTracks(pl);
+                menu.Items.Add(playPl);
+            }
+
+            if (rightSel.Count > 0)
+            {
+                var removeFromPl = new MenuFlyoutItem { Text = $"Remove {rightSel.Count} selected track(s) from \"{pl.Name}\"" };
+                removeFromPl.Click += (_, _) => RemoveTracksFromPlaylist(pl, rightSel);
+                menu.Items.Add(removeFromPl);
+            }
+
+            var mainSel = GetSelectedTracks();
+            if (mainSel.Count > 0)
+            {
+                var addLibSel = new MenuFlyoutItem { Text = $"Add {mainSel.Count} selected library track(s) to \"{pl.Name}\"" };
+                addLibSel.Click += (_, _) =>
+                {
+                    int added = AddTracksToPlaylist(pl, mainSel);
+                    ShowHudPill(added > 0 ? $"Added {added} track(s) to \"{pl.Name}\"" : $"Already in \"{pl.Name}\"");
+                };
+                menu.Items.Add(addLibSel);
+            }
+
+            var toggleMainScope = new MenuFlyoutItem
+            {
+                Text = _activePlaylist == pl ? "Show all music in main table" : $"Show only \"{pl.Name}\" in main table"
+            };
+            toggleMainScope.Click += (_, _) =>
+            {
+                if (_activePlaylist == pl)
+                {
+                    _activePlaylist = null;
+                }
+                else
+                {
+                    _activeCustomFilter = null;
+                    _activeHygiene = null;
+                    _activeArtistFilter = null;
+                    _activeAlbumFilter = null;
+                    _activePlaylist = pl;
+                }
+                RefreshVisibleTracks();
+            };
+            menu.Items.Add(toggleMainScope);
+
+            menu.Items.Add(new MenuFlyoutSeparator());
+
+            var newPl = new MenuFlyoutItem { Text = "New playlist..." };
+            newPl.Click += async (_, _) => await CreatePlaylistAsync(GetSelectedTracks());
+            menu.Items.Add(newPl);
+
+            var importPl = new MenuFlyoutItem { Text = "Import .m3u / .m3u8..." };
+            importPl.Click += ImportPlaylistBtn_Click;
+            menu.Items.Add(importPl);
+
+            var renamePl = new MenuFlyoutItem { Text = $"Rename \"{pl.Name}\"..." };
+            renamePl.Click += async (_, _) => await RenamePlaylistAsync(pl);
+            menu.Items.Add(renamePl);
+
+            var dupPl = new MenuFlyoutItem { Text = $"Duplicate \"{pl.Name}\"" };
+            dupPl.Click += (_, _) => DuplicatePlaylist(pl);
+            menu.Items.Add(dupPl);
+
+            var exportPl = new MenuFlyoutItem { Text = $"Export \"{pl.Name}\" (.m3u8)..." };
+            exportPl.Click += async (_, _) => await ExportPlaylistM3u8Async(pl);
+            menu.Items.Add(exportPl);
+
+            menu.Items.Add(new MenuFlyoutSeparator());
+
+            if (pl.TrackPaths.Count > 0)
+            {
+                var clearPl = new MenuFlyoutItem { Text = $"Clear all tracks from \"{pl.Name}\"" };
+                clearPl.Click += (_, _) => ClearPlaylistTracksWithUndo(pl);
+                menu.Items.Add(clearPl);
+            }
+
+            var delPl = new MenuFlyoutItem { Text = $"Delete \"{pl.Name}\"" };
+            delPl.Click += (_, _) => DeletePlaylistWithUndo(pl);
+            menu.Items.Add(delPl);
+        }
+        else
+        {
+            if (hit != null)
+            {
+                int idx = _queueTracks.IndexOf(hit);
+                var playHere = new MenuFlyoutItem { Text = "Play from here" };
+                playHere.Click += (_, _) =>
+                {
+                    if (idx >= 0)
+                    {
+                        PlayQueueIndex(idx);
+                        RevealTrackInMainList(hit);
+                    }
+                };
+                menu.Items.Add(playHere);
+
+                var showInLib = new MenuFlyoutItem { Text = "Show in library" };
+                showInLib.Click += (_, _) => RevealTrackInMainList(hit);
+                menu.Items.Add(showInLib);
+            }
+
+            if (rightSel.Count > 0)
+            {
+                var saveSelPl = new MenuFlyoutItem { Text = $"Save {rightSel.Count} selected track(s) as playlist..." };
+                saveSelPl.Click += async (_, _) => await CreatePlaylistAsync(rightSel);
+                menu.Items.Add(saveSelPl);
+
+                if (_playlists.Count > 0)
+                {
+                    var addSub = new MenuFlyoutSubItem { Text = $"Add {rightSel.Count} selected to playlist" };
+                    foreach (var pl in _playlists)
+                    {
+                        var item = new MenuFlyoutItem { Text = $"{pl.Name} ({pl.TrackCount})" };
+                        item.Click += (_, _) =>
+                        {
+                            int added = AddTracksToPlaylist(pl, rightSel);
+                            ShowHudPill(added > 0 ? $"Added {added} to \"{pl.Name}\"" : $"Already in \"{pl.Name}\"");
+                        };
+                        addSub.Items.Add(item);
+                    }
+                    menu.Items.Add(addSub);
+                }
+
+                var removeQ = new MenuFlyoutItem { Text = $"Remove {rightSel.Count} selected from queue" };
+                removeQ.Click += (_, _) => RemoveSelectedFromRightQueue(rightSel);
+                menu.Items.Add(removeQ);
+            }
+
+            if (menu.Items.Count > 0)
+                menu.Items.Add(new MenuFlyoutSeparator());
+
+            if (_queueTracks.Count > 0)
+            {
+                var curateQ = new MenuFlyoutItem { Text = "Curate playlist from queue..." };
+                curateQ.Click += async (_, _) => await OpenQueueToPlaylistDialogAsync();
+                menu.Items.Add(curateQ);
+            }
+
+            var newPl = new MenuFlyoutItem { Text = "New playlist..." };
+            newPl.Click += async (_, _) => await CreatePlaylistAsync(GetSelectedTracks());
+            menu.Items.Add(newPl);
+
+            var importPl = new MenuFlyoutItem { Text = "Import .m3u / .m3u8..." };
+            importPl.Click += ImportPlaylistBtn_Click;
+            menu.Items.Add(importPl);
+
+            if (_queueTracks.Count > 0)
+            {
+                menu.Items.Add(new MenuFlyoutSeparator());
+                var clearQueue = new MenuFlyoutItem { Text = "Clear queue" };
+                clearQueue.Click += (_, _) =>
+                {
+                    _queueTracks.Clear();
+                    _unshuffledQueue.Clear();
+                    _queueIndex = -1;
+                    SetNowPlayingTrack(null);
+                    UpdateQueueHeader();
+                };
+                menu.Items.Add(clearQueue);
+            }
+        }
+
+        if (pos.HasValue)
+            menu.ShowAt(target, pos.Value);
+        else
+            menu.ShowAt(target);
+    }
+
+    private void UpdateQueueHeader() => SyncRightPanelList();
 
     private void RightPaneSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -1684,14 +1959,44 @@ public sealed partial class MainWindow : Window
 
         _queueIndex = index;
         var track = _queueTracks[index];
+        _activePlayingPathForLyrics = track.Path;
+        _engine.PlayFile(track.Path);
         SetNowPlayingTrack(track.Path);
         track.PlayCount++;
         track.LastPlayedUtc = DateTime.UtcNow;
-        _activePlayingPathForLyrics = track.Path;
 
         UpdateQueueHeader();
-        QueueListView.SelectedIndex = index;
-        QueueListView.ScrollIntoView(track);
+        bool prevSuppress = _suppressSelectionChanged;
+        _suppressSelectionChanged = true;
+        try
+        {
+            if (_editingPlaylist == null)
+            {
+                QueueListView.SelectedIndex = index;
+                QueueListView.ScrollIntoView(track);
+            }
+            else
+            {
+                int plIdx = _editingPlaylistTracks.IndexOf(track);
+                if (plIdx >= 0)
+                {
+                    QueueListView.SelectedIndex = plIdx;
+                    QueueListView.ScrollIntoView(_editingPlaylistTracks[plIdx]);
+                }
+                else
+                {
+                    QueueListView.SelectedItem = null;
+                }
+            }
+        }
+        finally
+        {
+            _suppressSelectionChanged = prevSuppress;
+        }
+
+        SyncSelectionAcrossViews(track);
+        UpdateInspectorForSelection(track);
+        ScrollActiveViewToTrack(track);
 
         NowPlayingTitleText.Text = track.DisplayTitle;
         NowPlayingArtistText.Text = string.IsNullOrWhiteSpace(track.Artist) ? track.FileName : track.Artist;
@@ -1699,10 +2004,11 @@ public sealed partial class MainWindow : Window
         FocusTitleText.Text = track.DisplayTitle;
         FocusArtistText.Text = NowPlayingArtistText.Text;
         FocusRatingCell.Value = track.Rating;
+        _seekProgressRatio = 0.0;
+        SeekRailCanvas?.Invalidate();
 
         _ = LoadPlayingArtAndSmtcAsync(track);
         _ = LoadFocusLyricsAsync(track.Path);
-        _engine.PlayFile(track.Path);
     }
 
     private async Task LoadPlayingArtAndSmtcAsync(TrackItem track)
@@ -1771,6 +2077,7 @@ public sealed partial class MainWindow : Window
             !string.Equals(_selectedLyricsTrackPath, _engine.CurrentPath, StringComparison.OrdinalIgnoreCase))
             return;
         _engine.Seek(line.Timestamp);
+        SyncPlaybackProgressUi(line.Timestamp, _engine.Duration);
         if (!_engine.IsPlaying && _engine.CurrentPath != null)
             _engine.Resume();
     }
@@ -1778,6 +2085,7 @@ public sealed partial class MainWindow : Window
     private void Engine_PlaybackStateChanged(bool playing)
     {
         PlayPauseIcon.Glyph = playing ? "\uE769" : "\uE768";
+        PlaybarVisualizerLeft.IsAudioPlaying = playing;
         PlaybarVisualizer.IsAudioPlaying = playing;
         FocusVisualizer.IsAudioPlaying = playing;
 
@@ -1800,12 +2108,8 @@ public sealed partial class MainWindow : Window
         try { await dialog.ShowAsync(); } catch { }
     }
 
-    private void ProgressTimer_Tick(object? sender, object e)
+    private void SyncPlaybackProgressUi(TimeSpan pos, TimeSpan dur)
     {
-        if (_isDraggingSeek) return;
-        var pos = _engine.Position;
-        var dur = _engine.Duration;
-
         ElapsedTimeText.Text = FormatTime(pos);
         TotalTimeText.Text = FormatTime(dur);
 
@@ -1816,9 +2120,23 @@ public sealed partial class MainWindow : Window
             {
                 SeekSlider.Maximum = dur.TotalSeconds;
                 SeekSlider.Value = Math.Clamp(pos.TotalSeconds, 0, dur.TotalSeconds);
+                _seekProgressRatio = Math.Clamp(pos.TotalSeconds / dur.TotalSeconds, 0.0, 1.0);
             }
             finally { _isUpdatingSeekSlider = false; }
         }
+        else
+        {
+            _seekProgressRatio = 0.0;
+        }
+        SeekRailCanvas?.Invalidate();
+    }
+
+    private void ProgressTimer_Tick(object? sender, object e)
+    {
+        if (_isDraggingSeek) return;
+        var pos = _engine.Position;
+        var dur = _engine.Duration;
+        SyncPlaybackProgressUi(pos, dur);
 
         if (FocusVisualizerOverlay.Visibility == Visibility.Visible)
         {
@@ -1908,6 +2226,7 @@ public sealed partial class MainWindow : Window
         if (_engine.Position.TotalSeconds > 3)
         {
             _engine.Seek(TimeSpan.Zero);
+            SyncPlaybackProgressUi(TimeSpan.Zero, _engine.Duration);
             return;
         }
         int prev = _queueIndex - 1;
@@ -1915,7 +2234,11 @@ public sealed partial class MainWindow : Window
         PlayQueueIndex(prev);
     }
 
-    private void SeekSlider_PointerPressed(object sender, PointerRoutedEventArgs e) => _isDraggingSeek = true;
+    private void SeekSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _isDraggingSeek = true;
+        SeekRailCanvas?.Invalidate();
+    }
 
     private void SeekSlider_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
@@ -1925,11 +2248,19 @@ public sealed partial class MainWindow : Window
             var target = TimeSpan.FromSeconds(SeekSlider.Value);
             _engine.Seek(target);
             ElapsedTimeText.Text = FormatTime(target);
+            _seekProgressRatio = Math.Clamp(target.TotalSeconds / _engine.Duration.TotalSeconds, 0.0, 1.0);
         }
+        SeekRailCanvas?.Invalidate();
     }
 
     private void SeekSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
+        if (SeekSlider.Maximum > 0)
+        {
+            _seekProgressRatio = Math.Clamp(e.NewValue / SeekSlider.Maximum, 0.0, 1.0);
+            SeekRailCanvas?.Invalidate();
+        }
+
         if (_isUpdatingSeekSlider || _engine == null || _engine.Duration.TotalSeconds <= 0) return;
         if (_isDraggingSeek)
         {
@@ -1942,12 +2273,29 @@ public sealed partial class MainWindow : Window
 
     private void SeekSlider_KeyUp(object sender, KeyRoutedEventArgs e) => _engine.Seek(TimeSpan.FromSeconds(SeekSlider.Value));
 
+    private void SeekSlider_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _isHoveringSeek = true;
+        SeekRailCanvas?.Invalidate();
+    }
+
+    private void SeekSlider_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _isHoveringSeek = false;
+        SeekRailCanvas?.Invalidate();
+    }
+
     private void SeekSlider_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (_engine == null || _engine.Duration.TotalSeconds <= 0 || SeekSlider.ActualWidth <= 0) return;
         double ratio = Math.Clamp(e.GetCurrentPoint(SeekSlider).Position.X / SeekSlider.ActualWidth, 0.0, 1.0);
         var hoverTime = TimeSpan.FromSeconds(ratio * _engine.Duration.TotalSeconds);
         ToolTipService.SetToolTip(SeekSlider, $"{FormatTime(hoverTime)} / {FormatTime(_engine.Duration)}");
+    }
+
+    private void SeekRailCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, _seekProgressRatio, _isHoveringSeek || _isDraggingSeek);
     }
 
     private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -1957,6 +2305,54 @@ public sealed partial class MainWindow : Window
         if (e.NewValue > 0) _isMuted = false;
         _engine.SetVolume(e.NewValue);
         UpdateVolumeIcon(e.NewValue);
+        VolumeRailCanvas?.Invalidate();
+    }
+
+    private void VolumeSlider_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _isHoveringVolume = true;
+        VolumeRailCanvas?.Invalidate();
+    }
+
+    private void VolumeSlider_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _isHoveringVolume = false;
+        VolumeRailCanvas?.Invalidate();
+    }
+
+    private void VolumeRailCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        double ratio = VolumeSlider != null ? Math.Clamp(VolumeSlider.Value / 100.0, 0.0, 1.0) : 0.7;
+        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, ratio, _isHoveringVolume);
+    }
+
+    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering)
+    {
+        if (w <= 8f || h <= 4f) return;
+
+        // WinUI 3 Slider leaves a ~10px thumb inset on each edge so the visual dot tracks the pointer hit-target.
+        float padX = Math.Min(10f, w * 0.15f);
+        float trackW = Math.Max(1f, w - padX * 2f);
+        float midY = h * 0.5f;
+        float clampedRatio = (float)Math.Clamp(ratio, 0.0, 1.0);
+        float thumbX = padX + clampedRatio * trackW;
+
+        const float railH = 2.5f;
+        float railY = midY - railH * 0.5f;
+        ds.FillRoundedRectangle(padX, railY, trackW, railH, 1.25f, 1.25f, Color.FromArgb(56, 255, 255, 255));
+
+        float activeW = Math.Max(0f, thumbX - padX);
+        if (activeW > 0.5f)
+        {
+            ds.FillRoundedRectangle(padX, railY, activeW, railH, 1.25f, 1.25f, Color.FromArgb(255, 255, 200, 59));
+        }
+
+        if (hovering)
+        {
+            ds.FillCircle(thumbX, midY, 7.2f, Color.FromArgb(65, 255, 200, 59));
+        }
+        ds.FillCircle(thumbX, midY, hovering ? 5.6f : 5.4f, Color.FromArgb(95, 0, 0, 0));
+        ds.FillCircle(thumbX, midY, hovering ? 5.0f : 4.8f, Color.FromArgb(255, 255, 255, 255));
     }
 
     private void MuteBtn_Click(object sender, RoutedEventArgs e)
@@ -1985,7 +2381,8 @@ public sealed partial class MainWindow : Window
 
     private void ShuffleToggle_Click(object sender, RoutedEventArgs e)
     {
-        _settings.Shuffle = ShuffleToggle.IsChecked == true;
+        _settings.Shuffle = !_settings.Shuffle;
+        UpdateShuffleButtonVisual();
         _settings.Save();
 
         if (_queueTracks.Count <= 1) return;
@@ -2011,11 +2408,19 @@ public sealed partial class MainWindow : Window
             _queueIndex = playing != null ? _queueTracks.IndexOf(playing) : (_queueTracks.Count > 0 ? 0 : -1);
         }
         UpdateQueueHeader();
-        if (_queueIndex >= 0 && _queueIndex < _queueTracks.Count)
+        if (_editingPlaylist == null && _queueIndex >= 0 && _queueIndex < _queueTracks.Count)
         {
             QueueListView.SelectedIndex = _queueIndex;
             QueueListView.ScrollIntoView(_queueTracks[_queueIndex]);
         }
+    }
+
+    private void UpdateShuffleButtonVisual()
+    {
+        bool active = _settings.Shuffle;
+        ShuffleIcon.Foreground = active ? PlaybarGoldBrush : PlaybarMutedIconBrush;
+        ShuffleActiveDot.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(ShuffleToggle, active ? "Shuffle on" : "Shuffle off");
     }
 
     private void RepeatToggle_Click(object sender, RoutedEventArgs e)
@@ -2028,8 +2433,10 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRepeatButtonVisual()
     {
-        RepeatToggle.IsChecked = _settings.RepeatMode != 0;
+        bool active = _settings.RepeatMode != 0;
         RepeatIcon.Glyph = _settings.RepeatMode == 2 ? "\uE8ED" : "\uE8EE";
+        RepeatIcon.Foreground = active ? PlaybarGoldBrush : PlaybarMutedIconBrush;
+        RepeatActiveDot.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(RepeatToggle, _settings.RepeatMode switch
         {
             0 => "Repeat off (Click to cycle)",
@@ -2038,9 +2445,10 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private void VisualizerToggleBtn_Click(object sender, RoutedEventArgs e)
+    private void SetVisualizerModeAndSave(VisualizerMode mode)
     {
-        _settings.VisualizerEnabled = !_settings.VisualizerEnabled;
+        _settings.VisualizerEnabled = mode != VisualizerMode.Off;
+        _settings.VisualizerMode = mode.ToString();
         _settings.Save();
         ApplyVisualizerFromSettings();
     }
@@ -2051,16 +2459,21 @@ public sealed partial class MainWindow : Window
         {
             VisualizerMode.Spectrum => VisualizerMode.Waveform,
             VisualizerMode.Waveform => VisualizerMode.BarsAndWaveform,
+            VisualizerMode.BarsAndWaveform => VisualizerMode.Off,
             _ => VisualizerMode.Spectrum
         };
-        FocusVisualizer.Mode = next;
-        _settings.VisualizerMode = next.ToString();
-        _settings.VisualizerEnabled = true;
-        _settings.Save();
-        PlaybarVisualizer.Mode = next;
-        PlaybarVisualizerHost.Visibility = Visibility.Visible;
-        UpdateFocusVizLabel();
+        SetVisualizerModeAndSave(next);
     }
+
+    private void VisualizerContextMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { Tag: string tag } && Enum.TryParse<VisualizerMode>(tag, out var mode))
+        {
+            SetVisualizerModeAndSave(mode);
+        }
+    }
+
+    private void VisualizerContextFocusStage_Click(object sender, RoutedEventArgs e) => ToggleFocusVisualizer();
 
     private void PlaybarVisualizerHost_Tapped(object sender, TappedRoutedEventArgs e) => ToggleFocusVisualizer();
 
@@ -2081,7 +2494,7 @@ public sealed partial class MainWindow : Window
         if (!_isMiniPlayer) return;
         if (!e.GetCurrentPoint(PlaybarBorder).Properties.IsLeftButtonPressed) return;
         var src = e.OriginalSource as DependencyObject;
-        if (IsInsideButton(src) || IsInsideType<Slider>(src) || IsInsideType<StarRatingCell>(src)) return;
+        if (IsInsideButton(src) || IsInsideType<Slider>(src) || IsInsideType<StarRatingCell>(src) || IsInsideType<VisualizerControl>(src)) return;
 
         ReleaseCapture();
         SendMessage(WindowNative.GetWindowHandle(this), 0x00A1 /* WM_NCLBUTTONDOWN */, 2 /* HTCAPTION */, 0);
@@ -2107,7 +2520,7 @@ public sealed partial class MainWindow : Window
 
             double scale = RootGrid.XamlRoot?.RasterizationScale ?? 1.0;
             int targetW = Math.Clamp((int)Math.Round(900 * scale), Math.Min(700, work.Width), work.Width);
-            int targetH = Math.Clamp((int)Math.Round(72 * scale), 68, work.Height);
+            int targetH = Math.Clamp((int)Math.Round(90 * scale), 86, work.Height);
             int currentCenterX = currentPos.X + (currentSize.Width / 2);
             int currentBottomY = currentPos.Y + currentSize.Height;
             int bottomPad = (int)Math.Round(16 * scale);
@@ -2128,12 +2541,11 @@ public sealed partial class MainWindow : Window
             if (FocusVisualizerOverlay.Visibility == Visibility.Visible)
                 FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
 
-            // Hide embedded visualizer in mini mode so the scrubber keeps full width
-            PlaybarVisualizerHost.Visibility = Visibility.Collapsed;
-            PlaybarVisualizerCol.Width = new GridLength(0);
-            VisualizerToggleBtn.Visibility = Visibility.Collapsed;
             SyncVisualizerStageVisibility();
 
+            PlaybarRowDef.Height = new GridLength(1, GridUnitType.Star);
+            PlaybarBorder.Height = double.NaN;
+            PlaybarBorder.Padding = new Thickness(16, 4, 16, 6);
             PlaybarBorder.BorderThickness = new Thickness(0);
             MiniPlayerIcon.Glyph = "\uE740";
             ToolTipService.SetToolTip(MiniPlayerToggleBtn, "Expand to Full Window (Ctrl+M)");
@@ -2163,8 +2575,9 @@ public sealed partial class MainWindow : Window
             MainWorkspaceGrid.Visibility = Visibility.Visible;
             ApplyPaneWidths();
 
-            PlaybarVisualizerCol.Width = new GridLength(200);
-            VisualizerToggleBtn.Visibility = Visibility.Visible;
+            PlaybarRowDef.Height = new GridLength(74);
+            PlaybarBorder.Height = 74;
+            PlaybarBorder.Padding = new Thickness(16, 2, 16, 3);
             ApplyVisualizerFromSettings();
 
             PlaybarBorder.BorderThickness = new Thickness(0, 1, 0, 0);
@@ -2996,7 +3409,7 @@ public sealed partial class MainWindow : Window
         {
             var activePl = _activePlaylist;
             var removePlItem = new MenuFlyoutItem { Text = $"Remove from \"{activePl.Name}\"" };
-            removePlItem.Click += (_, _) => RemoveSelectionFromActivePlaylist(activePl, selected);
+            removePlItem.Click += (_, _) => RemoveTracksFromPlaylist(activePl, selected);
             menu.Items.Add(removePlItem);
         }
 
@@ -3030,25 +3443,28 @@ public sealed partial class MainWindow : Window
         menu.ShowAt(view, e.GetPosition(view));
     }
 
-    private void RemoveSelectionFromActivePlaylist(SavedPlaylist activePl, IReadOnlyList<TrackItem> selected)
+    private void RemoveTracksFromPlaylist(SavedPlaylist pl, IReadOnlyList<TrackItem> selected)
     {
-        var snapshot = activePl.TrackPaths.ToList();
+        var snapshot = pl.TrackPaths.ToList();
         var toRemove = new HashSet<string>(selected.Select(s => s.Path), StringComparer.OrdinalIgnoreCase);
-        int removed = activePl.TrackPaths.RemoveAll(p => toRemove.Contains(p));
+        int removed = pl.TrackPaths.RemoveAll(p => toRemove.Contains(p));
         if (removed <= 0) return;
-        activePl.NotifyTracksChanged();
+        pl.NotifyTracksChanged();
         _settings.Save();
-        RefreshVisibleTracks();
+        if (_activePlaylist == pl) RefreshVisibleTracks();
+        else SyncRightPanelList();
         PushUndo(() =>
         {
-            activePl.TrackPaths.Clear();
-            activePl.TrackPaths.AddRange(snapshot);
-            activePl.NotifyTracksChanged();
+            pl.TrackPaths.Clear();
+            pl.TrackPaths.AddRange(snapshot);
+            pl.NotifyTracksChanged();
             _settings.Save();
-            RefreshVisibleTracks();
-            ShowHudPill($"Undone: Restored to \"{activePl.Name}\"");
+            if (_activePlaylist == pl) RefreshVisibleTracks();
+            else SyncRightPanelList();
+            ShowHudPill($"Undone: Restored to \"{pl.Name}\"");
             return Task.CompletedTask;
         });
+        ShowHudPill($"Removed {removed} track(s) from \"{pl.Name}\" (Ctrl+Z to undo)");
     }
 
     private int AddTracksToPlaylist(SavedPlaylist pl, IReadOnlyList<TrackItem> tracks)
@@ -3067,6 +3483,8 @@ public sealed partial class MainWindow : Window
         {
             pl.NotifyTracksChanged();
             _settings.Save();
+            if (_activePlaylist == pl) RefreshVisibleTracks();
+            else SyncRightPanelList();
         }
         return added;
     }
@@ -3101,8 +3519,9 @@ public sealed partial class MainWindow : Window
         _playlists.Add(pl);
         _settings.Playlists.Add(pl);
         _settings.Save();
-        PlaylistsEmptyHint.Visibility = Visibility.Collapsed;
-        PlaylistsList.SelectedItem = pl;
+        _editingPlaylist = pl;
+        SyncRightPanelList();
+        OpenRightPanel();
         ShowHudPill($"Imported \"{pl.Name}\" ({pl.TrackCount} tracks)");
     }
 
@@ -3129,10 +3548,189 @@ public sealed partial class MainWindow : Window
         ShowHudPill($"Exported \"{Path.GetFileName(file.Path)}\"");
     }
 
-    private async void SaveQueueAsPlaylistBtn_Click(object sender, RoutedEventArgs e)
+    private async Task OpenQueueToPlaylistDialogAsync()
     {
-        if (_queueTracks.Count > 0)
-            await CreatePlaylistAsync(_queueTracks.ToList());
+        if (_queueTracks.Count == 0)
+        {
+            ShowHudPill("Play queue is empty");
+            return;
+        }
+
+        var allQueue = _queueTracks.ToList();
+        var checkedSet = new HashSet<TrackItem>(QueueListView.SelectedItems.OfType<TrackItem>());
+
+        var nameBox = new TextBox
+        {
+            Header = "Playlist name",
+            PlaceholderText = "Playlist name",
+            Text = $"Playlist {_playlists.Count + 1}"
+        };
+        var filterBox = new TextBox
+        {
+            PlaceholderText = "Filter queue songs by title, artist, or album..."
+        };
+        var countText = new TextBlock
+        {
+            FontSize = 12,
+            Opacity = 0.75,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var selectVisBtn = new Button { Content = "Select visible", Padding = new Thickness(10, 4, 10, 4) };
+        var clearSelBtn = new Button { Content = "Clear", Padding = new Thickness(10, 4, 10, 4) };
+
+        var pickerList = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.Multiple,
+            Height = 320
+        };
+
+        var displayed = new List<TrackItem>();
+        bool syncing = false;
+
+        void UpdateSelectedCount()
+        {
+            countText.Text = checkedSet.Count == 0
+                ? "Select the songs you want to include"
+                : $"{checkedSet.Count:N0} track(s) selected";
+        }
+
+        void RebuildPickerItems()
+        {
+            syncing = true;
+            try
+            {
+                string q = filterBox.Text.Trim();
+                displayed = string.IsNullOrEmpty(q)
+                    ? allQueue
+                    : allQueue.Where(t =>
+                        t.DisplayTitle.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                        t.Artist.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                        t.Album.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                pickerList.Items.Clear();
+                foreach (var t in displayed)
+                {
+                    var row = new Grid { Padding = new Thickness(0, 2, 0, 2) };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    var txt = new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(t.Artist) ? t.DisplayTitle : $"{t.DisplayTitle} — {t.Artist}",
+                        FontSize = 12.5,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Tag = t
+                    };
+                    var dur = new TextBlock
+                    {
+                        Text = t.DurationText,
+                        FontSize = 11.5,
+                        Opacity = 0.65,
+                        Margin = new Thickness(8, 0, 0, 0)
+                    };
+                    Grid.SetColumn(txt, 0);
+                    Grid.SetColumn(dur, 1);
+                    row.Children.Add(txt);
+                    row.Children.Add(dur);
+                    row.Tag = t;
+                    pickerList.Items.Add(row);
+                    if (checkedSet.Contains(t))
+                        pickerList.SelectedItems.Add(row);
+                }
+                UpdateSelectedCount();
+            }
+            finally { syncing = false; }
+        }
+
+        pickerList.SelectionChanged += (_, args) =>
+        {
+            if (syncing) return;
+            foreach (var added in args.AddedItems.OfType<FrameworkElement>())
+                if (added.Tag is TrackItem t) checkedSet.Add(t);
+            foreach (var removed in args.RemovedItems.OfType<FrameworkElement>())
+                if (removed.Tag is TrackItem t) checkedSet.Remove(t);
+            UpdateSelectedCount();
+        };
+
+        filterBox.TextChanged += (_, _) => RebuildPickerItems();
+        selectVisBtn.Click += (_, _) =>
+        {
+            syncing = true;
+            try
+            {
+                foreach (var row in pickerList.Items.OfType<FrameworkElement>())
+                {
+                    if (row.Tag is TrackItem t) checkedSet.Add(t);
+                    if (!pickerList.SelectedItems.Contains(row)) pickerList.SelectedItems.Add(row);
+                }
+                UpdateSelectedCount();
+            }
+            finally { syncing = false; }
+        };
+        clearSelBtn.Click += (_, _) =>
+        {
+            syncing = true;
+            try
+            {
+                checkedSet.Clear();
+                pickerList.SelectedItems.Clear();
+                UpdateSelectedCount();
+            }
+            finally { syncing = false; }
+        };
+
+        var actionRow = new Grid { ColumnSpacing = 8 };
+        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(countText, 0);
+        Grid.SetColumn(selectVisBtn, 1);
+        Grid.SetColumn(clearSelBtn, 2);
+        actionRow.Children.Add(countText);
+        actionRow.Children.Add(selectVisBtn);
+        actionRow.Children.Add(clearSelBtn);
+
+        var rootPanel = new StackPanel { Spacing = 10, MinWidth = 480 };
+        rootPanel.Children.Add(nameBox);
+        rootPanel.Children.Add(filterBox);
+        rootPanel.Children.Add(actionRow);
+        rootPanel.Children.Add(new Border
+        {
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
+            Child = pickerList
+        });
+
+        RebuildPickerItems();
+
+        var dlg = new ContentDialog
+        {
+            Title = "Curate Playlist from Queue",
+            Content = rootPanel,
+            PrimaryButtonText = "Create Playlist",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 560.0;
+        DialogFooter.MainButtonOnRight(dlg);
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(nameBox.Text)) return;
+
+        var chosen = allQueue.Where(t => checkedSet.Contains(t)).ToList();
+        var pl = new SavedPlaylist { Name = nameBox.Text.Trim() };
+        foreach (var path in chosen.Select(t => t.Path).Distinct(StringComparer.OrdinalIgnoreCase))
+            pl.TrackPaths.Add(path);
+
+        _playlists.Add(pl);
+        _settings.Playlists.Add(pl);
+        _settings.Save();
+        _editingPlaylist = pl;
+        SyncRightPanelList();
+        OpenRightPanel();
+        ShowHudPill(pl.TrackCount > 0
+            ? $"Created \"{pl.Name}\" ({pl.TrackCount} tracks)"
+            : $"Created \"{pl.Name}\" — drag songs here to add");
     }
 
     private async Task CreatePlaylistAsync(IReadOnlyList<TrackItem> initialTracks)
@@ -3171,17 +3769,13 @@ public sealed partial class MainWindow : Window
         _playlists.Add(pl);
         _settings.Playlists.Add(pl);
         _settings.Save();
-        PlaylistsEmptyHint.Visibility = Visibility.Collapsed;
+        _editingPlaylist = pl;
+        SyncRightPanelList();
+        OpenRightPanel();
 
-        if (pl.TrackPaths.Count > 0)
-        {
-            PlaylistsList.SelectedItem = pl;
-            ShowHudPill($"Created \"{pl.Name}\" ({pl.TrackCount} tracks)");
-        }
-        else
-        {
-            ShowHudPill($"Created \"{pl.Name}\" — drag or right-click songs to add");
-        }
+        ShowHudPill(pl.TrackCount > 0
+            ? $"Created \"{pl.Name}\" ({pl.TrackCount} tracks)"
+            : $"Created \"{pl.Name}\" — drag songs here from your library");
     }
 
     private async void RootGrid_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
@@ -3241,16 +3835,29 @@ public sealed partial class MainWindow : Window
         else if ((ctrl && e.Key == VirtualKey.B) || (e.Key == VirtualKey.Tab && !inTextBox && !ctrl && !alt))
         {
             e.Handled = true;
-            LeftPaneToggleBtn_Click(sender, e);
+            RightPaneToggleBtn_Click(sender, e);
         }
         else if (e.Key == VirtualKey.Delete && !inTextBox)
         {
+            if (IsInsideElement(focused as DependencyObject, QueueListView))
+            {
+                var rightSel = QueueListView.SelectedItems.OfType<TrackItem>().ToList();
+                if (rightSel.Count > 0)
+                {
+                    e.Handled = true;
+                    if (_editingPlaylist != null)
+                        RemoveTracksFromPlaylist(_editingPlaylist, rightSel);
+                    else
+                        RemoveSelectedFromRightQueue(rightSel);
+                }
+                return;
+            }
             var selected = GetSelectedTracks();
             if (selected.Count > 0)
             {
                 e.Handled = true;
                 if (_activePlaylist != null)
-                    RemoveSelectionFromActivePlaylist(_activePlaylist, selected);
+                    RemoveTracksFromPlaylist(_activePlaylist, selected);
                 else
                     await DeleteTracksToRecycleBinAsync(selected);
             }
@@ -3259,7 +3866,9 @@ public sealed partial class MainWindow : Window
         {
             e.Handled = true;
             double delta = e.Key == VirtualKey.Right ? 5.0 : -5.0;
-            _engine.Seek(_engine.Position + TimeSpan.FromSeconds(delta));
+            var target = _engine.Position + TimeSpan.FromSeconds(delta);
+            _engine.Seek(target);
+            SyncPlaybackProgressUi(_engine.Position, _engine.Duration);
         }
         else if (e.Key == VirtualKey.Space && !inTextBox)
         {

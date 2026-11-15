@@ -167,6 +167,13 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
+    public static SpeakerLayout GetRecommendedDirectLayout(string? deviceId = null)
+    {
+        return GetEndpointChannelCount(deviceId) >= 6
+            ? SpeakerLayout.Surround51Direct
+            : SpeakerLayout.Stereo20;
+    }
+
     public static IReadOnlyList<AudioOutputDeviceInfo> GetOutputDevices()
     {
         var list = new List<AudioOutputDeviceInfo>

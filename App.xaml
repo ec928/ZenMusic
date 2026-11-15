@@ -17,7 +17,7 @@
                     <SolidColorBrush x:Key="EvenRowBrush" Color="#09000000"/>
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#22D97706"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#40000000"/>
-                    <AcrylicBrush x:Key="PlaybarAcrylicBrush" TintColor="#181818" TintOpacity="0.85" FallbackColor="#1A1A1A"/>
+                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#181818"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFC83B"/>
@@ -26,7 +26,7 @@
                     <SolidColorBrush x:Key="EvenRowBrush" Color="#07FFFFFF"/>
                     <SolidColorBrush x:Key="PlayingRowBrush" Color="#1CFFC83B"/>
                     <SolidColorBrush x:Key="SplitterHandleBrush" Color="#30FFFFFF"/>
-                    <AcrylicBrush x:Key="PlaybarAcrylicBrush" TintColor="#181818" TintOpacity="0.85" FallbackColor="#1A1A1A"/>
+                    <SolidColorBrush x:Key="PlaybarAcrylicBrush" Color="#181818"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="FavouriteStarBrush" Color="#FFD700"/>

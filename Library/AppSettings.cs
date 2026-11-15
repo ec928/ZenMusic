@@ -58,7 +58,7 @@ public sealed class AppSettings
     public int RepeatMode { get; set; } = 1; // 0 = Off, 1 = All, 2 = One
 
     // Persistent workspace layout & view mode
-    public int LayoutSchemaVersion { get; set; } = 2;
+    public int LayoutSchemaVersion { get; set; } = 3;
     public bool LeftPaneOpen { get; set; } = false;
     public bool RightPaneOpen { get; set; } = true;
     public double InspectorHeight { get; set; } = 208;
@@ -94,7 +94,7 @@ public sealed class AppSettings
     public void ResetAudioAndUiToDefaults()
     {
         OutputDeviceId = string.Empty;
-        SpeakerLayout = SpeakerLayout.Stereo20;
+        SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(OutputDeviceId);
         CenterLevel = 0.55f;
         LfeGain = 0.85f;
         RearLevel = 0.60f;
@@ -116,15 +116,35 @@ public sealed class AppSettings
     public static AppSettings Load()
     {
         string path = AppPaths.SettingsPath;
-        if (!File.Exists(path)) return new AppSettings();
+        if (!File.Exists(path))
+        {
+            return new AppSettings
+            {
+                SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(string.Empty)
+            };
+        }
         try
         {
             string json = File.ReadAllText(path);
             var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            bool migrated = false;
             if (settings.LayoutSchemaVersion < 2)
             {
                 settings.LeftPaneOpen = false;
                 settings.LayoutSchemaVersion = 2;
+                migrated = true;
+            }
+            if (settings.LayoutSchemaVersion < 3)
+            {
+                if (settings.SpeakerLayout == SpeakerLayout.Stereo20)
+                {
+                    settings.SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(settings.OutputDeviceId);
+                }
+                settings.LayoutSchemaVersion = 3;
+                migrated = true;
+            }
+            if (migrated)
+            {
                 settings.Save();
             }
             return settings;
@@ -136,7 +156,10 @@ public sealed class AppSettings
                 File.Copy(path, path + ".unreadable", overwrite: true);
             }
             catch { }
-            return new AppSettings();
+            return new AppSettings
+            {
+                SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(string.Empty)
+            };
         }
     }
 
