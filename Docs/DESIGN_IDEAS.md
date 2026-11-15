@@ -97,3 +97,20 @@ Clicking the top-right **`⚙` Settings** wheel opens a clean, dark-frosted conf
 1. **Optional Visualizer Placement**: **Embedded in the Bottom Dark Playbar + Click / `F11` for Full-Screen Stage** (with a 1-click toggle to hide/disable it completely).
 2. **Playlists Access**: **Both** — Left navigation sidebar tree (supporting direct drag-and-drop from the track table) **plus** quick `Add to playlist >` right-click context menu and top-bar access.
 3. **Default Window Layout**: **Collapsible 3-Pane Hybrid** — Opens with Left Sidebar (Library facets + Playlists), Center Canvas (Track Table / Album Grid), and Right Pane (Now Playing Queue + Selected Track Inspector), with 1-click collapse buttons on both side panes for a full-bleed MIV view.
+
+---
+
+## 6. UI as built (v0.3.x)
+
+What the window actually does today, where it differs from or adds to the sections above.
+
+- **Layout**: two panes (track table or tile view, plus the right pane with the queue or a playlist above the selected-track card). There is no left sidebar. The right pane is 316 px wide and slides in when opened.
+- **Cover tint**: the playing cover's dominant colour washes the playbar, the right pane and, more faintly, the track list. It fades between tracks and is re-applied at lower strength in the light theme.
+- **Tracks without a cover**: get a generated cover, a diagonal gradient in a hue derived from the artist name (album, then title, when there is no artist) with the artist's initial. The same hue drives the tint, so one artist always has one colour. Used in table rows, tiles, queue rows, playbar, inspector and focus stage.
+- **Table**: no zebra striping; a 22 px cover starts each row; numeric columns (year, length, date added, bitrate) are one contrast level below artist and album; row stars are muted gold and return to full gold on the playing row and under the pointer.
+- **Playbar**: the seek rail runs the full width along the playbar's top edge in place of a divider line; elapsed and total time sit either side of the transport buttons.
+- **Tile view**: cards have no frame; the card lifts and its play button fades in under the pointer.
+- **Focus stage (F11)**: the cover, decoded very small and stretched across the stage, forms a soft blurred backdrop under a dark veil; the cover itself is 300 px.
+- **Settings**: a panel that slides in over the right of the window. Every change applies as it is made; there is no Apply or Cancel. It closes with its X, Esc, or a click outside. Slider changes are written and applied 250 ms after the last movement.
+- **Menus**: the track and playlist context menus carry icons on their top-level actions, assigned by how each label starts (`MenuIconMap` in `MainWindow.xaml.cs`).
+- **Motion**: cover images cross-fade on track and selection change; the playing-row highlight fades; the right pane, settings panel and focus stage fade or slide in. Closing is immediate.

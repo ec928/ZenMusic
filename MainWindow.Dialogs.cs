@@ -323,14 +323,83 @@ public sealed partial class MainWindow
         flyout.ShowAt(SpeakerBadgeBtn);
     }
 
-    private async void SettingsBtn_Click(object sender, RoutedEventArgs e)
+    // Settings live in a panel that slides in over the right of the window. Every change applies as it is made;
+    // there is nothing to confirm or cancel, and the panel closes with its X, Esc, or a click outside it.
+    private void SettingsBtn_Click(object sender, RoutedEventArgs e)
     {
+        if (SettingsOverlay.Visibility == Visibility.Visible) CloseSettingsPanel();
+        else OpenSettingsPanel();
+    }
+
+    private void SettingsCloseBtn_Click(object sender, RoutedEventArgs e) => CloseSettingsPanel();
+
+    private void SettingsScrim_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e) => CloseSettingsPanel();
+
+    private DispatcherTimer? _settingsAudioTimer;
+    private bool _settingsAudioPending;
+
+    private void OpenSettingsPanel()
+    {
+        if (_isMiniPlayer) SetMiniPlayerMode(false);
+        SettingsPanelHost.Content = BuildSettingsContent();
+
+        // Start off to the right and transparent without animating, then slide and fade in.
+        var slide = SettingsPanel.TranslationTransition;
+        var fade = SettingsOverlay.OpacityTransition;
+        SettingsPanel.TranslationTransition = null;
+        SettingsOverlay.OpacityTransition = null;
+        SettingsPanel.Translation = new System.Numerics.Vector3(40, 0, 0);
+        SettingsOverlay.Opacity = 0;
+        SettingsPanel.TranslationTransition = slide;
+        SettingsOverlay.OpacityTransition = fade;
+        SettingsOverlay.Visibility = Visibility.Visible;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            SettingsPanel.Translation = System.Numerics.Vector3.Zero;
+            SettingsOverlay.Opacity = 1;
+        });
+    }
+
+    private void CloseSettingsPanel()
+    {
+        if (SettingsOverlay.Visibility != Visibility.Visible) return;
+        FlushPendingAudioSettings();
+        SettingsOverlay.Visibility = Visibility.Collapsed;
+        SettingsPanelHost.Content = null;
+    }
+
+    // Slider drags fire many changes: write the file and reconfigure the output once the value settles.
+    private void ApplyAudioSettingsSoon()
+    {
+        _settingsAudioPending = true;
+        if (_settingsAudioTimer == null)
+        {
+            _settingsAudioTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            _settingsAudioTimer.Tick += (_, _) => FlushPendingAudioSettings();
+        }
+        _settingsAudioTimer.Stop();
+        _settingsAudioTimer.Start();
+    }
+
+    private void FlushPendingAudioSettings()
+    {
+        _settingsAudioTimer?.Stop();
+        if (!_settingsAudioPending) return;
+        _settingsAudioPending = false;
+        _settings.Save();
+        ApplyAudioConfigFromSettings();
+    }
+
+    private FrameworkElement BuildSettingsContent()
+    {
+        bool loading = true;
+
         var devices = WasapiAudioEngine.GetOutputDevices();
-        var deviceBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 240 };
+        var deviceBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 220 };
         foreach (var d in devices) deviceBox.Items.Add(new ComboBoxItem { Content = d.FriendlyName, Tag = d.Id });
         deviceBox.SelectedIndex = Math.Max(0, devices.ToList().FindIndex(d => d.Id == _settings.OutputDeviceId));
 
-        var layoutBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 240 };
+        var layoutBox = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = 220 };
         int initSettingsCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
         PopulateSpeakerLayoutCombo(layoutBox, initSettingsCh, _settings.SpeakerLayout);
 
@@ -338,11 +407,11 @@ public sealed partial class MainWindow
         var lfeSlider = new Slider { Minimum = 0, Maximum = 150, Value = _settings.LfeGain * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
         var rearSlider = new Slider { Minimum = 0, Maximum = 100, Value = _settings.RearLevel * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
 
-        var (deviceRow, _, _) = SettingsCard.Row("\uE7F5", "Output device", "WASAPI audio endpoint", deviceBox);
-        var (layoutRow, _, layoutDetail) = SettingsCard.Row("\uE7F4", "Speaker layout", "Checking endpoint...", layoutBox);
-        var (centerRow, _, _) = SettingsCard.Row("\uE720", "5.1 Center vocal fill", "Center channel balance (%)", centerSlider);
-        var (lfeRow, _, _) = SettingsCard.Row("\uE995", "Subwoofer (LFE) boost", "Low-pass <80 Hz crossover gain (%)", lfeSlider);
-        var (rearRow, _, _) = SettingsCard.Row("\uE8D6", "5.1 Rear surround stage", "Ambient rear fill (%)", rearSlider);
+        var (deviceRow, _, _) = SettingsCard.Row("", "Output device", "WASAPI audio endpoint", deviceBox);
+        var (layoutRow, _, layoutDetail) = SettingsCard.Row("", "Speaker layout", "Checking endpoint...", layoutBox);
+        var (centerRow, _, _) = SettingsCard.Row("", "5.1 Center vocal fill", "Center channel balance (%)", centerSlider);
+        var (lfeRow, _, _) = SettingsCard.Row("", "Subwoofer (LFE) boost", "Low-pass <80 Hz crossover gain (%)", lfeSlider);
+        var (rearRow, _, _) = SettingsCard.Row("", "5.1 Rear surround stage", "Ambient rear fill (%)", rearSlider);
 
         bool updatingSettingsAudio = false;
         void UpdateEndpointAndSliders(bool deviceChanged)
@@ -379,23 +448,56 @@ public sealed partial class MainWindow
                 updatingSettingsAudio = false;
             }
         }
-        deviceBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders(deviceChanged: true);
-        layoutBox.SelectionChanged += (_, _) => UpdateEndpointAndSliders(deviceChanged: false);
+
+        void CommitAudio()
+        {
+            if (loading || updatingSettingsAudio) return;
+            _settings.OutputDeviceId = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+            _settings.SpeakerLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? _settings.SpeakerLayout);
+            _settings.CenterLevel = (float)(centerSlider.Value / 100.0);
+            _settings.LfeGain = (float)(lfeSlider.Value / 100.0);
+            _settings.RearLevel = (float)(rearSlider.Value / 100.0);
+            ApplyAudioSettingsSoon();
+        }
+
+        deviceBox.SelectionChanged += (_, _) => { UpdateEndpointAndSliders(deviceChanged: true); CommitAudio(); };
+        layoutBox.SelectionChanged += (_, _) => { UpdateEndpointAndSliders(deviceChanged: false); CommitAudio(); };
+        centerSlider.ValueChanged += (_, _) => CommitAudio();
+        lfeSlider.ValueChanged += (_, _) => CommitAudio();
+        rearSlider.ValueChanged += (_, _) => CommitAudio();
         UpdateEndpointAndSliders(deviceChanged: false);
 
-        var vizBox = new ComboBox { MinWidth = 210 };
-        vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum Bars (60 fps Win2D)", Tag = "Spectrum" });
-        vizBox.Items.Add(new ComboBoxItem { Content = "Silk Waveform", Tag = "Waveform" });
-        vizBox.Items.Add(new ComboBoxItem { Content = "Bars + Waveform", Tag = "BarsAndWaveform" });
-        vizBox.Items.Add(new ComboBoxItem { Content = "Off (0% GPU/CPU)", Tag = "Off" });
+        var vizBox = new ComboBox { MinWidth = 200 };
+        vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum bars", Tag = "Spectrum" });
+        vizBox.Items.Add(new ComboBoxItem { Content = "Silk waveform", Tag = "Waveform" });
+        vizBox.Items.Add(new ComboBoxItem { Content = "Bars + waveform", Tag = "BarsAndWaveform" });
+        vizBox.Items.Add(new ComboBoxItem { Content = "Off", Tag = "Off" });
         vizBox.SelectedIndex = !_settings.VisualizerEnabled || _settings.VisualizerMode == "Off" ? 3
             : _settings.VisualizerMode == "Waveform" ? 1
             : _settings.VisualizerMode == "BarsAndWaveform" ? 2 : 0;
+        vizBox.SelectionChanged += (_, _) =>
+        {
+            if (loading) return;
+            string vizTag = (vizBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Spectrum";
+            _settings.VisualizerMode = vizTag;
+            _settings.VisualizerEnabled = vizTag != "Off";
+            _settings.Save();
+            ApplyVisualizerFromSettings();
+        };
 
         var themeBox = new ComboBox { MinWidth = 140 };
         themeBox.Items.Add(new ComboBoxItem { Content = "Dark", Tag = "Dark" });
         themeBox.Items.Add(new ComboBoxItem { Content = "Light", Tag = "Light" });
         themeBox.SelectedIndex = string.Equals(_settings.Theme, "Light", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        themeBox.SelectionChanged += (_, _) =>
+        {
+            if (loading) return;
+            string themeTag = (themeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Dark";
+            if (string.Equals(_settings.Theme, themeTag, StringComparison.OrdinalIgnoreCase)) return;
+            _settings.Theme = themeTag;
+            _settings.Save();
+            ApplyTheme(themeTag);
+        };
 
         string appVersion = typeof(MainWindow).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -404,84 +506,30 @@ public sealed partial class MainWindow
             ?? "0.1.0";
 
         var rescanNowBtn = new Button { Content = "Rescan now" };
+        rescanNowBtn.Click += (_, _) => RescanBtn_Click(this, new RoutedEventArgs());
         string librarySubtitle = string.IsNullOrWhiteSpace(_settings.MusicFolder)
             ? "No music folder selected"
             : $"{_settings.MusicFolder} · Watched automatically for changes (F5)";
-        var (rescanRow, _, _) = SettingsCard.Row("\uE72C", "Music library folder", librarySubtitle, rescanNowBtn);
+        var (rescanRow, _, _) = SettingsCard.Row("", "Music library folder", librarySubtitle, rescanNowBtn);
 
-        var aboutBtn = new Button { Content = "About..." };
-        var (aboutRow, _, _) = SettingsCard.Row("\uE946", $"ZenMusic v{appVersion}", "WASAPI · TagLib# · Win2D · WinUI 3", aboutBtn);
-
-        var panel = new StackPanel { Width = 500, Padding = new Thickness(0, 0, 12, 0) };
-        panel.Children.Add(SettingsCard.Section("Audio & Speakers", first: true));
-        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, centerRow, lfeRow, rearRow));
-        panel.Children.Add(SettingsCard.Section("Visualizer & Appearance"));
-        panel.Children.Add(SettingsCard.Card(
-            SettingsCard.Row("\uE9D9", "Visualizer style", "Playbar & F11 Focus Stage", vizBox).Row,
-            SettingsCard.Row("\uE790", "App theme", "Floating playbar stays pinned dark", themeBox).Row));
-        panel.Children.Add(SettingsCard.Section("Library & Application"));
-        panel.Children.Add(SettingsCard.Card(rescanRow, aboutRow));
-
-        bool openAbout = false;
-        bool triggerRescan = false;
-        ContentDialog? dlg = null;
-        rescanNowBtn.Click += (_, _) =>
+        var shortcutsBtn = new Button { Content = "Shortcuts" };
+        shortcutsBtn.Click += async (_, _) =>
         {
-            triggerRescan = true;
-            dlg?.Hide();
+            CloseSettingsPanel();
+            await ShowShortcutsHelpAsync();
         };
-        aboutBtn.Click += (_, _) =>
-        {
-            openAbout = true;
-            dlg?.Hide();
-        };
+        var (aboutRow, _, _) = SettingsCard.Row("", $"ZenMusic v{appVersion}",
+            $"NAudio WASAPI · TagLib# · Win2D · WinUI 3 · .NET {Environment.Version}", shortcutsBtn);
 
-        dlg = new ContentDialog
+        var resetBtn = new HyperlinkButton
         {
-            Title = "Settings",
-            Content = new ScrollViewer { Content = panel, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-            PrimaryButtonText = "Apply & Save",
-            SecondaryButtonText = "Reset to defaults",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = RootGrid.XamlRoot,
-            RequestedTheme = RootGrid.RequestedTheme
+            Content = "Reset audio, appearance and layout to defaults",
+            Margin = new Thickness(-10, 14, 0, 0),
+            FontSize = 12
         };
-        dlg.Resources["ContentDialogMaxWidth"] = 580.0;
-        DialogFooter.MainButtonOnRight(dlg);
-
-        var result = await dlg.ShowAsync();
-        if (triggerRescan)
+        resetBtn.Click += (_, _) =>
         {
-            RescanBtn_Click(this, new RoutedEventArgs());
-            return;
-        }
-        if (openAbout)
-        {
-            var aboutDlg = new ContentDialog
-            {
-                Title = "About ZenMusic",
-                Content = new StackPanel
-                {
-                    Spacing = 8,
-                    MinWidth = 360,
-                    Children =
-                    {
-                        new TextBlock { Text = "ZenMusic", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 200, 59)) },
-                        new TextBlock { Text = $"Version {appVersion}", FontSize = 13, Opacity = 0.8 },
-                        new TextBlock { Text = "A fast, distraction-free desktop music manager and player with WASAPI multi-channel audio, 60 fps Win2D visualizers, synced .LRC lyrics, and built-in Auto-Tagging.", FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Opacity = 0.9 },
-                        new TextBlock { Text = $"Runtime: .NET {Environment.Version} · Windows App SDK / WinUI 3\nAudio Engine: NAudio WASAPI\nMetadata: TagLib# · MusicBrainz · iTunes · LRCLIB", FontSize = 11.5, Opacity = 0.65, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }
-                    }
-                },
-                CloseButtonText = "OK",
-                XamlRoot = RootGrid.XamlRoot,
-                RequestedTheme = RootGrid.RequestedTheme
-            };
-            await aboutDlg.ShowAsync();
-            return;
-        }
-        if (result == ContentDialogResult.Secondary)
-        {
+            _settingsAudioPending = false;
             _settings.ResetAudioAndUiToDefaults();
             _settings.Save();
             if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p &&
@@ -498,30 +546,22 @@ public sealed partial class MainWindow
             ApplyTheme(_settings.Theme);
             ApplyAudioConfigFromSettings();
             ApplyVisualizerFromSettings();
-            return;
-        }
-        if (result != ContentDialogResult.Primary) return;
+            SettingsPanelHost.Content = BuildSettingsContent();
+        };
 
-        _settings.OutputDeviceId = (deviceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
-        _settings.SpeakerLayout = (SpeakerLayout)((layoutBox.SelectedItem as ComboBoxItem)?.Tag ?? SpeakerLayout.Stereo20);
-        _settings.CenterLevel = (float)(centerSlider.Value / 100.0);
-        _settings.LfeGain = (float)(lfeSlider.Value / 100.0);
-        _settings.RearLevel = (float)(rearSlider.Value / 100.0);
+        var panel = new StackPanel();
+        panel.Children.Add(SettingsCard.Section("Audio and speakers", first: true));
+        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, centerRow, lfeRow, rearRow));
+        panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
+        panel.Children.Add(SettingsCard.Card(
+            SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
+            SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row));
+        panel.Children.Add(SettingsCard.Section("Library and application"));
+        panel.Children.Add(SettingsCard.Card(rescanRow, aboutRow));
+        panel.Children.Add(resetBtn);
 
-        string vizTag = (vizBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Spectrum";
-        _settings.VisualizerMode = vizTag;
-        _settings.VisualizerEnabled = vizTag != "Off";
-
-        string themeTag = (themeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Dark";
-        if (!string.Equals(_settings.Theme, themeTag, StringComparison.OrdinalIgnoreCase))
-        {
-            _settings.Theme = themeTag;
-            ApplyTheme(themeTag);
-        }
-
-        _settings.Save();
-        ApplyAudioConfigFromSettings();
-        ApplyVisualizerFromSettings();
+        loading = false;
+        return panel;
     }
 
     private async Task OpenPropertiesDialogAsync(IReadOnlyList<TrackItem> tracks)

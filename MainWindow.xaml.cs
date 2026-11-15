@@ -129,7 +129,6 @@ public sealed partial class MainWindow : Window
 
     public static Visibility NowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
-    public static Visibility EvenRowVis(bool isNowPlaying, bool isEvenRow) => !isNowPlaying && isEvenRow ? Visibility.Visible : Visibility.Collapsed;
     public static bool Not(bool value) => !value;
     public static double BoolOpacity(bool value) => value ? 1.0 : 0.0;
     public static Visibility BoolVis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
@@ -4100,6 +4099,17 @@ public sealed partial class MainWindow : Window
             {
                 FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
                 SyncVisualizerStageVisibility();
+                e.Handled = true;
+            }
+            return;
+        }
+
+        // While the settings panel is open, Esc closes it and every other key belongs to its controls.
+        if (SettingsOverlay.Visibility == Visibility.Visible)
+        {
+            if (e.Key == VirtualKey.Escape)
+            {
+                CloseSettingsPanel();
                 e.Handled = true;
             }
             return;

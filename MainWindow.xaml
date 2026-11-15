@@ -851,5 +851,33 @@
             </Grid>
             </Grid>
         </Border>
+
+        <!-- Settings panel: slides in over the right of the window; changes apply as they are made -->
+        <Grid x:Name="SettingsOverlay" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed" Canvas.ZIndex="60">
+            <Grid.OpacityTransition>
+                <ScalarTransition Duration="0:0:0.16"/>
+            </Grid.OpacityTransition>
+            <Border Background="#73000000" Tapped="SettingsScrim_Tapped"/>
+            <Border x:Name="SettingsPanel" Width="500" HorizontalAlignment="Right"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
+                <Border.TranslationTransition>
+                    <Vector3Transition Duration="0:0:0.2"/>
+                </Border.TranslationTransition>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid Padding="20,14,12,10">
+                        <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button x:Name="SettingsCloseBtn" AutomationProperties.Name="Close settings" Style="{StaticResource TitleButtonStyle}" HorizontalAlignment="Right" ToolTipService.ToolTip="Close (Esc)" Click="SettingsCloseBtn_Click">
+                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="12"/>
+                        </Button>
+                    </Grid>
+                    <ScrollViewer x:Name="SettingsPanelHost" Grid.Row="1" Padding="20,0,20,20" VerticalScrollBarVisibility="Auto"/>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
