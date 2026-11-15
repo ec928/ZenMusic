@@ -294,7 +294,7 @@
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="lib:TrackItem">
-                            <Grid Width="172" Height="234">
+                            <Grid Width="172" Height="244">
                                 <Border CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"/>
                                 <Border CornerRadius="8" Background="{ThemeResource PlayingRowBrush}" BorderBrush="{ThemeResource FavouriteStarBrush}" BorderThickness="1.5" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
                                 <StackPanel Spacing="5" Padding="10">
@@ -440,7 +440,7 @@
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Large Album Art with Bespoke Vinyl Disc Placeholder -->
-                                <Border x:Name="SelectedArtBorder" Grid.Column="0" Width="112" Height="112" HorizontalAlignment="Left" CornerRadius="8" Background="#1E1E1E" BorderBrush="#22FFFFFF" BorderThickness="1" Tapped="SelectedArtBorder_Tapped" ToolTipService.ToolTip="Click to cycle view: Compact / Full Art / Full Art + Overlay">
+                                <Border x:Name="SelectedArtBorder" Grid.Column="0" Width="112" Height="112" HorizontalAlignment="Left" CornerRadius="8" Background="{ThemeResource InspectorArtBgBrush}" BorderBrush="{ThemeResource PlaybarArtBorderBrush}" BorderThickness="1" Tapped="SelectedArtBorder_Tapped" ToolTipService.ToolTip="Click to cycle view: Compact / Full Art / Full Art + Overlay">
                                     <Grid>
                                         <Ellipse Width="74" Height="74" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#16FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         <Ellipse Width="24" Height="24" Stroke="#38FFC83B" StrokeThickness="1.5" Fill="#22000000" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -688,7 +688,7 @@
                                     <Ellipse x:Name="ShuffleActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5" Visibility="Collapsed"/>
                                 </Grid>
                             </Button>
-                            <Button Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Previous" Click="PrevBtn_Click">
+                            <Button x:Name="PrevBtn" AutomationProperties.Name="Previous" Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Previous" Click="PrevBtn_Click">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE892;" FontSize="13.5" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             </Button>
                             <Button x:Name="PlayPauseBtn" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18" BorderThickness="0" ToolTipService.ToolTip="Play / Pause (Space)" Click="PlayPauseBtn_Click">
@@ -716,7 +716,7 @@
                                 </Button.Resources>
                                 <FontIcon x:Name="PlayPauseIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="15"/>
                             </Button>
-                            <Button Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Next" Click="NextBtn_Click">
+                            <Button x:Name="NextBtn" AutomationProperties.Name="Next" Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Next" Click="NextBtn_Click">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE893;" FontSize="13.5" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             </Button>
                             <Button x:Name="RepeatToggle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Repeat all (Click to cycle: Off / All / One)" Click="RepeatToggle_Click">
