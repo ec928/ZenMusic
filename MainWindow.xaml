@@ -247,7 +247,7 @@
                 </Grid>
 
                 <!-- Virtualized Track List -->
-                <ListView x:Name="TracksListView" Grid.Row="1" SelectionMode="Extended"
+                <ListView x:Name="TracksListView" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
                           Padding="0,0,0,4"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
                           IsDoubleTapEnabled="True" DoubleTapped="TracksListView_DoubleTapped"
@@ -309,7 +309,7 @@
                 </ListView>
 
                 <!-- Tile View (Shared Sort Order & Selection with Track Table) -->
-                <GridView x:Name="AlbumsGridView" Grid.Row="1" Visibility="Collapsed"
+                <GridView x:Name="AlbumsGridView" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed"
                           Padding="14,12,14,12"
                           SelectionMode="Extended"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
@@ -435,7 +435,7 @@
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE712;" FontSize="12"/>
                         </Button>
                     </Grid>
-                    <ListView x:Name="QueueListView" Grid.Row="1" SelectionMode="Extended"
+                    <ListView x:Name="QueueListView" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
                               CanReorderItems="True" AllowDrop="True" CanDragItems="True"
                               DragOver="QueueListView_DragOver" Drop="QueueListView_Drop" DragItemsCompleted="QueueListView_DragItemsCompleted"
                               SelectionChanged="QueueListView_SelectionChanged"
