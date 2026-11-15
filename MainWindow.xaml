@@ -255,6 +255,26 @@
                           SelectionChanged="TracksListView_SelectionChanged"
                           RightTapped="TracksListView_RightTapped"
                           ContainerContentChanging="AlbumsGridView_ContainerContentChanging">
+                    <!-- A multi-select list shows no selection pill, and the stock selected fill equals the hover fill.
+                         Selected is made clearly stronger than hover here. High contrast keeps the system colours. -->
+                    <ListView.Resources>
+                        <ResourceDictionary>
+                            <ResourceDictionary.ThemeDictionaries>
+                                <ResourceDictionary x:Key="Dark">
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#0FFFFFFF"/>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#2AFFFFFF"/>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#34FFFFFF"/>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#24FFFFFF"/>
+                                </ResourceDictionary>
+                                <ResourceDictionary x:Key="Light">
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#0A000000"/>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#1E000000"/>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#26000000"/>
+                                    <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#1A000000"/>
+                                </ResourceDictionary>
+                            </ResourceDictionary.ThemeDictionaries>
+                        </ResourceDictionary>
+                    </ListView.Resources>
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -318,6 +338,25 @@
                           SelectionChanged="AlbumsGridView_SelectionChanged"
                           RightTapped="AlbumsGridView_RightTapped"
                           ContainerContentChanging="AlbumsGridView_ContainerContentChanging">
+                    <!-- Same rule as the table: selected is clearly stronger than hover. -->
+                    <GridView.Resources>
+                        <ResourceDictionary>
+                            <ResourceDictionary.ThemeDictionaries>
+                                <ResourceDictionary x:Key="Dark">
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="#0FFFFFFF"/>
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="#2AFFFFFF"/>
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="#34FFFFFF"/>
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="#24FFFFFF"/>
+                                </ResourceDictionary>
+                                <ResourceDictionary x:Key="Light">
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="#0A000000"/>
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="#1E000000"/>
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="#26000000"/>
+                                    <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="#1A000000"/>
+                                </ResourceDictionary>
+                            </ResourceDictionary.ThemeDictionaries>
+                        </ResourceDictionary>
+                    </GridView.Resources>
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
                             <Setter Property="Margin" Value="6"/>
