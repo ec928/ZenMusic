@@ -4063,7 +4063,7 @@ public sealed partial class MainWindow : Window
         ("Show in library", ""),
         ("Add to playlist", ""),
         ("Add", ""),
-        ("New playlist", ""),
+        ("New playlist", "\uECC8"),
         ("Rate", ""),
         ("Remove", ""),
         ("Batch Properties", ""),
@@ -4077,7 +4077,7 @@ public sealed partial class MainWindow : Window
         ("Duplicate", ""),
         ("Clear", ""),
         ("Save", ""),
-        ("Curate", ""),
+        ("Curate", "\uE762"),
     };
 
     private static void AddMenuIcons(MenuFlyout menu)
