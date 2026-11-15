@@ -466,6 +466,8 @@ public sealed partial class MainWindow : Window
         UpdateRepeatButtonVisual();
         SeekRailCanvas?.Invalidate();
         VolumeRailCanvas?.Invalidate();
+        // The wash is lighter in the light theme, so re-apply it at the new strength.
+        if (_lastCoverTint.HasValue && PlaybarTintLayer != null) ApplyCoverTint(_lastCoverTint);
 
         try
         {
@@ -2048,9 +2050,11 @@ public sealed partial class MainWindow : Window
         _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album, bytes);
         await SetImageFromBytesAsync(bytes, NowPlayingArtImage, FocusArtImage);
 
-        Color glowColor = await ComputeDominantAccentColorAsync(bytes);
+        Color glowColor = bytes is { Length: > 0 }
+            ? await ComputeDominantAccentColorAsync(bytes)
+            : FallbackTintFor(track);
         FocusAmbientStop.Color = glowColor;
-        ApplyCoverTint(bytes is { Length: > 0 } ? glowColor : FallbackTintFor(track));
+        ApplyCoverTint(glowColor);
     }
 
     // Tracks without a cover still get a wash: a hue derived from the artist (else album, else title),
@@ -2084,6 +2088,7 @@ public sealed partial class MainWindow : Window
     // Washes the playbar and right pane with the playing cover's colour; fades between tracks, clears when there is no art.
     private async void ApplyCoverTint(Color? cover)
     {
+        _lastCoverTint = cover;
         bool light = RootGrid.RequestedTheme == ElementTheme.Light;
         Color c = cover ?? Color.FromArgb(0, 0, 0, 0);
         if (cover.HasValue)
@@ -2121,6 +2126,7 @@ public sealed partial class MainWindow : Window
     }
 
     private int _coverTintTicket;
+    private Color? _lastCoverTint;
 
     private async Task LoadFocusLyricsAsync(string path)
     {
