@@ -103,8 +103,8 @@ public sealed partial class MainWindow : Window
         GradientStops =
         {
             new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(75, 10, 10, 10), Offset = 0.45 },
-            new GradientStop { Color = Color.FromArgb(148, 8, 8, 8), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(120, 10, 10, 10), Offset = 0.32 },
+            new GradientStop { Color = Color.FromArgb(215, 8, 8, 8), Offset = 1.0 }
         }
     };
     private static readonly LinearGradientBrush InspectorLightOverlayBrush = new()
@@ -131,6 +131,7 @@ public sealed partial class MainWindow : Window
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
     public static Visibility EvenRowVis(bool isNowPlaying, bool isEvenRow) => !isNowPlaying && isEvenRow ? Visibility.Visible : Visibility.Collapsed;
     public static bool Not(bool value) => !value;
+    public static double BoolOpacity(bool value) => value ? 1.0 : 0.0;
     public static Visibility BoolVis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNullVis(object? obj) => obj != null ? Visibility.Visible : Visibility.Collapsed;
     public static ImageSource? ToImageSource(object? obj) => obj as ImageSource;
@@ -488,8 +489,27 @@ public sealed partial class MainWindow : Window
 
     private void ApplyPaneWidths()
     {
-        RightPaneCol.Width = _rightPaneOpen ? new GridLength(288) : new GridLength(0);
+        bool wasOpen = RightSidebar.Visibility == Visibility.Visible && RightPaneCol.Width.Value > 0;
+        RightPaneCol.Width = _rightPaneOpen ? new GridLength(316) : new GridLength(0);
         RightSidebar.Visibility = _rightPaneOpen ? Visibility.Visible : Visibility.Collapsed;
+
+        // Opening slides the pane in from the right; closing is immediate so the list reclaims the space at once.
+        if (_rightPaneOpen && !wasOpen && _initialized)
+        {
+            var fade = RightSidebar.OpacityTransition;
+            var slide = RightSidebar.TranslationTransition;
+            RightSidebar.OpacityTransition = null;
+            RightSidebar.TranslationTransition = null;
+            RightSidebar.Opacity = 0;
+            RightSidebar.Translation = new System.Numerics.Vector3(28, 0, 0);
+            RightSidebar.OpacityTransition = fade;
+            RightSidebar.TranslationTransition = slide;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                RightSidebar.Opacity = 1;
+                RightSidebar.Translation = System.Numerics.Vector3.Zero;
+            });
+        }
     }
 
     private void ApplyColumnWidths()
@@ -996,6 +1016,33 @@ public sealed partial class MainWindow : Window
             _artThumbCache[cacheKey] = finalBmp;
             track.CoverThumbnail = finalBmp;
         }
+    }
+
+    // Tiles stay quiet until pointed at: the card lifts slightly and its play button fades in.
+    private void Tile_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement tile) return;
+        tile.Translation = new System.Numerics.Vector3(0, -3, 0);
+        if (FindDescendantButton(tile) is { } play) play.Opacity = 1;
+    }
+
+    private void Tile_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement tile) return;
+        tile.Translation = System.Numerics.Vector3.Zero;
+        if (FindDescendantButton(tile) is { } play) play.Opacity = 0;
+    }
+
+    private static Button? FindDescendantButton(DependencyObject parent)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Button button) return button;
+            if (FindDescendantButton(child) is { } found) return found;
+        }
+        return null;
     }
 
     private void TilePlayBtn_Click(object sender, RoutedEventArgs e)
@@ -1929,6 +1976,7 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        AddMenuIcons(menu);
         if (pos.HasValue)
             menu.ShowAt(target, pos.Value);
         else
@@ -2054,13 +2102,32 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadPlayingArtAndSmtcAsync(TrackItem track)
     {
-        ApplyArtFallback(track, NowPlayingArtFallback, NowPlayingArtInitial);
-        ApplyArtFallback(track, FocusArtFallback, FocusArtInitial);
+        // Fade the old cover out now; the new one fades in once decoded (the images carry an OpacityTransition).
+        // The generated cover is only shown for tracks known to have no art, so it never flashes under a real cover.
+        var fallbackFor = track.HasEmbeddedArt ? null : track;
+        NowPlayingArtImage.Opacity = 0;
+        FocusArtImage.Opacity = 0;
+        FocusBackdropImage.Opacity = 0;
+        ApplyArtFallback(fallbackFor, NowPlayingArtFallback, NowPlayingArtInitial);
+        ApplyArtFallback(fallbackFor, FocusArtFallback, FocusArtInitial);
+
         byte[]? bytes = await Task.Run(() => MusicLibrary.ReadEmbeddedArtBytes(track.Path));
         if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
 
         _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album, bytes);
         await SetImageFromBytesAsync(bytes, NowPlayingArtImage, FocusArtImage);
+        if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
+
+        // Focus stage backdrop: the cover decoded tiny and stretched across the stage reads as a soft blur.
+        FocusBackdropImage.Source = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 40);
+        if (bytes is not { Length: > 0 })
+        {
+            ApplyArtFallback(track, NowPlayingArtFallback, NowPlayingArtInitial);
+            ApplyArtFallback(track, FocusArtFallback, FocusArtInitial);
+        }
+        NowPlayingArtImage.Opacity = 1;
+        FocusArtImage.Opacity = 1;
+        FocusBackdropImage.Opacity = 0.6;
 
         Color glowColor = bytes is { Length: > 0 }
             ? await ComputeDominantAccentColorAsync(bytes)
@@ -2766,9 +2833,21 @@ public sealed partial class MainWindow : Window
     {
         if (_isMiniPlayer)
             SetMiniPlayerMode(false);
-        FocusVisualizerOverlay.Visibility = FocusVisualizerOverlay.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        bool opening = FocusVisualizerOverlay.Visibility != Visibility.Visible;
+        if (opening)
+        {
+            // Start transparent without animating, then fade in.
+            var fade = FocusVisualizerOverlay.OpacityTransition;
+            FocusVisualizerOverlay.OpacityTransition = null;
+            FocusVisualizerOverlay.Opacity = 0;
+            FocusVisualizerOverlay.OpacityTransition = fade;
+            FocusVisualizerOverlay.Visibility = Visibility.Visible;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => FocusVisualizerOverlay.Opacity = 1);
+        }
+        else
+        {
+            FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
+        }
         SyncVisualizerStageVisibility();
     }
 
@@ -2801,6 +2880,7 @@ public sealed partial class MainWindow : Window
             SelectedSpecsText.Text = string.Empty;
             SelectedArtImage.Source = null;
             ApplyArtFallback(null, SelectedArtFallback, SelectedArtInitial);
+            SelectedDiscPlaceholder.Visibility = Visibility.Visible;
             SelectedPropertiesBtn.IsEnabled = false;
             UpdateSelectedRatingVisuals(null);
             UpdateSelectedLyricsPreview(string.Empty);
@@ -2811,7 +2891,9 @@ public sealed partial class MainWindow : Window
         UpdateSelectedTrackLabels(track);
         SelectedPropertiesBtn.IsEnabled = true;
         UpdateSelectedRatingVisuals(track.Rating);
-        ApplyArtFallback(track, SelectedArtFallback, SelectedArtInitial);
+        ApplyArtFallback(track.HasEmbeddedArt ? null : track, SelectedArtFallback, SelectedArtInitial);
+        SelectedDiscPlaceholder.Visibility = track.HasEmbeddedArt ? Visibility.Visible : Visibility.Collapsed;
+        SelectedArtImage.Opacity = 0;
         _ = LoadArtAsync(track.Path, SelectedArtImage);
         _ = LoadSelectedLyricsAsync(track.Path);
     }
@@ -2891,6 +2973,7 @@ public sealed partial class MainWindow : Window
         // Generated-cover initial: small in the compact card, lifted clear of the text overlay in mode 2.
         SelectedArtInitial.FontSize = _inspectorArtMode == 0 ? 44 : _inspectorArtMode == 1 ? 80 : 60;
         SelectedArtInitial.Margin = new Thickness(0, 0, 0, _inspectorArtMode == 2 ? 84 : 0);
+        SelectedDiscPlaceholder.Margin = SelectedArtInitial.Margin;
 
         if (_inspectorArtMode == 0)
         {
@@ -3087,6 +3170,7 @@ public sealed partial class MainWindow : Window
         if (targets.Contains(SelectedArtImage) && !string.Equals(_selectedLyricsTrackPath, path, StringComparison.OrdinalIgnoreCase))
             return;
         await SetImageFromBytesAsync(bytes, targets);
+        foreach (var img in targets) img.Opacity = 1;
         if (targets.Contains(SelectedArtImage))
         {
             _selectedArtIsLight = await ComputeBottomLuminanceIsLightAsync(bytes);
@@ -3558,7 +3642,9 @@ public sealed partial class MainWindow : Window
         for (double r = 0.5; r <= 5.0; r += 0.5)
         {
             double captured = r;
-            var rItem = new MenuFlyoutItem { Text = $"{captured:0.#} ★" };
+            int fullStars = (int)Math.Floor(captured);
+            string starText = new string('★', fullStars) + (captured - fullStars >= 0.5 ? "½" : string.Empty);
+            var rItem = new MenuFlyoutItem { Text = starText };
             rItem.Click += (_, _) => ApplyRatingToSelection(captured);
             rateSub.Items.Add(rItem);
         }
@@ -3615,7 +3701,59 @@ public sealed partial class MainWindow : Window
         deleteItem.Click += async (_, _) => await DeleteTracksToRecycleBinAsync(selected);
         menu.Items.Add(deleteItem);
 
+        AddMenuIcons(menu);
         menu.ShowAt(view, e.GetPosition(view));
+    }
+
+    // Icons for the top-level actions of the track and playlist menus, matched on how each label starts
+    // so the two menus stay consistent without tagging every item by hand. Order matters: longest prefix first.
+    private static readonly (string Prefix, string Glyph)[] MenuIconMap =
+    {
+        ("Play next", ""),
+        ("Play", ""),
+        ("Show in library", ""),
+        ("Add to playlist", ""),
+        ("Add", ""),
+        ("New playlist", ""),
+        ("Rate", ""),
+        ("Remove", ""),
+        ("Batch Properties", ""),
+        ("Properties", ""),
+        ("Auto-Tag", ""),
+        ("Rename", ""),
+        ("Open in Explorer", ""),
+        ("Delete", ""),
+        ("Import", ""),
+        ("Export", ""),
+        ("Duplicate", ""),
+        ("Clear", ""),
+        ("Save", ""),
+        ("Curate", ""),
+    };
+
+    private static void AddMenuIcons(MenuFlyout menu)
+    {
+        foreach (var entry in menu.Items)
+        {
+            string? text = entry switch
+            {
+                MenuFlyoutSubItem sub => sub.Text,
+                MenuFlyoutItem item => item.Text,
+                _ => null
+            };
+            if (string.IsNullOrEmpty(text)) continue;
+
+            string? glyph = null;
+            foreach (var (prefix, g) in MenuIconMap)
+            {
+                if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { glyph = g; break; }
+            }
+            if (glyph == null) continue;
+
+            var icon = new FontIcon { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), Glyph = glyph };
+            if (entry is MenuFlyoutSubItem s) s.Icon = icon;
+            else if (entry is MenuFlyoutItem i) i.Icon = icon;
+        }
     }
 
     private void RemoveTracksFromPlaylist(SavedPlaylist pl, IReadOnlyList<TrackItem> selected)
