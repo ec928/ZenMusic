@@ -198,6 +198,19 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
+                <!-- Cover-art colour wash across the list: strongest by the playbar art, faint at the far corner -->
+                <Border x:Name="CanvasTintLayer" Grid.RowSpan="2" IsHitTestVisible="False">
+                    <Border.OpacityTransition>
+                        <ScalarTransition Duration="0:0:0.3"/>
+                    </Border.OpacityTransition>
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,1" EndPoint="0.85,0">
+                            <GradientStop x:Name="CanvasTintStop" Color="#00000000" Offset="0.0"/>
+                            <GradientStop x:Name="CanvasTintEndStop" Color="#00000000" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+
                 <!-- Table Column Header (Clickable for Sorting, Right-Click to Show/Hide Columns) -->
                 <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,0" RightTapped="TableHeaderGrid_RightTapped">
                     <Grid.ColumnDefinitions>

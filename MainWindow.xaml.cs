@@ -2050,7 +2050,35 @@ public sealed partial class MainWindow : Window
 
         Color glowColor = await ComputeDominantAccentColorAsync(bytes);
         FocusAmbientStop.Color = glowColor;
-        ApplyCoverTint(bytes is { Length: > 0 } ? glowColor : null);
+        ApplyCoverTint(bytes is { Length: > 0 } ? glowColor : FallbackTintFor(track));
+    }
+
+    // Tracks without a cover still get a wash: a hue derived from the artist (else album, else title),
+    // so the same artist always lands on the same colour.
+    private static Color FallbackTintFor(TrackItem track)
+    {
+        string key = !string.IsNullOrWhiteSpace(track.Artist) ? track.Artist
+            : !string.IsNullOrWhiteSpace(track.Album) ? track.Album
+            : track.DisplayTitle;
+        uint hash = 2166136261;
+        foreach (char ch in key.Trim().ToLowerInvariant())
+            hash = (hash ^ ch) * 16777619;
+
+        double hue = hash % 360;
+        const double s = 0.50, v = 0.85;
+        double c = v * s;
+        double x = c * (1 - Math.Abs((hue / 60.0) % 2 - 1));
+        double m = v - c;
+        (double r, double g, double b) = hue switch
+        {
+            < 60 => (c, x, 0.0),
+            < 120 => (x, c, 0.0),
+            < 180 => (0.0, c, x),
+            < 240 => (0.0, x, c),
+            < 300 => (x, 0.0, c),
+            _ => (c, 0.0, x)
+        };
+        return Color.FromArgb(255, (byte)((r + m) * 255), (byte)((g + m) * 255), (byte)((b + m) * 255));
     }
 
     // Washes the playbar and right pane with the playing cover's colour; fades between tracks, clears when there is no art.
@@ -2072,16 +2100,24 @@ public sealed partial class MainWindow : Window
 
         // Fade out, swap colour, fade in (the layers carry an OpacityTransition).
         int ticket = ++_coverTintTicket;
+        // The list gets a lighter wash than the chrome so rows stay easy to read.
+        byte canvasNear = cover.HasValue ? (byte)(light ? 0x1C : 0x34) : (byte)0;
+        byte canvasFar = cover.HasValue ? (byte)(light ? 0x06 : 0x0C) : (byte)0;
+
         PlaybarTintLayer.Opacity = 0;
         PaneTintLayer.Opacity = 0;
+        CanvasTintLayer.Opacity = 0;
         await Task.Delay(320);
         if (ticket != _coverTintTicket) return;
         PlaybarTintStop.Color = from;
         PlaybarTintEndStop.Color = to;
         PaneTintStop.Color = from;
         PaneTintEndStop.Color = to;
+        CanvasTintStop.Color = Color.FromArgb(canvasNear, c.R, c.G, c.B);
+        CanvasTintEndStop.Color = Color.FromArgb(canvasFar, c.R, c.G, c.B);
         PlaybarTintLayer.Opacity = 1;
         PaneTintLayer.Opacity = 1;
+        CanvasTintLayer.Opacity = 1;
     }
 
     private int _coverTintTicket;
