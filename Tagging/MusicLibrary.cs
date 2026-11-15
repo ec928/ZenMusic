@@ -266,8 +266,12 @@ public static class MusicLibrary
                 if (ext == ".mp3")
                 {
                     var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2, true);
-                    var popm = TagLib.Id3v2.PopularimeterFrame.Get(id3, "Windows Media Player 9 Series", true);
-                    popm.Rating = stars is double s && s > 0 ? PopularimeterFromStars(s) : (byte)0;
+                    byte value = stars is double s && s > 0 ? PopularimeterFromStars(s) : (byte)0;
+                    TagLib.Id3v2.PopularimeterFrame.Get(id3, "Windows Media Player 9 Series", true).Rating = value;
+                    // A file rated by another tagger carries that tagger's own rating frame. Every frame gets
+                    // the new value: left behind, the old one is what the file reads back as on the next scan.
+                    foreach (var other in id3.GetFrames<TagLib.Id3v2.PopularimeterFrame>())
+                        other.Rating = value;
                     file.Save();
                     saved = true;
                 }
