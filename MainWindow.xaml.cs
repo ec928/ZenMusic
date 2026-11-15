@@ -957,6 +957,16 @@ public sealed partial class MainWindow : Window
         }
 
         track.ArtLoadAttempted = true;
+
+        // Rows and tiles that are only passing through during a fast scroll never reach the disk:
+        // wait briefly, and give up if the container has already been handed to another track.
+        await Task.Delay(120);
+        if (!ReferenceEquals(args.ItemContainer?.Content, track))
+        {
+            track.ArtLoadAttempted = false;
+            return;
+        }
+
         string path = track.Path;
         var (bytes, hash) = await Task.Run(() =>
         {
@@ -2044,6 +2054,8 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadPlayingArtAndSmtcAsync(TrackItem track)
     {
+        ApplyArtFallback(track, NowPlayingArtFallback, NowPlayingArtInitial);
+        ApplyArtFallback(track, FocusArtFallback, FocusArtInitial);
         byte[]? bytes = await Task.Run(() => MusicLibrary.ReadEmbeddedArtBytes(track.Path));
         if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
 
@@ -2060,16 +2072,51 @@ public sealed partial class MainWindow : Window
     // Tracks without a cover still get a wash: a hue derived from the artist (else album, else title),
     // so the same artist always lands on the same colour.
     private static Color FallbackTintFor(TrackItem track)
+        => HsvToColor(ArtHue(track.Artist, track.Album, track.DisplayTitle), 0.50, 0.85);
+
+    private static int ArtHue(string? artist, string? album, string? title)
     {
-        string key = !string.IsNullOrWhiteSpace(track.Artist) ? track.Artist
-            : !string.IsNullOrWhiteSpace(track.Album) ? track.Album
-            : track.DisplayTitle;
+        string key = !string.IsNullOrWhiteSpace(artist) ? artist
+            : !string.IsNullOrWhiteSpace(album) ? album
+            : title ?? string.Empty;
         uint hash = 2166136261;
         foreach (char ch in key.Trim().ToLowerInvariant())
             hash = (hash ^ ch) * 16777619;
+        return (int)(hash % 360);
+    }
 
-        double hue = hash % 360;
-        const double s = 0.50, v = 0.85;
+    private static readonly Dictionary<int, Brush> _placeholderBrushes = new();
+
+    /// <summary>Generated cover for tracks without art: a diagonal gradient in the artist's hue (same hue as the window tint).</summary>
+    public static Brush PlaceholderBrush(string? artist, string? album, string? title)
+    {
+        int hue = ArtHue(artist, album, title);
+        if (_placeholderBrushes.TryGetValue(hue, out var cached)) return cached;
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new Windows.Foundation.Point(0, 0),
+            EndPoint = new Windows.Foundation.Point(1, 1)
+        };
+        brush.GradientStops.Add(new GradientStop { Color = HsvToColor(hue, 0.52, 0.62), Offset = 0 });
+        brush.GradientStops.Add(new GradientStop { Color = HsvToColor((hue + 28) % 360, 0.62, 0.34), Offset = 1 });
+        _placeholderBrushes[hue] = brush;
+        return brush;
+    }
+
+    private static void ApplyArtFallback(TrackItem? track, Border host, TextBlock initial)
+    {
+        if (track == null)
+        {
+            host.Visibility = Visibility.Collapsed;
+            return;
+        }
+        host.Background = PlaceholderBrush(track.Artist, track.Album, track.DisplayTitle);
+        initial.Text = track.ArtInitial;
+        host.Visibility = Visibility.Visible;
+    }
+
+    private static Color HsvToColor(double hue, double s, double v)
+    {
         double c = v * s;
         double x = c * (1 - Math.Abs((hue / 60.0) % 2 - 1));
         double m = v - c;
@@ -2753,6 +2800,7 @@ public sealed partial class MainWindow : Window
             SelectedArtistText.Text = string.Empty;
             SelectedSpecsText.Text = string.Empty;
             SelectedArtImage.Source = null;
+            ApplyArtFallback(null, SelectedArtFallback, SelectedArtInitial);
             SelectedPropertiesBtn.IsEnabled = false;
             UpdateSelectedRatingVisuals(null);
             UpdateSelectedLyricsPreview(string.Empty);
@@ -2763,6 +2811,7 @@ public sealed partial class MainWindow : Window
         UpdateSelectedTrackLabels(track);
         SelectedPropertiesBtn.IsEnabled = true;
         UpdateSelectedRatingVisuals(track.Rating);
+        ApplyArtFallback(track, SelectedArtFallback, SelectedArtInitial);
         _ = LoadArtAsync(track.Path, SelectedArtImage);
         _ = LoadSelectedLyricsAsync(track.Path);
     }
@@ -2839,6 +2888,10 @@ public sealed partial class MainWindow : Window
 
     private void ApplyInspectorArtMode()
     {
+        // Generated-cover initial: small in the compact card, lifted clear of the text overlay in mode 2.
+        SelectedArtInitial.FontSize = _inspectorArtMode == 0 ? 44 : _inspectorArtMode == 1 ? 80 : 60;
+        SelectedArtInitial.Margin = new Thickness(0, 0, 0, _inspectorArtMode == 2 ? 84 : 0);
+
         if (_inspectorArtMode == 0)
         {
             SelectedArtCol.Width = new GridLength(112);

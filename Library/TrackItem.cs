@@ -131,6 +131,21 @@ public sealed class TrackItem : INotifyPropertyChanged
     public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? System.IO.Path.GetFileNameWithoutExtension(Path).Trim() : Title.Trim();
     public string DisplayArtist => string.IsNullOrWhiteSpace(Artist) ? "Unknown Artist" : Artist.Trim();
     public string DisplayAlbum => string.IsNullOrWhiteSpace(Album) ? "Unknown Album" : Album.Trim();
+    /// <summary>First character of the artist (else the title), shown on the generated cover of tracks without art.</summary>
+    public string ArtInitial
+    {
+        get
+        {
+            string source = string.IsNullOrWhiteSpace(Artist) ? DisplayTitle : Artist.Trim();
+            foreach (char ch in source)
+            {
+                if (char.IsLetterOrDigit(ch) && !char.IsSurrogate(ch))
+                    return char.ToUpperInvariant(ch).ToString();
+            }
+            return source.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(source) : "♪";
+        }
+    }
+
     public string YearText => Year > 0 ? Year.ToString() : string.Empty;
     public string DurationText => Duration.TotalHours >= 1
         ? $"{(int)Duration.TotalHours}:{Duration.Minutes:D2}:{Duration.Seconds:D2}"

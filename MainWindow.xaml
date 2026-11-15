@@ -224,7 +224,7 @@
                         <ColumnDefinition x:Name="HeaderColDateAdded" Width="124"/>
                         <ColumnDefinition x:Name="HeaderColBitrate" Width="68"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Tag="Title" Content="Title ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button Grid.Column="0" Tag="Title" Content="Title ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="28,0,-4,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="1" Tag="Artist" Content="Artist" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="2" Tag="Album" Content="Album" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="3" Tag="Genre" Content="Genre" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
@@ -241,7 +241,8 @@
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
                           IsDoubleTapEnabled="True" DoubleTapped="TracksListView_DoubleTapped"
                           SelectionChanged="TracksListView_SelectionChanged"
-                          RightTapped="TracksListView_RightTapped">
+                          RightTapped="TracksListView_RightTapped"
+                          ContainerContentChanging="AlbumsGridView_ContainerContentChanging">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -273,6 +274,12 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Width="22" Height="22" CornerRadius="3" Margin="0,0,10,0" VerticalAlignment="Center" Background="{x:Bind local:MainWindow.PlaceholderBrush(Artist, Album, DisplayTitle), Mode=OneWay}">
+                                        <Grid>
+                                            <TextBlock Text="{x:Bind ArtInitial, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="#CCFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
+                                        </Grid>
+                                    </Border>
                                     <TextBlock Grid.Column="1" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                     <FontIcon Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
                                 </Grid>
@@ -312,10 +319,9 @@
                                 <Border CornerRadius="8" Background="{ThemeResource PlayingRowBrush}" BorderBrush="{ThemeResource FavouriteStarBrush}" BorderThickness="1.5" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
                                 <StackPanel Spacing="5" Padding="10">
                                     <Grid Width="150" Height="150">
-                                        <Border CornerRadius="6" Background="#1E1E1E" BorderBrush="#1AFFFFFF" BorderThickness="1">
+                                        <Border CornerRadius="6" Background="{x:Bind local:MainWindow.PlaceholderBrush(Artist, Album, DisplayTitle), Mode=OneWay}" BorderBrush="#1AFFFFFF" BorderThickness="1">
                                             <Grid>
-                                                <Ellipse Width="84" Height="84" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#12FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="20" Foreground="#90FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{x:Bind ArtInitial, Mode=OneWay}" FontSize="64" FontWeight="SemiBold" Foreground="#B3FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
                                             </Grid>
                                         </Border>
@@ -458,6 +464,9 @@
                                         <Ellipse Width="74" Height="74" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#16FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         <Ellipse Width="24" Height="24" Stroke="#38FFC83B" StrokeThickness="1.5" Fill="#22000000" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="14" Foreground="#90FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Border x:Name="SelectedArtFallback" Visibility="Collapsed">
+                                            <TextBlock x:Name="SelectedArtInitial" FontSize="72" FontWeight="SemiBold" Foreground="#B3FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
                                         <Image x:Name="SelectedArtImage" Stretch="UniformToFill"/>
                                     </Grid>
                                 </Border>
@@ -589,6 +598,9 @@
                                     <Ellipse Width="140" Height="140" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#16FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <Ellipse Width="42" Height="42" Stroke="#38FFC83B" StrokeThickness="1.5" Fill="#22000000" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="28" Foreground="#90FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Border x:Name="FocusArtFallback" Visibility="Collapsed">
+                                        <TextBlock x:Name="FocusArtInitial" FontSize="96" FontWeight="SemiBold" Foreground="#B3FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
                                     <Image x:Name="FocusArtImage" Stretch="UniformToFill"/>
                                 </Grid>
                             </Border>
@@ -658,6 +670,9 @@
                     <Border Width="54" Height="54" CornerRadius="8" Background="{ThemeResource PlaybarArtBgBrush}" BorderBrush="{ThemeResource PlaybarArtBorderBrush}" BorderThickness="1">
                         <Grid>
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="20" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Border x:Name="NowPlayingArtFallback" Visibility="Collapsed">
+                                <TextBlock x:Name="NowPlayingArtInitial" FontSize="24" FontWeight="SemiBold" Foreground="#CCFFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
                             <Image x:Name="NowPlayingArtImage" Stretch="UniformToFill"/>
                             <Border x:Name="NowPlayingLocateBadge" Width="17" Height="17" CornerRadius="8.5"
                                     HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2"
