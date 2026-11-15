@@ -100,7 +100,7 @@ Clicking the top-right **`⚙` Settings** wheel opens a clean, dark-frosted conf
 
 ---
 
-## 6. UI as built (v0.3.x)
+## 6. UI as built (v0.4.0)
 
 What the window actually does today, where it differs from or adds to the sections above.
 
