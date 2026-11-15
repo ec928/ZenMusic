@@ -521,12 +521,8 @@ public sealed partial class MainWindow
         var (aboutRow, _, _) = SettingsCard.Row("", $"ZenMusic v{appVersion}",
             $"NAudio WASAPI · TagLib# · Win2D · WinUI 3 · .NET {Environment.Version}", shortcutsBtn);
 
-        var resetBtn = new HyperlinkButton
-        {
-            Content = "Reset audio, appearance and layout to defaults",
-            Margin = new Thickness(-10, 14, 0, 0),
-            FontSize = 12
-        };
+        var resetBtn = new Button { Content = "Reset" };
+        var (resetRow, _, _) = SettingsCard.Row("", "Reset to defaults", "Audio, appearance and window layout", resetBtn);
         resetBtn.Click += (_, _) =>
         {
             _settingsAudioPending = false;
@@ -557,8 +553,7 @@ public sealed partial class MainWindow
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
             SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row));
         panel.Children.Add(SettingsCard.Section("Library and application"));
-        panel.Children.Add(SettingsCard.Card(rescanRow, aboutRow));
-        panel.Children.Add(resetBtn);
+        panel.Children.Add(SettingsCard.Card(rescanRow, resetRow, aboutRow));
 
         loading = false;
         return panel;

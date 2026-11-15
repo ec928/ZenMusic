@@ -275,11 +275,7 @@
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColDateAddedWidth()}"/>
                                     <ColumnDefinition Width="{x:Bind local:MainWindow.ColBitrateWidth()}"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.ColumnSpan="9" Margin="-16,0" Background="{ThemeResource PlayingRowBrush}" Opacity="{x:Bind local:MainWindow.BoolOpacity(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False">
-                                    <Border.OpacityTransition>
-                                        <ScalarTransition Duration="0:0:0.22"/>
-                                    </Border.OpacityTransition>
-                                </Border>
+                                <Border Grid.ColumnSpan="9" Margin="-16,0" Background="{ThemeResource PlayingRowBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
 
                                 <Border Grid.Column="0" Width="3" HorizontalAlignment="Left" Margin="-10,4,0,4" CornerRadius="2" Background="{ThemeResource FavouriteStarBrush}" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}"/>
 
@@ -603,7 +599,12 @@
                 <!-- Backdrop: the cover decoded tiny and stretched, which reads as a soft blur, under a dark veil -->
                 <Image x:Name="FocusBackdropImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False">
                     <Image.OpacityTransition>
-                        <ScalarTransition Duration="0:0:0.5"/>
+                        <ScalarTransition Duration="0:0:0.8"/>
+                    </Image.OpacityTransition>
+                </Image>
+                <Image x:Name="FocusBackdropImageB" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False">
+                    <Image.OpacityTransition>
+                        <ScalarTransition Duration="0:0:0.8"/>
                     </Image.OpacityTransition>
                 </Image>
                 <Border Background="#66080808" IsHitTestVisible="False"/>
@@ -654,7 +655,12 @@
                                     </Border>
                                     <Image x:Name="FocusArtImage" Stretch="UniformToFill">
                                         <Image.OpacityTransition>
-                                            <ScalarTransition Duration="0:0:0.3"/>
+                                            <ScalarTransition Duration="0:0:0.6"/>
+                                        </Image.OpacityTransition>
+                                    </Image>
+                                    <Image x:Name="FocusArtImageB" Stretch="UniformToFill" Opacity="0">
+                                        <Image.OpacityTransition>
+                                            <ScalarTransition Duration="0:0:0.6"/>
                                         </Image.OpacityTransition>
                                     </Image>
                                 </Grid>
@@ -730,7 +736,12 @@
                             </Border>
                             <Image x:Name="NowPlayingArtImage" Stretch="UniformToFill">
                                 <Image.OpacityTransition>
-                                    <ScalarTransition Duration="0:0:0.25"/>
+                                    <ScalarTransition Duration="0:0:0.6"/>
+                                </Image.OpacityTransition>
+                            </Image>
+                            <Image x:Name="NowPlayingArtImageB" Stretch="UniformToFill" Opacity="0">
+                                <Image.OpacityTransition>
+                                    <ScalarTransition Duration="0:0:0.6"/>
                                 </Image.OpacityTransition>
                             </Image>
                             <Border x:Name="NowPlayingLocateBadge" Width="17" Height="17" CornerRadius="8.5"

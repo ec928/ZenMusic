@@ -130,7 +130,6 @@ public sealed partial class MainWindow : Window
     public static Visibility NowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
     public static bool Not(bool value) => !value;
-    public static double BoolOpacity(bool value) => value ? 1.0 : 0.0;
     public static Visibility BoolVis(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNullVis(object? obj) => obj != null ? Visibility.Visible : Visibility.Collapsed;
     public static ImageSource? ToImageSource(object? obj) => obj as ImageSource;
@@ -2101,38 +2100,67 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadPlayingArtAndSmtcAsync(TrackItem track)
     {
-        // Fade the old cover out now; the new one fades in once decoded (the images carry an OpacityTransition).
-        // The generated cover is only shown for tracks known to have no art, so it never flashes under a real cover.
-        var fallbackFor = track.HasEmbeddedArt ? null : track;
-        NowPlayingArtImage.Opacity = 0;
-        FocusArtImage.Opacity = 0;
-        FocusBackdropImage.Opacity = 0;
-        ApplyArtFallback(fallbackFor, NowPlayingArtFallback, NowPlayingArtInitial);
-        ApplyArtFallback(fallbackFor, FocusArtFallback, FocusArtInitial);
+        // A track known to have no art shows its generated cover at once, under the old cover as that fades out.
+        // A track with art keeps whatever is underneath until its own cover has faded in over it.
+        bool expectsArt = track.HasEmbeddedArt;
+        if (!expectsArt)
+        {
+            ApplyArtFallback(track, NowPlayingArtFallback, NowPlayingArtInitial);
+            ApplyArtFallback(track, FocusArtFallback, FocusArtInitial);
+        }
 
         byte[]? bytes = await Task.Run(() => MusicLibrary.ReadEmbeddedArtBytes(track.Path));
         if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
 
         _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album, bytes);
-        await SetImageFromBytesAsync(bytes, NowPlayingArtImage, FocusArtImage);
+        var cover = await CreateBitmapFromBytesAsync(bytes);
+        var backdrop = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 40);
         if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
 
-        // Focus stage backdrop: the cover decoded tiny and stretched across the stage reads as a soft blur.
-        FocusBackdropImage.Source = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 40);
-        if (bytes is not { Length: > 0 })
+        bool hasArt = cover != null;
+        if (!hasArt)
         {
             ApplyArtFallback(track, NowPlayingArtFallback, NowPlayingArtInitial);
             ApplyArtFallback(track, FocusArtFallback, FocusArtInitial);
         }
-        NowPlayingArtImage.Opacity = 1;
-        FocusArtImage.Opacity = 1;
-        FocusBackdropImage.Opacity = 0.6;
+        CrossfadePlayingArt(cover, backdrop);
+        if (hasArt) _ = HidePlayingFallbackAfterFadeAsync(track.Path);
 
         Color glowColor = bytes is { Length: > 0 }
             ? await ComputeDominantAccentColorAsync(bytes)
             : FallbackTintFor(track);
         FocusAmbientStop.Color = glowColor;
         ApplyCoverTint(glowColor);
+    }
+
+    // Each art slot has two stacked images. The incoming cover goes into the hidden one and fades in while the
+    // visible one fades out, so the change is a true cross-fade however quickly the new cover decodes.
+    private bool _playingArtOnB;
+
+    private void CrossfadePlayingArt(ImageSource? cover, ImageSource? backdrop)
+    {
+        var (barIn, barOut) = _playingArtOnB ? (NowPlayingArtImage, NowPlayingArtImageB) : (NowPlayingArtImageB, NowPlayingArtImage);
+        var (focusIn, focusOut) = _playingArtOnB ? (FocusArtImage, FocusArtImageB) : (FocusArtImageB, FocusArtImage);
+        var (dropIn, dropOut) = _playingArtOnB ? (FocusBackdropImage, FocusBackdropImageB) : (FocusBackdropImageB, FocusBackdropImage);
+        _playingArtOnB = !_playingArtOnB;
+
+        barIn.Source = cover;
+        focusIn.Source = cover;
+        dropIn.Source = backdrop;
+        barIn.Opacity = cover != null ? 1 : 0;
+        focusIn.Opacity = cover != null ? 1 : 0;
+        dropIn.Opacity = backdrop != null ? 0.6 : 0;
+        barOut.Opacity = 0;
+        focusOut.Opacity = 0;
+        dropOut.Opacity = 0;
+    }
+
+    private async Task HidePlayingFallbackAfterFadeAsync(string path)
+    {
+        await Task.Delay(500);
+        if (!string.Equals(_activePlayingPathForLyrics, path, StringComparison.OrdinalIgnoreCase)) return;
+        ApplyArtFallback(null, NowPlayingArtFallback, NowPlayingArtInitial);
+        ApplyArtFallback(null, FocusArtFallback, FocusArtInitial);
     }
 
     // Tracks without a cover still get a wash: a hue derived from the artist (else album, else title),
