@@ -254,6 +254,7 @@ public sealed partial class MainWindow : Window
         ApplyPaneWidths();
         ApplyColumnWidths();
         RestoreWindowBounds();
+        WatchSystemColours();
         ApplyTheme(_settings.Theme);
         ApplyInspectorArtMode();
         ApplyViewModeVisuals();
@@ -318,6 +319,7 @@ public sealed partial class MainWindow : Window
             SaveWindowBounds();
             SaveSessionState();
             _settings.Save();
+            _cacheSaveTimer?.Stop();
             SaveLibraryCacheSnapshot();
             _engine.Dispose();
         };
@@ -450,6 +452,23 @@ public sealed partial class MainWindow : Window
             LibraryCache.Save(AppPaths.LibraryCachePath, _allTracks);
     }
 
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _cacheSaveTimer;
+
+    // A rating is written to the file with its timestamp kept, so the next start trusts the cache for it.
+    // Saved only on close, a crash would bring the old rating back; this saves shortly after the change.
+    private void SaveLibraryCacheSoon()
+    {
+        if (_cacheSaveTimer == null)
+        {
+            _cacheSaveTimer = DispatcherQueue.CreateTimer();
+            _cacheSaveTimer.Interval = TimeSpan.FromSeconds(2);
+            _cacheSaveTimer.IsRepeating = false;
+            _cacheSaveTimer.Tick += (_, _) => SaveLibraryCacheSnapshot();
+        }
+        _cacheSaveTimer.Stop();
+        _cacheSaveTimer.Start();
+    }
+
     private void RestoreWindowBounds()
     {
         try
@@ -510,9 +529,57 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    private Windows.UI.ViewManagement.UISettings? _uiSettings;
+    private Windows.UI.ViewManagement.AccessibilitySettings? _accessibility;
+    private bool _highContrast;
+
+    // Follows Windows for the "System" theme and for high contrast, both of which can change while the app is open.
+    private void WatchSystemColours()
+    {
+        try
+        {
+            _uiSettings = new Windows.UI.ViewManagement.UISettings();
+            _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(OnSystemColoursChanged);
+            _accessibility = new Windows.UI.ViewManagement.AccessibilitySettings();
+            _highContrast = _accessibility.HighContrast;
+            _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(OnSystemColoursChanged);
+        }
+        catch { }
+    }
+
+    private void OnSystemColoursChanged()
+    {
+        bool highContrast = _highContrast;
+        try { highContrast = _accessibility?.HighContrast ?? false; } catch { }
+        bool wantDark = IsDarkTheme(_settings.Theme);
+        bool isDark = RootGrid.RequestedTheme != ElementTheme.Light;
+        if (highContrast == _highContrast && wantDark == isDark) return;
+        _highContrast = highContrast;
+        ApplyTheme(_settings.Theme);
+    }
+
+    private bool SystemPrefersDark()
+    {
+        try
+        {
+            var bg = (_uiSettings ??= new Windows.UI.ViewManagement.UISettings())
+                .GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
+            return bg.R + bg.G + bg.B < 384;
+        }
+        catch { return true; }
+    }
+
+    private bool IsDarkTheme(string theme) =>
+        string.Equals(theme, "System", StringComparison.OrdinalIgnoreCase)
+            ? SystemPrefersDark()
+            : !string.Equals(theme, "Light", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Strength of the cover-colour wash: 0 = off, 1 = standard, 2 = vivid. Off in high contrast.</summary>
+    private double TintScale => _highContrast ? 0 : Math.Clamp(_settings.CoverTint, 0, 200) / 100.0;
+
     private void ApplyTheme(string theme)
     {
-        bool dark = !string.Equals(theme, "Light", StringComparison.OrdinalIgnoreCase);
+        bool dark = IsDarkTheme(theme);
         RootGrid.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
 
         foreach (var line in _selectedLrcLines)
@@ -526,7 +593,7 @@ public sealed partial class MainWindow : Window
         VolumeRailCanvas?.Invalidate();
         // The wash is lighter in the light theme, so re-apply it at the new strength.
         if (_lastCoverTint.HasValue && PlaybarTintLayer != null) ApplyCoverTint(_lastCoverTint);
-        else PlayingRowTint.Color = PlayingRowColor(null, !dark);
+        else PlayingRowTint.Color = PlayingRowColor(null, !dark, 1, _highContrast);
         if (_inspectorTrack == null && SelectedTitleText != null)
         {
             _selectedArtIsLight = !dark;
@@ -1819,6 +1886,7 @@ public sealed partial class MainWindow : Window
                 {
                     foreach (var (tr, oldR) in previous) MusicLibrary.TryWriteStars(tr.Path, oldR);
                 });
+                SaveLibraryCacheSoon();
                 ShowHudPill("Undone: Star rating");
                 return Task.CompletedTask;
             });
@@ -1828,6 +1896,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var t in targets) MusicLibrary.TryWriteStars(t.Path, newRating);
         });
+        SaveLibraryCacheSoon();
     }
 
     private void SyncPlayingTrackRating(IEnumerable<TrackItem> updatedTracks, double? newRating)
@@ -2359,9 +2428,11 @@ public sealed partial class MainWindow : Window
     }
 
     // Washes the playbar and right pane with the playing cover's colour; fades between tracks, clears when there is no art.
-    private async void ApplyCoverTint(Color? cover)
+    private async void ApplyCoverTint(Color? cover, bool fade = true)
     {
         _lastCoverTint = cover;
+        double k = TintScale;
+        byte Scaled(int alpha) => (byte)Math.Clamp(alpha * k, 0, 255);
         bool light = RootGrid.RequestedTheme == ElementTheme.Light;
         Color c = cover ?? Color.FromArgb(0, 0, 0, 0);
         if (cover.HasValue)
@@ -2372,26 +2443,29 @@ public sealed partial class MainWindow : Window
             byte Lift(byte v) => (byte)Math.Clamp(215.0 - (215.0 - v * scale) * 1.5, 0, 255);
             c = Color.FromArgb(255, Lift(c.R), Lift(c.G), Lift(c.B));
         }
-        byte strong = cover.HasValue ? (byte)(light ? 0x2E : 0x52) : (byte)0;
+        byte strong = cover.HasValue ? Scaled(light ? 0x2E : 0x52) : (byte)0;
         var from = Color.FromArgb(strong, c.R, c.G, c.B);
         var to = Color.FromArgb(0, c.R, c.G, c.B);
 
         // Fade out, swap colour, fade in (the layers carry an OpacityTransition).
         int ticket = ++_coverTintTicket;
         // The list gets a lighter wash than the chrome so rows stay easy to read.
-        byte canvasNear = cover.HasValue ? (byte)(light ? 0x1C : 0x34) : (byte)0;
-        byte canvasFar = cover.HasValue ? (byte)(light ? 0x06 : 0x0C) : (byte)0;
+        byte canvasNear = cover.HasValue ? Scaled(light ? 0x1C : 0x34) : (byte)0;
+        byte canvasFar = cover.HasValue ? Scaled(light ? 0x06 : 0x0C) : (byte)0;
 
-        PlaybarTintLayer.Opacity = 0;
-        PaneTintLayer.Opacity = 0;
-        CanvasTintLayer.Opacity = 0;
-        await Task.Delay(320);
-        if (ticket != _coverTintTicket) return;
+        if (fade)
+        {
+            PlaybarTintLayer.Opacity = 0;
+            PaneTintLayer.Opacity = 0;
+            CanvasTintLayer.Opacity = 0;
+            await Task.Delay(320);
+            if (ticket != _coverTintTicket) return;
+        }
         PlaybarTintStop.Color = from;
         PlaybarTintEndStop.Color = to;
         PaneTintStop.Color = from;
         PaneTintEndStop.Color = to;
-        PlayingRowTint.Color = PlayingRowColor(cover.HasValue ? c : null, light);
+        PlayingRowTint.Color = PlayingRowColor(cover.HasValue ? c : null, light, k, _highContrast);
         CanvasTintStop.Color = Color.FromArgb(canvasNear, c.R, c.G, c.B);
         CanvasTintEndStop.Color = Color.FromArgb(canvasFar, c.R, c.G, c.B);
         PlaybarTintLayer.Opacity = 1;
@@ -2408,11 +2482,15 @@ public sealed partial class MainWindow : Window
     /// </summary>
     public static SolidColorBrush PlayingRowTint { get; } = new(Color.FromArgb(0x1C, 0xFF, 0xC8, 0x3B));
 
-    private static Color PlayingRowColor(Color? lifted, bool light)
+    private static Color PlayingRowColor(Color? lifted, bool light, double strength, bool highContrast)
     {
-        if (lifted is not { } c)
+        // High contrast keeps the gold it had as a theme brush; the cover colour is not used there.
+        if (highContrast) return Color.FromArgb(0x33, 0xFF, 0xD7, 0x00);
+        if (lifted is not { } c || strength <= 0)
             return light ? Color.FromArgb(0x22, 0xD9, 0x77, 0x06) : Color.FromArgb(0x1C, 0xFF, 0xC8, 0x3B);
-        return Color.FromArgb((byte)(light ? 0x38 : 0x3C), c.R, c.G, c.B);
+        // Follows the wash strength, but never fades below the amber default's weight or swamps the row text.
+        double alpha = Math.Clamp((light ? 0x38 : 0x3C) * strength, 0x20, 0x66);
+        return Color.FromArgb((byte)alpha, c.R, c.G, c.B);
     }
 
     private async Task LoadFocusLyricsAsync(string path)

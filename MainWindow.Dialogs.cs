@@ -488,7 +488,9 @@ public sealed partial class MainWindow
         var themeBox = new ComboBox { MinWidth = 140 };
         themeBox.Items.Add(new ComboBoxItem { Content = "Dark", Tag = "Dark" });
         themeBox.Items.Add(new ComboBoxItem { Content = "Light", Tag = "Light" });
-        themeBox.SelectedIndex = string.Equals(_settings.Theme, "Light", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        themeBox.Items.Add(new ComboBoxItem { Content = "Use system setting", Tag = "System" });
+        themeBox.SelectedIndex = string.Equals(_settings.Theme, "Light", StringComparison.OrdinalIgnoreCase) ? 1
+            : string.Equals(_settings.Theme, "System", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
         themeBox.SelectionChanged += (_, _) =>
         {
             if (loading) return;
@@ -497,6 +499,27 @@ public sealed partial class MainWindow
             _settings.Theme = themeTag;
             _settings.Save();
             ApplyTheme(themeTag);
+        };
+
+        static string TintLabel(double v) => v <= 0 ? "Off: the window keeps its plain theme colours"
+            : $"How strongly the window takes the cover's colour: {v:0} %";
+        var tintSlider = new Slider
+        {
+            Minimum = 0, Maximum = 200, StepFrequency = 10, SmallChange = 10, LargeChange = 50,
+            Value = Math.Clamp(_settings.CoverTint, 0, 200), Width = 150, VerticalAlignment = VerticalAlignment.Center
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tintSlider, "Cover colour");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tintSlider, "CoverTintSlider");
+        var (tintRow, _, tintDetail) = SettingsCard.Row("", "Cover colour", TintLabel(tintSlider.Value), tintSlider);
+        tintSlider.ValueChanged += (_, e) =>
+        {
+            if (loading) return;
+            int value = (int)Math.Round(e.NewValue);
+            if (value == _settings.CoverTint) return;
+            _settings.CoverTint = value;
+            _settings.Save();
+            tintDetail.Text = TintLabel(value);
+            ApplyCoverTint(_lastCoverTint, fade: false);
         };
 
         string appVersion = typeof(MainWindow).Assembly
@@ -559,7 +582,8 @@ public sealed partial class MainWindow
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
-            SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row));
+            SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row,
+            tintRow));
         panel.Children.Add(SettingsCard.Section("Library and application"));
         panel.Children.Add(SettingsCard.Card(rescanRow, resetRow, shortcutsRow, aboutRow));
 
@@ -1348,15 +1372,17 @@ public sealed partial class MainWindow
             var current = await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path));
             var parsed = AutoTagger.ParseFromFilename(track.Path);
 
+            // Same quiet field label as the Properties dialog.
+            TextBlock FieldLabel(string text) => new() { Text = text, FontSize = 11.5, Opacity = 0.72, Margin = new Thickness(2, 0, 0, 0) };
             var queryTitleBox = new TextBox
             {
-                Header = "Search Title",
+                Header = FieldLabel("Search Title"),
                 Text = string.IsNullOrWhiteSpace(current.Title) ? parsed.Title : current.Title,
                 Width = 240
             };
             var queryArtistBox = new TextBox
             {
-                Header = "Search Artist",
+                Header = FieldLabel("Search Artist"),
                 Text = string.IsNullOrWhiteSpace(current.Artist) ? parsed.Artist : current.Artist,
                 Width = 220
             };
@@ -1371,7 +1397,7 @@ public sealed partial class MainWindow
             searchRow.Children.Add(loadingRing);
             searchRow.Children.Add(statusLabel);
 
-            var matchCombo = new ComboBox { Header = "Matched Release / Source", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var matchCombo = new ComboBox { Header = FieldLabel("Matched Release / Source"), HorizontalAlignment = HorizontalAlignment.Stretch };
 
             var selectAllBtn = new Button { Content = "Select All (Recommended)", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
             var emptyOnlyBtn = new Button { Content = "Only Empty Fields", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
@@ -1382,7 +1408,7 @@ public sealed partial class MainWindow
             presetRow.Children.Add(uncheckAllBtn);
 
             CheckBox MakeCheck(string label) => new() { Content = label, VerticalAlignment = VerticalAlignment.Center, MinWidth = 110 };
-            TextBox MakeProposedBox() => new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+            TextBox MakeProposedBox() => new() { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center };
             TextBlock MakeCurrentHint(string cur) => new()
             {
                 Text = string.IsNullOrWhiteSpace(cur) ? "(empty)" : cur,
@@ -1421,8 +1447,8 @@ public sealed partial class MainWindow
             Grid MakeDiffRow(CheckBox chk, string currentVal, Control proposedCtrl)
             {
                 var g = new Grid { ColumnSpacing = 8 };
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(138) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(124) });
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 var curTb = MakeCurrentHint(currentVal);
                 Grid.SetColumn(chk, 0); Grid.SetColumn(curTb, 1); Grid.SetColumn(proposedCtrl, 2);
@@ -1431,8 +1457,8 @@ public sealed partial class MainWindow
             }
 
             var diffHeader = new Grid { ColumnSpacing = 8 };
-            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
-            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(138) });
+            diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(124) });
             diffHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var hField = new TextBlock { Text = "Apply Field", FontSize = 11, Opacity = 0.7 };
             var hCur = new TextBlock { Text = "Current Tag", FontSize = 11, Opacity = 0.7 };
@@ -1695,7 +1721,8 @@ public sealed partial class MainWindow
             XamlRoot = RootGrid.XamlRoot,
             RequestedTheme = RootGrid.RequestedTheme
         };
-        dlg.SetTint(_lastCoverTint.HasValue ? PlaybarTintStop.Color : null);
+        dlg.SetTint(_lastCoverTint.HasValue && TintScale > 0 ? PlaybarTintStop.Color : null);
+        if (RootGrid.ActualWidth >= 860) dlg.UseWideLayout();
         await dlg.ShowAsync();
     }
 

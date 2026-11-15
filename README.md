@@ -12,7 +12,8 @@ ZenMusic plays the music files in a folder on your PC. Point it at the folder an
 - **Every track has a cover.** A track with no artwork gets a generated one: a gradient in a colour worked out from the artist's name, with the artist's initial on it. One artist always has one colour, and that colour tints the window too.
 - **Focus Stage (`F11`).** The window fills with the cover over a soft, blurred copy of itself, a visualizer, and the lyrics. Synced lyrics light up line by line, and a click on a line jumps to that moment.
 - **A quiet surface.** No zebra stripes and no boxes around things. A small cover starts each row, the seek bar runs along the top edge of the playbar, and album tiles lift and show a play button under the pointer.
-- **Light and dark.** Both themes carry the tint, at a lower strength in light.
+- **Light, dark, or whatever Windows is set to.** Every theme carries the tint, at a lower strength in light.
+- **As much colour as you like.** A slider in Settings takes the tint from off, through the standard wash, to vivid.
 
 ## Sound for the speakers you have
 

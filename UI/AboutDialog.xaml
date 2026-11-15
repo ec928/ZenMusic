@@ -8,7 +8,7 @@
     mc:Ignorable="d">
 
     <ContentDialog.Resources>
-        <x:Double x:Key="ContentDialogMaxWidth">620</x:Double>
+        <x:Double x:Key="ContentDialogMaxWidth">820</x:Double>
         <Style x:Key="AboutGlyph" TargetType="FontIcon">
             <Setter Property="FontSize" Value="18"/>
             <Setter Property="Foreground" Value="{ThemeResource FavouriteStarBrush}"/>
@@ -27,7 +27,7 @@
         </Style>
     </ContentDialog.Resources>
 
-    <Grid Width="500" RowSpacing="16">
+    <Grid x:Name="RootPanel" Width="500" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -67,7 +67,8 @@
                            FontSize="12" FontStyle="Italic" TextWrapping="Wrap" Margin="2,8,0,0"
                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
 
-                <Grid Margin="2,14,12,0" ColumnSpacing="14" RowSpacing="11">
+                <!-- One column of six; UseWideLayout() turns it into two columns of three in a wide window. -->
+                <Grid x:Name="FeatureGrid" Margin="2,14,12,0" ColumnSpacing="14" RowSpacing="11">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -138,7 +139,7 @@
             </Grid.ColumnDefinitions>
             <Button Grid.Column="0" Content="Report a problem" HorizontalAlignment="Stretch" Click="ReportButton_Click"/>
             <Button Grid.Column="1" Content="View on GitHub" HorizontalAlignment="Stretch" Click="ProjectButton_Click"/>
-            <Button Grid.Column="2" Content="Close" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="CloseButton_Click"/>
+            <Button x:Name="CloseAboutBtn" Grid.Column="2" Content="Close" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="CloseButton_Click"/>
         </Grid>
     </Grid>
 </ContentDialog>

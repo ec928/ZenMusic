@@ -60,6 +60,28 @@ public sealed partial class AboutDialog : ContentDialog
         TintNote.Visibility = hasTrack ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Lays the six highlights out as two columns of three in a wider panel, which is about 100 px
+    /// shorter. For windows wide enough to hold it; the single column stays for narrow ones.
+    /// </summary>
+    public void UseWideLayout()
+    {
+        if (FeatureGrid.ColumnDefinitions.Count > 2) return;
+        RootPanel.Width = 700;
+        FeatureGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        FeatureGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        // Children come in pairs: icon, then words.
+        for (int i = 0; i < FeatureGrid.Children.Count; i++)
+        {
+            if (FeatureGrid.Children[i] is not FrameworkElement el) continue;
+            int item = i / 2;
+            bool words = i % 2 == 1;
+            Grid.SetRow(el, item % 3);
+            Grid.SetColumn(el, (item / 3) * 2 + (words ? 1 : 0));
+            if (!words && item >= 3) el.Margin = new Thickness(10, 2, 0, 0);
+        }
+    }
+
     private static string GetDisplayVersion()
     {
         var asm = typeof(AboutDialog).Assembly;

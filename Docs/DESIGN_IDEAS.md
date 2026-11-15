@@ -113,6 +113,11 @@ What the window actually does today, where it differs from or adds to the sectio
 - **Playing row and tile**: the highlight takes the cover colour (amber when there is no tint); the amber bar at the row's left edge stays.
 - **Track card**: shows the selection, or the playing track when nothing is selected, and its stars and edit button act on whichever it shows. With nothing to show it follows the app theme. Text laid over the cover sits on a fade that builds up above the first line.
 - **Table columns**: Title, Artist and Album share the spare width 2.4 : 1.1 : 1.2; the other columns are fixed.
+- **Theme**: Dark, Light or "Use system setting", which follows the Windows app mode and changes with it while the app is open.
+- **Cover colour strength**: Settings > Cover colour, 0 to 200 % in steps of 10 (100 = the standard wash). It scales the playbar, right pane and list washes; the playing row follows it between a floor and a ceiling so the row text stays readable. At 0 the playing row is amber and the About header is amber.
+- **High contrast**: the cover washes are off and the playing row is the gold it has in the high-contrast theme.
+- **About**: the six highlights sit in two columns when the window is at least 860 px wide, one column otherwise.
+- **Ratings in MP3 files**: a rating is written to every rating frame the file carries, not only the Windows Media Player one, so a file first rated in another tagger reads back with the new value.
 - **Focus stage (F11)**: the cover, decoded very small and stretched across the stage, forms a soft blurred backdrop under a dark veil; the cover itself is 300 px.
 - **Settings**: a panel that slides in over the right of the window. Every change applies as it is made; there is no Apply or Cancel. It closes with its X, Esc, or a click outside. Slider changes are written and applied 250 ms after the last movement.
 - **Menus**: the track and playlist context menus carry icons on their top-level actions, assigned by how each label starts (`MenuIconMap` in `MainWindow.xaml.cs`).
