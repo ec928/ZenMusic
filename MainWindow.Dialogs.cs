@@ -672,8 +672,8 @@ public sealed partial class MainWindow
             var cts = new CancellationTokenSource();
             _rgScanCts = cts;
             rgAnalyzeBtn.Content = "Cancel";
-            int done = measuredCount;
-            int total = localCount;
+            int total = _allTracks.Count(t => !t.IsCloudOnly);
+            int done = _allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue);
             try
             {
                 await Parallel.ForEachAsync(pending, new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (t, ct) =>
