@@ -694,6 +694,7 @@ public sealed partial class MainWindow
                                 _engine.SetReplayGainFactor(GetTrackReplayGainFactor(t));
                         }
                         rgAnalyzeDetail.Text = $"Analyzing {curDone:N0} / {total:N0}...";
+                        if (curDone % 25 == 0) SaveLibraryCacheSnapshot();
                     });
                 });
             }
