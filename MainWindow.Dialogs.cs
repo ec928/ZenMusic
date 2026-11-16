@@ -490,7 +490,7 @@ public sealed partial class MainWindow
             ApplyLiveReplayGain();
         };
 
-        var eqPresetBox = new ComboBox { MinWidth = 132 };
+        var eqPresetBox = new ComboBox { MinWidth = 180, FontSize = 12 };
         string[] eqOrder = { "Flat", "Rock", "Pop", "Jazz", "Classical", "Bass Boost", "Vocal", "Acoustic", "Electronic", "Custom" };
         foreach (string pName in eqOrder)
         {
@@ -500,19 +500,29 @@ public sealed partial class MainWindow
                 Tag = pName
             });
         }
+        eqPresetBox.Items.Add(new ComboBoxItem { Content = "Adjust 10 bands...", Tag = "__EditBands__" });
         int eqSelectedIdx = Array.FindIndex(eqOrder, p => string.Equals(p, _settings.EqualizerPreset, StringComparison.OrdinalIgnoreCase));
         eqPresetBox.SelectedIndex = eqSelectedIdx >= 0 ? eqSelectedIdx : 0;
 
-        var eqBandsBtn = new Button { Content = "Bands...", Padding = new Thickness(10, 5, 10, 5), MinHeight = 0 };
-        var eqControlPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        eqControlPanel.Children.Add(eqPresetBox);
-        eqControlPanel.Children.Add(eqBandsBtn);
-        var (eqRow, _, _) = SettingsCard.Row("\uE9E9", "Equalizer", "10-band tone shaping", eqControlPanel);
+        var (eqRow, _, _) = SettingsCard.Row("\uE9E9", "Equalizer", "10-band tone shaping", eqPresetBox);
 
-        eqPresetBox.SelectionChanged += (_, _) =>
+        bool updatingEqCombo = false;
+        eqPresetBox.SelectionChanged += async (_, _) =>
         {
-            if (loading) return;
+            if (loading || updatingEqCombo) return;
             string tag = (eqPresetBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Flat";
+            if (tag == "__EditBands__")
+            {
+                updatingEqCombo = true;
+                try
+                {
+                    int curIdx = Array.FindIndex(eqOrder, p => string.Equals(p, _settings.EqualizerPreset, StringComparison.OrdinalIgnoreCase));
+                    eqPresetBox.SelectedIndex = curIdx >= 0 ? curIdx : 0;
+                }
+                finally { updatingEqCombo = false; }
+                await OpenEqualizerDialogAsync(eqPresetBox);
+                return;
+            }
             _settings.EqualizerPreset = tag;
             if (EqualizerSampleProvider.Presets.TryGetValue(tag, out var presetGains))
             {
@@ -521,7 +531,6 @@ public sealed partial class MainWindow
             _settings.Save();
             _engine.SetEqualizerGains(_settings.EqualizerGains);
         };
-        eqBandsBtn.Click += async (_, _) => await OpenEqualizerDialogAsync(eqPresetBox);
 
         var vizBox = new ComboBox { MinWidth = 200 };
         vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum bars", Tag = "Spectrum" });
