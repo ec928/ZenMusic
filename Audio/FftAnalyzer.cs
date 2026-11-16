@@ -28,6 +28,8 @@ public sealed class FftAnalyzer
     private readonly object _computeLock = new();
 
     private volatile int _sampleRate = 44100;
+    private float _autoGain = 1.4f;
+    private float _waveGain = 1.6f;
 
     public float BassEnergy { get; private set; }
 
@@ -61,6 +63,8 @@ public sealed class FftAnalyzer
         Array.Clear(_bands);
         Array.Clear(_peaks);
         Array.Clear(_waveform);
+        _autoGain = 1.4f;
+        _waveGain = 1.6f;
         BassEnergy = 0f;
     }
 
@@ -68,7 +72,7 @@ public sealed class FftAnalyzer
     /// Computes latest smoothed spectrum bands (0..1), peak-hold caps (0..1), and waveform (-1..1).
     /// Safe to call from the UI/render thread at 60 fps.
     /// </summary>
-    public void ComputeFrame(Span<float> outBands, Span<float> outPeaks, Span<float> outWaveform, float smoothing = 0.72f)
+    public void ComputeFrame(Span<float> outBands, Span<float> outPeaks, Span<float> outWaveform, float smoothing = 0.56f)
     {
         lock (_computeLock)
         {
@@ -76,20 +80,26 @@ public sealed class FftAnalyzer
             int len = _ring.Length;
             int start = (writePos - FftSize + len) % len;
 
+            float waveFramePeak = 0.001f;
             for (int i = 0; i < FftSize; i++)
             {
                 float sample = _ring[(start + i) % len];
+                float abs = MathF.Abs(sample);
+                if (abs > waveFramePeak) waveFramePeak = abs;
                 _real[i] = sample * _hann[i];
                 _imag[i] = 0f;
             }
+
+            float targetWaveGain = Math.Clamp(0.75f / Math.Max(0.08f, waveFramePeak), 1.0f, 3.8f);
+            _waveGain = _waveGain * 0.94f + targetWaveGain * 0.06f;
 
             // Decimated waveform from the most recent FftSize samples
             int waveStep = Math.Max(1, FftSize / WaveformPoints);
             int wCount = Math.Min(WaveformPoints, outWaveform.Length);
             for (int i = 0; i < wCount; i++)
             {
-                float v = _ring[(start + i * waveStep) % len];
-                _waveform[i] = _waveform[i] * 0.4f + v * 0.6f;
+                float v = Math.Clamp(_ring[(start + i * waveStep) % len] * _waveGain, -1f, 1f);
+                _waveform[i] = _waveform[i] * 0.30f + v * 0.70f;
                 outWaveform[i] = _waveform[i];
             }
 
@@ -97,11 +107,16 @@ public sealed class FftAnalyzer
 
             int half = FftSize / 2;
             float norm = 2f / FftSize;
+            float maxMag = 0.0005f;
             for (int i = 0; i < half; i++)
             {
                 float mag = MathF.Sqrt(_real[i] * _real[i] + _imag[i] * _imag[i]) * norm;
                 _magnitudes[i] = mag;
+                if (mag > maxMag) maxMag = mag;
             }
+
+            float targetAutoGain = Math.Clamp(0.28f / Math.Max(0.03f, maxMag), 0.9f, 3.2f);
+            _autoGain = _autoGain * 0.94f + targetAutoGain * 0.06f;
 
             int sr = _sampleRate;
             double minFreq = 24.0;
@@ -126,13 +141,13 @@ public sealed class FftAnalyzer
                     if (_magnitudes[k] > peakMag) peakMag = _magnitudes[k];
                 }
 
-                // Convert to perceptual dB scale (-60 dB .. 0 dB -> 0 .. 1)
-                float db = 20f * MathF.Log10(peakMag + 1e-6f);
-                float level = Math.Clamp((db + 60f) / 56f, 0f, 1f);
+                // Convert to perceptual dB scale (-54 dB .. 0 dB -> 0 .. 1) with gentle auto-gain
+                float db = 20f * MathF.Log10(peakMag * _autoGain + 1e-6f);
+                float level = Math.Clamp((db + 54f) / 50f, 0f, 1f);
 
                 float prev = _bands[b];
-                _bands[b] = level > prev ? prev * 0.25f + level * 0.75f : prev * decay + level * (1f - decay);
-                _peaks[b] = _bands[b] >= _peaks[b] ? _bands[b] : MathF.Max(0f, _peaks[b] - 0.008f);
+                _bands[b] = level > prev ? prev * 0.18f + level * 0.82f : prev * decay + level * (1f - decay);
+                _peaks[b] = _bands[b] >= _peaks[b] ? _bands[b] : MathF.Max(0f, _peaks[b] - 0.014f);
 
                 outBands[b] = _bands[b];
                 outPeaks[b] = _peaks[b];

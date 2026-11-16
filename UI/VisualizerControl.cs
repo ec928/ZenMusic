@@ -140,7 +140,7 @@ public sealed class VisualizerControl : UserControl
             return;
         }
 
-        _analyzer.ComputeFrame(_bands, _peaks, _waveform);
+        _analyzer.ComputeFrame(_bands, _peaks, _waveform, w < 340f ? 0.60f : 0.54f);
 
         if (_mode == VisualizerMode.Spectrum)
         {
@@ -200,7 +200,9 @@ public sealed class VisualizerControl : UserControl
             int b1 = Math.Clamp(b0 + 1, 0, totalBands - 1);
             float frac = bandPos - b0;
 
-            float tilt = isCompactWing ? (1.0f + 0.38f * t) : 1.0f;
+            float tilt = isCompactWing
+                ? (1.0f + 0.42f * t)
+                : (0.90f + 0.72f * MathF.Pow(t, 0.85f));
             float rawLevel = _bands[b0] * (1f - frac) + _bands[b1] * frac;
             float rawPeak = _peaks[b0] * (1f - frac) + _peaks[b1] * frac;
 
@@ -235,24 +237,54 @@ public sealed class VisualizerControl : UserControl
         int count = _waveform.Length;
         if (count < 2) return;
 
+        bool isCompact = w < 340f;
         float midY = h * 0.5f;
-        float amp = h * 0.44f;
+        float amp = h * (isCompact ? 0.44f : 0.46f);
 
-        using var builder = new CanvasPathBuilder(ds);
-        float startX = MirrorHorizontally ? w : 0f;
-        builder.BeginFigure(startX, midY - Math.Clamp(_waveform[0], -1f, 1f) * amp);
+        float PointX(int idx) => MirrorHorizontally
+            ? w - (w * idx) / (count - 1)
+            : (w * idx) / (count - 1);
+        float PointY(int idx) => midY - Math.Clamp(_waveform[idx], -1f, 1f) * amp;
+
+        using var strokeBuilder = new CanvasPathBuilder(ds);
+        using var fillBuilder = !isCompact ? new CanvasPathBuilder(ds) : null;
+
+        float x0 = PointX(0);
+        float y0 = PointY(0);
+        strokeBuilder.BeginFigure(x0, y0);
+        fillBuilder?.BeginFigure(x0, midY);
+        fillBuilder?.AddLine(x0, y0);
+
         for (int i = 1; i < count; i++)
         {
-            float x = MirrorHorizontally
-                ? w - (w * i) / (count - 1)
-                : (w * i) / (count - 1);
-            float y = midY - Math.Clamp(_waveform[i], -1f, 1f) * amp;
-            builder.AddLine(x, y);
+            float px = PointX(i - 1);
+            float py = PointY(i - 1);
+            float cx = PointX(i);
+            float cy = PointY(i);
+            float mx = (px + cx) * 0.5f;
+            float my = (py + cy) * 0.5f;
+            strokeBuilder.AddQuadraticBezier(new Vector2(px, py), new Vector2(mx, my));
+            fillBuilder?.AddQuadraticBezier(new Vector2(px, py), new Vector2(mx, my));
         }
-        builder.EndFigure(CanvasFigureLoop.Open);
+        float xLast = PointX(count - 1);
+        float yLast = PointY(count - 1);
+        strokeBuilder.AddLine(xLast, yLast);
+        strokeBuilder.EndFigure(CanvasFigureLoop.Open);
 
-        using var geo = CanvasGeometry.CreatePath(builder);
-        ds.DrawGeometry(geo, _useLightTheme ? Color.FromArgb(65, 217, 119, 6) : Color.FromArgb(75, 255, 200, 59), 5f);
-        ds.DrawGeometry(geo, _useLightTheme ? Color.FromArgb(235, 180, 83, 9) : Color.FromArgb(245, 255, 245, 214), 1.75f);
+        if (fillBuilder != null)
+        {
+            fillBuilder.AddLine(xLast, yLast);
+            fillBuilder.AddLine(xLast, midY);
+            fillBuilder.EndFigure(CanvasFigureLoop.Closed);
+            using var fillGeo = CanvasGeometry.CreatePath(fillBuilder);
+            var fillColor = _useLightTheme
+                ? Color.FromArgb(32, 217, 119, 6)
+                : Color.FromArgb(38, 255, 200, 59);
+            ds.FillGeometry(fillGeo, fillColor);
+        }
+
+        using var geo = CanvasGeometry.CreatePath(strokeBuilder);
+        ds.DrawGeometry(geo, _useLightTheme ? Color.FromArgb(75, 217, 119, 6) : Color.FromArgb(90, 255, 200, 59), isCompact ? 5f : 7f);
+        ds.DrawGeometry(geo, _useLightTheme ? Color.FromArgb(235, 180, 83, 9) : Color.FromArgb(245, 255, 245, 214), isCompact ? 1.75f : 2.1f);
     }
 }

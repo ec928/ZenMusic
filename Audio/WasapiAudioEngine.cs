@@ -310,9 +310,9 @@ public sealed class WasapiAudioEngine : IDisposable
             }
             _replayGainProvider = new SmoothGainSampleProvider(p, _replayGainFactor);
             _equalizerProvider = new EqualizerSampleProvider(_replayGainProvider, _equalizerGains);
-            _volumeProvider = new VolumeSampleProvider(_equalizerProvider) { Volume = _volume };
-            var fftTap = new FftTapSampleProvider(_volumeProvider, Fft);
-            _matrixProvider = new SpeakerMatrixProvider(fftTap, _speakerOptions, endpointChannels);
+            var fftTap = new FftTapSampleProvider(_equalizerProvider, Fft);
+            _volumeProvider = new VolumeSampleProvider(fftTap) { Volume = _volume };
+            _matrixProvider = new SpeakerMatrixProvider(_volumeProvider, _speakerOptions, endpointChannels);
             return _matrixProvider;
         }
 
