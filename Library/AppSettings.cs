@@ -49,6 +49,8 @@ public sealed class AppSettings
     public float CenterLevel { get; set; } = 0.55f;
     public float LfeGain { get; set; } = 0.85f;
     public float RearLevel { get; set; } = 0.60f;
+    public string ReplayGainMode { get; set; } = "Track"; // Off | Track | Album
+    public double ReplayGainPreampDb { get; set; } = 0.0;
     public string VisualizerMode { get; set; } = "Spectrum"; // Spectrum | Waveform | Off
     public bool VisualizerEnabled { get; set; } = true;
     public string Theme { get; set; } = "Dark"; // Dark | Light | System
@@ -99,6 +101,8 @@ public sealed class AppSettings
         CenterLevel = 0.55f;
         LfeGain = 0.85f;
         RearLevel = 0.60f;
+        ReplayGainMode = "Track";
+        ReplayGainPreampDb = 0.0;
         VisualizerMode = "Spectrum";
         VisualizerEnabled = true;
         Theme = "Dark";

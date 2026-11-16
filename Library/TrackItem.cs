@@ -37,11 +37,17 @@ public sealed class TrackItem : INotifyPropertyChanged
     public string Genre { get; set; } = string.Empty;
     public int Year { get; set; }
     public int TrackNumber { get; set; }
+    public int DiscNumber { get; set; }
     public TimeSpan Duration { get; set; }
     public int Bitrate { get; set; }
     public int SampleRate { get; set; }
     public int Channels { get; set; } = 2;
     public string Codec { get; set; } = string.Empty;
+    public double? ReplayGainTrackDb { get; set; }
+    public double? ReplayGainAlbumDb { get; set; }
+    public float? ReplayGainTrackPeak { get; set; }
+    public float? ReplayGainAlbumPeak { get; set; }
+    public bool ReplayGainFromTag { get; set; }
     public DateTime DateAddedUtc
     {
         get => _dateAddedUtc;
@@ -169,6 +175,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             || !string.Equals(Genre, other.Genre, StringComparison.Ordinal)
             || Year != other.Year
             || TrackNumber != other.TrackNumber
+            || DiscNumber != other.DiscNumber
             || Duration != other.Duration
             || Bitrate != other.Bitrate
             || SampleRate != other.SampleRate
@@ -186,6 +193,7 @@ public sealed class TrackItem : INotifyPropertyChanged
         Genre = other.Genre;
         Year = other.Year;
         TrackNumber = other.TrackNumber;
+        DiscNumber = other.DiscNumber;
         Duration = other.Duration;
         Bitrate = other.Bitrate;
         SampleRate = other.SampleRate;
@@ -202,6 +210,17 @@ public sealed class TrackItem : INotifyPropertyChanged
         FileSize = other.FileSize;
         FileWriteUtcTicks = other.FileWriteUtcTicks;
         if (other.Rating.HasValue) _rating = other.Rating;
+        if (other.ReplayGainTrackDb.HasValue)
+        {
+            ReplayGainTrackDb = other.ReplayGainTrackDb;
+            ReplayGainTrackPeak = other.ReplayGainTrackPeak;
+            ReplayGainFromTag = other.ReplayGainFromTag;
+        }
+        if (other.ReplayGainAlbumDb.HasValue)
+        {
+            ReplayGainAlbumDb = other.ReplayGainAlbumDb;
+            ReplayGainAlbumPeak = other.ReplayGainAlbumPeak;
+        }
 
         if (changed) OnPropertyChanged(string.Empty);
     }

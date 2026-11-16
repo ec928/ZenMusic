@@ -24,6 +24,7 @@ public sealed class WasapiAudioEngine : IDisposable
 
     private WasapiOut? _output;
     private WaveStream? _reader;
+    private SmoothGainSampleProvider? _replayGainProvider;
     private VolumeSampleProvider? _volumeProvider;
     private SpeakerMatrixProvider? _matrixProvider;
 
@@ -31,6 +32,7 @@ public sealed class WasapiAudioEngine : IDisposable
     private string? _deviceId;
     private SpeakerRoutingOptions _speakerOptions = new();
     private float _volume = 0.7f;
+    private float _replayGainFactor = 1.0f;
     private bool _isPlaying;
     private bool _suppressStoppedEvent;
     private bool _disposed;
@@ -217,7 +219,7 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
-    public void PlayFile(string path)
+    public void PlayFile(string path, float replayGainFactor = 1.0f)
     {
         if (_disposed) return;
         if (!File.Exists(path))
@@ -232,6 +234,7 @@ public sealed class WasapiAudioEngine : IDisposable
             {
                 StopInternal();
                 _currentPath = path;
+                _replayGainFactor = Math.Clamp(replayGainFactor, 0.05f, 4.0f);
                 OpenAndStartGraph(path, TimeSpan.Zero, autoPlay: true);
             }
             UpdatePlaybackState(true);
@@ -243,7 +246,7 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
-    public void LoadPausedFile(string path, TimeSpan position)
+    public void LoadPausedFile(string path, TimeSpan position, float replayGainFactor = 1.0f)
     {
         if (_disposed || !File.Exists(path)) return;
         try
@@ -252,6 +255,7 @@ public sealed class WasapiAudioEngine : IDisposable
             {
                 StopInternal();
                 _currentPath = path;
+                _replayGainFactor = Math.Clamp(replayGainFactor, 0.05f, 4.0f);
                 OpenAndStartGraph(path, position, autoPlay: false);
             }
             UpdatePlaybackState(false);
@@ -298,7 +302,8 @@ public sealed class WasapiAudioEngine : IDisposable
             pipeline = new WdlResamplingSampleProvider(pipeline, endpointSampleRate);
         }
 
-        _volumeProvider = new VolumeSampleProvider(pipeline) { Volume = _volume };
+        _replayGainProvider = new SmoothGainSampleProvider(pipeline, _replayGainFactor);
+        _volumeProvider = new VolumeSampleProvider(_replayGainProvider) { Volume = _volume };
         var fftTap = new FftTapSampleProvider(_volumeProvider, Fft);
         _matrixProvider = new SpeakerMatrixProvider(fftTap, _speakerOptions, endpointChannels);
 
@@ -595,6 +600,16 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
+    public void SetReplayGainFactor(float factor)
+    {
+        float clamped = Math.Clamp(factor, 0.05f, 4.0f);
+        _replayGainFactor = clamped;
+        lock (_lock)
+        {
+            if (_replayGainProvider != null) _replayGainProvider.TargetGain = clamped;
+        }
+    }
+
     public void SetVolume(double percent)
     {
         float normalized = (float)Math.Clamp(percent / 100.0, 0.0, 1.0);
@@ -634,6 +649,7 @@ public sealed class WasapiAudioEngine : IDisposable
             }
             _reader?.Dispose();
             _reader = null;
+            _replayGainProvider = null;
             _volumeProvider = null;
             _matrixProvider = null;
         }

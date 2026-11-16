@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using ZenMusic.Audio;
 using ZenMusic.Library;
 
 namespace ZenMusic.Tagging;
@@ -103,6 +104,7 @@ public static class MusicLibrary
             item.Genre = tag.JoinedGenres?.Trim() ?? string.Empty;
             item.Year = (int)tag.Year;
             item.TrackNumber = (int)tag.Track;
+            item.DiscNumber = (int)tag.Disc;
             item.HasEmbeddedArt = tag.Pictures != null && tag.Pictures.Length > 0;
 
             if (file.Properties != null)
@@ -114,6 +116,7 @@ public static class MusicLibrary
             }
 
             item.Rating = ReadStarsFromTagLib(file, path);
+            ReadReplayGainFromTagLib(file, item);
         }
         catch
         {
@@ -158,6 +161,7 @@ public static class MusicLibrary
         public string Genre { get; set; } = string.Empty;
         public int Year { get; set; }
         public int TrackNumber { get; set; }
+        public int DiscNumber { get; set; }
         public double? Rating { get; set; }
         public string Lyrics { get; set; } = string.Empty;
         public byte[]? ArtBytes { get; set; }
@@ -179,6 +183,7 @@ public static class MusicLibrary
             d.Genre = tag.JoinedGenres ?? string.Empty;
             d.Year = (int)tag.Year;
             d.TrackNumber = (int)tag.Track;
+            d.DiscNumber = (int)tag.Disc;
             d.Lyrics = tag.Lyrics ?? string.Empty;
             d.Rating = ReadStarsFromTagLib(file, path);
             if (tag.Pictures is { Length: > 0 } && tag.Pictures[0].Data?.Data is { Length: > 0 } picBytes)
@@ -216,6 +221,7 @@ public static class MusicLibrary
                     tag.Genres = string.IsNullOrWhiteSpace(d.Genre) ? Array.Empty<string>() : new[] { d.Genre.Trim() };
                     tag.Year = d.Year > 0 ? (uint)d.Year : 0;
                     tag.Track = d.TrackNumber > 0 ? (uint)d.TrackNumber : 0;
+                    tag.Disc = d.DiscNumber > 0 ? (uint)d.DiscNumber : 0;
                     tag.Lyrics = d.Lyrics;
                     if (d.ArtChanged)
                     {
@@ -380,5 +386,65 @@ public static class MusicLibrary
             }
         }
         return null;
+    }
+
+    private static void ReadReplayGainFromTagLib(TagLib.File file, TrackItem item)
+    {
+        var tag = file.Tag;
+        if (!double.IsNaN(tag.ReplayGainTrackGain) && double.IsFinite(tag.ReplayGainTrackGain))
+        {
+            item.ReplayGainTrackDb = Math.Round(tag.ReplayGainTrackGain, 2);
+            item.ReplayGainFromTag = true;
+        }
+        if (!double.IsNaN(tag.ReplayGainAlbumGain) && double.IsFinite(tag.ReplayGainAlbumGain))
+        {
+            item.ReplayGainAlbumDb = Math.Round(tag.ReplayGainAlbumGain, 2);
+            item.ReplayGainFromTag = true;
+        }
+        if (!double.IsNaN(tag.ReplayGainTrackPeak) && double.IsFinite(tag.ReplayGainTrackPeak) && tag.ReplayGainTrackPeak > 0)
+            item.ReplayGainTrackPeak = (float)tag.ReplayGainTrackPeak;
+        if (!double.IsNaN(tag.ReplayGainAlbumPeak) && double.IsFinite(tag.ReplayGainAlbumPeak) && tag.ReplayGainAlbumPeak > 0)
+            item.ReplayGainAlbumPeak = (float)tag.ReplayGainAlbumPeak;
+
+        if (item.ReplayGainTrackDb.HasValue) return;
+
+        // Fall back to explicit custom tag frames (MP4 iTunes freeform, ID3v2 TXXX, Vorbis Xiph)
+        void ApplyRaw(string? tg, string? tp, string? ag, string? ap)
+        {
+            if (ReplayGainAnalyzer.ParseGainDb(tg) is double tDb) { item.ReplayGainTrackDb = tDb; item.ReplayGainFromTag = true; }
+            if (ReplayGainAnalyzer.ParsePeak(tp) is float tPk) item.ReplayGainTrackPeak = tPk;
+            if (ReplayGainAnalyzer.ParseGainDb(ag) is double aDb) { item.ReplayGainAlbumDb = aDb; item.ReplayGainFromTag = true; }
+            if (ReplayGainAnalyzer.ParsePeak(ap) is float aPk) item.ReplayGainAlbumPeak = aPk;
+        }
+
+        if (file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
+        {
+            string? tg = null, tp = null, ag = null, ap = null;
+            foreach (var f in id3.GetFrames<TagLib.Id3v2.UserTextInformationFrame>())
+            {
+                string val = f.Text.Length > 0 ? f.Text[0] : string.Empty;
+                if (f.Description.Equals("REPLAYGAIN_TRACK_GAIN", StringComparison.OrdinalIgnoreCase)) tg = val;
+                else if (f.Description.Equals("REPLAYGAIN_TRACK_PEAK", StringComparison.OrdinalIgnoreCase)) tp = val;
+                else if (f.Description.Equals("REPLAYGAIN_ALBUM_GAIN", StringComparison.OrdinalIgnoreCase)) ag = val;
+                else if (f.Description.Equals("REPLAYGAIN_ALBUM_PEAK", StringComparison.OrdinalIgnoreCase)) ap = val;
+            }
+            ApplyRaw(tg, tp, ag, ap);
+        }
+        else if (file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
+        {
+            ApplyRaw(
+                xiph.GetFirstField("REPLAYGAIN_TRACK_GAIN"),
+                xiph.GetFirstField("REPLAYGAIN_TRACK_PEAK"),
+                xiph.GetFirstField("REPLAYGAIN_ALBUM_GAIN"),
+                xiph.GetFirstField("REPLAYGAIN_ALBUM_PEAK"));
+        }
+        else if (file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)
+        {
+            ApplyRaw(
+                apple.GetDashBox("com.apple.iTunes", "REPLAYGAIN_TRACK_GAIN"),
+                apple.GetDashBox("com.apple.iTunes", "REPLAYGAIN_TRACK_PEAK"),
+                apple.GetDashBox("com.apple.iTunes", "REPLAYGAIN_ALBUM_GAIN"),
+                apple.GetDashBox("com.apple.iTunes", "REPLAYGAIN_ALBUM_PEAK"));
+        }
     }
 }

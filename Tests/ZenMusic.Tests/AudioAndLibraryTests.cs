@@ -339,4 +339,124 @@ public sealed class AudioAndLibraryTests
         Assert.Equal(5.0, existing.Rating);
         Assert.True(existing.IsNowPlaying);
     }
+
+    [Fact]
+    public void ReplayGain_ParseAndComputeFactor_RespectsModeAndAntiClipping()
+    {
+        Assert.Equal(-6.42, ReplayGainAnalyzer.ParseGainDb("-6.42 dB"));
+        Assert.Equal(2.15, ReplayGainAnalyzer.ParseGainDb("+2.15 dB"));
+        Assert.Null(ReplayGainAnalyzer.ParseGainDb("not a gain"));
+        Assert.Equal(0.95f, ReplayGainAnalyzer.ParsePeak("0.95")!.Value, 3);
+
+        // Off mode always returns unity
+        Assert.Equal(1.0f, ReplayGainAnalyzer.ComputeLinearFactor(-6.0, 0.9f, -4.0, 0.8f, "Off"), 4);
+
+        // Track mode attenuates hot tracks (~ -6 dB -> 0.501)
+        float trackFactor = ReplayGainAnalyzer.ComputeLinearFactor(-6.0, 0.9f, -3.0, 0.8f, "Track");
+        Assert.InRange(trackFactor, 0.49f, 0.51f);
+
+        // Album mode prefers album gain when present
+        float albumFactor = ReplayGainAnalyzer.ComputeLinearFactor(-6.0, 0.9f, -3.0, 0.8f, "Album");
+        Assert.InRange(albumFactor, 0.70f, 0.72f);
+
+        // High boost + peak protection prevents clipping (> 0.98 / peak)
+        float capped = ReplayGainAnalyzer.ComputeLinearFactor(10.0, 0.6f, null, null, "Track");
+        Assert.Equal(0.98f / 0.6f, capped, 3);
+    }
+
+    [Fact]
+    public void ReplayGain_AnalyzeSampleProvider_MeasuresHotAndQuietSignals()
+    {
+        var hotSrc = new BoundedSampleProvider(new ConstantSampleProvider(44100, 0.8f, 0.8f), 44100);
+        var hot = ReplayGainAnalyzer.AnalyzeSampleProvider(hotSrc);
+        Assert.NotNull(hot);
+        Assert.True(hot!.Value.TrackGainDb < -10.0);
+        Assert.Equal(0.8f, hot.Value.TrackPeak, 3);
+
+        var quietSrc = new BoundedSampleProvider(new ConstantSampleProvider(44100, 0.02f, 0.02f), 44100);
+        var quiet = ReplayGainAnalyzer.AnalyzeSampleProvider(quietSrc);
+        Assert.NotNull(quiet);
+        Assert.True(quiet!.Value.TrackGainDb > 10.0);
+        Assert.Equal(0.02f, quiet.Value.TrackPeak, 3);
+    }
+
+    [Fact]
+    public void SmoothGainSampleProvider_GlidesSmoothlyTowardTargetWithoutStep()
+    {
+        var src = new ConstantSampleProvider(40000, 1.0f, 1.0f);
+        var provider = new SmoothGainSampleProvider(src, 1.0f) { TargetGain = 0.5f };
+        var buf = new float[800]; // 400 stereo frames (< 4000 ramp frames)
+        int read = provider.Read(buf, 0, buf.Length);
+        Assert.Equal(800, read);
+        Assert.True(buf[0] > 0.99f);
+        Assert.True(buf[^1] < buf[0]);
+        Assert.True(buf[^1] > 0.5f);
+    }
+
+    [Fact]
+    public void SmartPlaylistGenerator_FiltersAndOrdersCorrectly()
+    {
+        var now = new DateTime(2026, 11, 15, 0, 0, 0, DateTimeKind.Utc);
+        var tracks = new[]
+        {
+            new ZenMusic.Library.TrackItem { Path = @"C:\1.mp3", Title = "Old Hit", Artist = "A", Genre = "Rock", Year = 1998, Rating = 4.5, PlayCount = 2, LastPlayedUtc = now.AddDays(-40) },
+            new ZenMusic.Library.TrackItem { Path = @"C:\2.mp3", Title = "Recent Play", Artist = "B", Genre = "Rock", Year = 2022, Rating = 4.5, PlayCount = 15, LastPlayedUtc = now.AddHours(-2) },
+            new ZenMusic.Library.TrackItem { Path = @"C:\3.mp3", Title = "Unrated Track", Artist = "C", Genre = "Jazz", Year = 2015, Rating = null, PlayCount = 0 },
+            new ZenMusic.Library.TrackItem { Path = @"C:\4.mp3", Title = "Cloud Song", Artist = "A", Genre = "Rock", Year = 2010, Rating = 5.0, IsCloudOnly = true }
+        };
+
+        var forgotten = ZenMusic.Library.SmartPlaylistGenerator.Generate(
+            tracks,
+            new ZenMusic.Library.SmartMixRule
+            {
+                Name = "Forgotten Gems",
+                MaxTracks = 10,
+                MinRating = 4.0,
+                History = ZenMusic.Library.SmartPlayHistoryFilter.NotPlayedRecently,
+                StaleDays = 14,
+                Order = ZenMusic.Library.SmartMixOrder.Random
+            },
+            now,
+            new Random(42));
+
+        Assert.Single(forgotten);
+        Assert.Equal("Old Hit", forgotten[0].Title);
+
+        var heavy = ZenMusic.Library.SmartPlaylistGenerator.Generate(
+            tracks,
+            new ZenMusic.Library.SmartMixRule
+            {
+                MaxTracks = 5,
+                GenreContains = "rock",
+                Order = ZenMusic.Library.SmartMixOrder.MostPlayed
+            },
+            now,
+            new Random(42));
+
+        Assert.Equal(2, heavy.Count);
+        Assert.Equal("Recent Play", heavy[0].Title);
+    }
+
+    private sealed class BoundedSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _inner;
+        private int _remainingFrames;
+        public WaveFormat WaveFormat => _inner.WaveFormat;
+
+        public BoundedSampleProvider(ISampleProvider inner, int totalFrames)
+        {
+            _inner = inner;
+            _remainingFrames = totalFrames;
+        }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            if (_remainingFrames <= 0) return 0;
+            int channels = _inner.WaveFormat.Channels;
+            int maxSamples = Math.Min(count, _remainingFrames * channels);
+            int read = _inner.Read(buffer, offset, maxSamples);
+            _remainingFrames -= read / channels;
+            return read;
+        }
+    }
 }

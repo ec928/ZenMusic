@@ -21,9 +21,11 @@
     <Compile Include="..\..\AtomicFile.cs" Link="AtomicFile.cs" />
     <Compile Include="..\..\ListMerge.cs" Link="ListMerge.cs" />
     <Compile Include="..\..\Audio\SpeakerConfig.cs" Link="SpeakerConfig.cs" />
+    <Compile Include="..\..\Audio\ReplayGainAnalyzer.cs" Link="ReplayGainAnalyzer.cs" />
     <Compile Include="..\..\Audio\FftAnalyzer.cs" Link="FftAnalyzer.cs" />
     <Compile Include="..\..\Library\TrackItem.cs" Link="TrackItem.cs" />
     <Compile Include="..\..\Library\LibraryCache.cs" Link="LibraryCache.cs" />
+    <Compile Include="..\..\Library\SmartPlaylistGenerator.cs" Link="SmartPlaylistGenerator.cs" />
     <Compile Include="..\..\Tagging\MusicLibrary.cs" Link="MusicLibrary.cs" />
     <Compile Include="..\..\Tagging\AutoTagger.cs" Link="AutoTagger.cs" />
     <Compile Include="..\..\Tagging\LrcParser.cs" Link="LrcParser.cs" />

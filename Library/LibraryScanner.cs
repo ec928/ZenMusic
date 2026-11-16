@@ -78,6 +78,13 @@ public static class LibraryScanner
                             item.LastPlayedUtc = prior.LastPlayedUtc;
                             if (item.Rating == null && prior.Rating != null)
                                 item.Rating = prior.Rating;
+                            if (item.ReplayGainTrackDb == null && prior.ReplayGainTrackDb != null)
+                            {
+                                item.ReplayGainTrackDb = prior.ReplayGainTrackDb;
+                                item.ReplayGainTrackPeak = prior.ReplayGainTrackPeak;
+                                item.ReplayGainAlbumDb ??= prior.ReplayGainAlbumDb;
+                                item.ReplayGainAlbumPeak ??= prior.ReplayGainAlbumPeak;
+                            }
                         }
                     }
                     results[i] = item;
