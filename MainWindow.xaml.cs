@@ -1274,8 +1274,8 @@ public sealed partial class MainWindow : Window
             ("Title", false) => source.OrderByDescending(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
             ("Artist", true) => source.OrderBy(t => string.IsNullOrWhiteSpace(t.Artist) ? 1 : 0).ThenBy(t => t.Artist.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
             ("Artist", false) => source.OrderByDescending(t => t.Artist.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
-            ("Album", true) => source.OrderBy(t => string.IsNullOrWhiteSpace(t.Album) ? 1 : 0).ThenBy(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue).ThenBy(t => t.Index),
-            ("Album", false) => source.OrderByDescending(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue).ThenBy(t => t.Index),
+            ("Album", true) => source.OrderBy(t => string.IsNullOrWhiteSpace(t.Album) ? 1 : 0).ThenBy(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue).ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue).ThenBy(t => t.Index),
+            ("Album", false) => source.OrderByDescending(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue).ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue).ThenBy(t => t.Index),
             ("Genre", true) => source.OrderBy(t => string.IsNullOrWhiteSpace(t.Genre) ? 1 : 0).ThenBy(t => t.Genre.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
             ("Genre", false) => source.OrderByDescending(t => t.Genre.Trim(), StringComparer.OrdinalIgnoreCase).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
             ("Year", true) => source.OrderBy(t => t.Year > 0 ? 0 : 1).ThenBy(t => t.Year).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
@@ -2068,6 +2068,10 @@ public sealed partial class MainWindow : Window
             importPl.Click += ImportPlaylistBtn_Click;
             menu.Items.Add(importPl);
 
+            var smartMix = new MenuFlyoutItem { Text = "Custom Smart Mix..." };
+            smartMix.Click += async (_, _) => await OpenCustomSmartMixDialogAsync();
+            menu.Items.Add(smartMix);
+
             var renamePl = new MenuFlyoutItem { Text = $"Rename \"{pl.Name}\"..." };
             renamePl.Click += async (_, _) => await RenamePlaylistAsync(pl);
             menu.Items.Add(renamePl);
@@ -2159,6 +2163,10 @@ public sealed partial class MainWindow : Window
             importPl.Click += ImportPlaylistBtn_Click;
             menu.Items.Add(importPl);
 
+            var smartMix = new MenuFlyoutItem { Text = "Custom Smart Mix..." };
+            smartMix.Click += async (_, _) => await OpenCustomSmartMixDialogAsync();
+            menu.Items.Add(smartMix);
+
             if (_queueTracks.Count > 0)
             {
                 menu.Items.Add(new MenuFlyoutSeparator());
@@ -2241,6 +2249,70 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private readonly System.Threading.SemaphoreSlim _replayGainScanLock = new(1, 1);
+
+    private float GetTrackReplayGainFactor(TrackItem? track)
+    {
+        if (track == null) return 1.0f;
+        return ReplayGainAnalyzer.ComputeLinearFactor(
+            track.ReplayGainTrackDb,
+            track.ReplayGainTrackPeak,
+            track.ReplayGainAlbumDb,
+            track.ReplayGainAlbumPeak,
+            _settings.ReplayGainMode,
+            _settings.ReplayGainPreampDb);
+    }
+
+    private void ApplyLiveReplayGain()
+    {
+        if (_queueIndex >= 0 && _queueIndex < _queueTracks.Count)
+        {
+            var playing = _queueTracks[_queueIndex];
+            _engine.SetReplayGainFactor(GetTrackReplayGainFactor(playing));
+            if (!playing.ReplayGainTrackDb.HasValue)
+                _ = EnsureTrackLoudnessMeasuredAsync(playing, applyLiveIfPlaying: true);
+        }
+        else
+        {
+            _engine.SetReplayGainFactor(1.0f);
+        }
+    }
+
+    private async Task EnsureTrackLoudnessMeasuredAsync(TrackItem track, bool applyLiveIfPlaying)
+    {
+        if (track.ReplayGainTrackDb.HasValue || track.IsCloudOnly) return;
+        if (string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase)) return;
+
+        await _replayGainScanLock.WaitAsync();
+        ReplayGainAnalysis? measured = null;
+        try
+        {
+            if (!track.ReplayGainTrackDb.HasValue && !track.IsCloudOnly && File.Exists(track.Path))
+            {
+                measured = await Task.Run(() => ReplayGainAnalyzer.AnalyzeFile(track.Path));
+                if (measured is ReplayGainAnalysis rg)
+                {
+                    foreach (var peer in EnumerateMatchingTrackItems(track))
+                    {
+                        peer.ReplayGainTrackDb = rg.TrackGainDb;
+                        peer.ReplayGainTrackPeak = rg.TrackPeak;
+                    }
+                    SaveLibraryCacheSnapshot();
+                }
+            }
+        }
+        finally
+        {
+            _replayGainScanLock.Release();
+        }
+
+        if (applyLiveIfPlaying &&
+            string.Equals(_engine.CurrentPath, track.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            _engine.SetReplayGainFactor(GetTrackReplayGainFactor(track));
+        }
+    }
+
     private void PlayQueueIndex(int index)
     {
         if (index < 0 || index >= _queueTracks.Count) return;
@@ -2248,10 +2320,17 @@ public sealed partial class MainWindow : Window
         _queueIndex = index;
         var track = _queueTracks[index];
         _activePlayingPathForLyrics = track.Path;
-        _engine.PlayFile(track.Path);
+        _engine.PlayFile(track.Path, GetTrackReplayGainFactor(track));
         SetNowPlayingTrack(track.Path);
         track.PlayCount++;
         track.LastPlayedUtc = DateTime.UtcNow;
+
+        if (!string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = EnsureTrackLoudnessMeasuredAsync(track, applyLiveIfPlaying: true);
+            if (index + 1 < _queueTracks.Count && !_queueTracks[index + 1].ReplayGainTrackDb.HasValue)
+                _ = EnsureTrackLoudnessMeasuredAsync(_queueTracks[index + 1], applyLiveIfPlaying: false);
+        }
 
         UpdateQueueHeader();
         bool prevSuppress = _suppressSelectionChanged;
@@ -3875,6 +3954,7 @@ public sealed partial class MainWindow : Window
                 peer.Genre = updated.Genre;
                 peer.Year = updated.Year;
                 peer.TrackNumber = updated.TrackNumber;
+                peer.DiscNumber = updated.DiscNumber;
                 peer.Rating = updated.Rating;
                 peer.HasEmbeddedArt = hasArt;
                 peer.ArtLoadAttempted = true;
@@ -3891,6 +3971,7 @@ public sealed partial class MainWindow : Window
                 peer.Genre = updated.Genre;
                 peer.Year = updated.Year;
                 peer.TrackNumber = updated.TrackNumber;
+                peer.DiscNumber = updated.DiscNumber;
                 peer.Rating = updated.Rating;
             }
         }
@@ -4041,8 +4122,21 @@ public sealed partial class MainWindow : Window
 
         if (selected.Count == 1)
         {
+            var single = selected[0];
+            if (!string.IsNullOrWhiteSpace(single.Artist))
+            {
+                var byArtist = new MenuFlyoutItem { Text = $"Filter by artist: {single.Artist}" };
+                byArtist.Click += (_, _) => ApplyArtistScope(single.Artist);
+                menu.Items.Add(byArtist);
+            }
+            if (!string.IsNullOrWhiteSpace(single.Album))
+            {
+                var byAlbum = new MenuFlyoutItem { Text = $"Filter by album: {single.Album}" };
+                byAlbum.Click += (_, _) => ApplyAlbumScope(single.Album);
+                menu.Items.Add(byAlbum);
+            }
             var explorerItem = new MenuFlyoutItem { Text = "Open in Explorer" };
-            explorerItem.Click += (_, _) => OpenInExplorer(selected[0].Path);
+            explorerItem.Click += (_, _) => OpenInExplorer(single.Path);
             menu.Items.Add(explorerItem);
         }
 
@@ -4694,5 +4788,113 @@ public sealed partial class MainWindow : Window
                 TypeJumpPill.Visibility = Visibility.Collapsed;
         }
         catch (TaskCanceledException) { }
+    }
+
+    private void ApplyArtistScope(string artist)
+    {
+        if (string.IsNullOrWhiteSpace(artist)) return;
+        _activeFacet = "all";
+        _activePlaylist = null;
+        _activeCustomFilter = null;
+        _activeHygiene = null;
+        _activeAlbumFilter = null;
+        _activeArtistFilter = artist.Trim();
+        RefreshVisibleTracks(scrollToSelection: true);
+    }
+
+    private void ApplyAlbumScope(string album)
+    {
+        if (string.IsNullOrWhiteSpace(album)) return;
+        _activeFacet = "all";
+        _activePlaylist = null;
+        _activeCustomFilter = null;
+        _activeHygiene = null;
+        _activeArtistFilter = null;
+        _activeAlbumFilter = album.Trim();
+        RefreshVisibleTracks(scrollToSelection: true);
+    }
+
+    private async void BrowseAlbums_Click(object sender, RoutedEventArgs e)
+        => await OpenBrowseAlbumsDialogAsync();
+
+    private async void BrowseArtists_Click(object sender, RoutedEventArgs e)
+        => await OpenBrowseArtistsDialogAsync();
+
+    private void QuickMixBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_allTracks.Count == 0)
+        {
+            ShowHudPill("Open a music folder first");
+            return;
+        }
+
+        TrackItem? contextTrack = (_queueIndex >= 0 && _queueIndex < _queueTracks.Count)
+            ? _queueTracks[_queueIndex]
+            : GetPrimarySelectedTrack();
+
+        var menu = new MenuFlyout();
+        foreach (var preset in SmartPlaylistGenerator.GetQuickPresets(contextTrack))
+        {
+            var captured = preset;
+            var item = new MenuFlyoutItem { Text = captured.Name };
+            ToolTipService.SetToolTip(item, captured.Subtitle);
+            item.Click += (_, _) =>
+            {
+                var tracks = SmartPlaylistGenerator.Generate(_allTracks, captured);
+                if (tracks.Count == 0)
+                {
+                    ShowHudPill($"No matching tracks for \"{captured.Name}\"");
+                    return;
+                }
+                LoadSmartMixIntoQueue(captured.Name, tracks);
+            };
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        var custom = new MenuFlyoutItem { Text = "Custom Smart Mix..." };
+        custom.Click += async (_, _) => await OpenCustomSmartMixDialogAsync();
+        menu.Items.Add(custom);
+
+        if (_queueTracks.Count > 0)
+        {
+            var saveQ = new MenuFlyoutItem { Text = $"Save queue as playlist ({_queueTracks.Count})..." };
+            saveQ.Click += async (_, _) => await OpenQueueToPlaylistDialogAsync();
+            menu.Items.Add(saveQ);
+        }
+
+        AddMenuIcons(menu);
+        menu.ShowAt(QuickMixBtn);
+    }
+
+    private void LoadSmartMixIntoQueue(string mixName, List<TrackItem> mixTracks, bool autoPlay = true)
+    {
+        if (mixTracks.Count == 0)
+        {
+            ShowHudPill($"No matching tracks for \"{mixName}\"");
+            return;
+        }
+
+        _editingPlaylist = null;
+        _unshuffledQueue.Clear();
+        _unshuffledQueue.AddRange(mixTracks);
+
+        _queueTracks.Clear();
+        foreach (var t in mixTracks)
+            _queueTracks.Add(t);
+
+        OpenRightPanel();
+        if (autoPlay)
+        {
+            PlayQueueIndex(0);
+        }
+        else
+        {
+            _queueIndex = -1;
+            UpdateQueueHeader();
+        }
+
+        ShowHudPill($"{mixName} ({mixTracks.Count}) — reorder/edit here or save via ···");
     }
 }
