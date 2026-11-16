@@ -461,6 +461,52 @@ public sealed class AudioAndLibraryTests
         Assert.True(peakBoost > 0.35f);
     }
 
+    [Fact]
+    public void AutoTagger_CleanQueryTitleAndRankCandidates_PreferMatchingAlbumAndYear()
+    {
+        Assert.Equal("Sultans Of Swing", ZenMusic.Tagging.AutoTagger.CleanQueryTitle("01 - Sultans Of Swing [Official Audio]"));
+        Assert.Equal("Lady Writer", ZenMusic.Tagging.AutoTagger.CleanQueryTitle("02. Lady Writer"));
+
+        var candidates = new[]
+        {
+            new ZenMusic.Tagging.AutoTagCandidate
+            {
+                Source = "iTunes",
+                Title = "Sultans of Swing",
+                Artist = "Dire Straits",
+                Album = "Dire Straits",
+                Year = 1978
+            },
+            new ZenMusic.Tagging.AutoTagCandidate
+            {
+                Source = "iTunes",
+                Title = "Sultans of Swing",
+                Artist = "Dire Straits",
+                Album = "Sultans of Swing: The Very Best of Dire Straits",
+                Year = 1998
+            },
+            new ZenMusic.Tagging.AutoTagCandidate
+            {
+                Source = "MusicBrainz",
+                Title = "Sultans of Swing",
+                Artist = "Dire Straits",
+                Album = "Private Investigations",
+                Year = 2005
+            }
+        };
+
+        var ranked = ZenMusic.Tagging.AutoTagger.RankCandidates(
+            candidates,
+            "Sultans Of Swing",
+            "Dire Straits",
+            albumHint: "Sultans of Swing: The Very Best of Dire Straits",
+            yearHint: 1998);
+
+        Assert.Equal(3, ranked.Count);
+        Assert.Equal(1998, ranked[0].Year);
+        Assert.Equal("Sultans of Swing: The Very Best of Dire Straits", ranked[0].Album);
+    }
+
     private sealed class BoundedSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _inner;

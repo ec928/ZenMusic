@@ -1528,10 +1528,12 @@ public sealed partial class MainWindow
 
             // Same quiet field label as the Properties dialog.
             TextBlock FieldLabel(string text) => new() { Text = text, FontSize = 11.5, Opacity = 0.72, Margin = new Thickness(2, 0, 0, 0) };
+            string initialTitle = string.IsNullOrWhiteSpace(current.Title) ? parsed.Title : current.Title;
+            string cleanedInitialTitle = AutoTagger.CleanQueryTitle(initialTitle);
             var queryTitleBox = new TextBox
             {
                 Header = FieldLabel("Search Title"),
-                Text = string.IsNullOrWhiteSpace(current.Title) ? parsed.Title : current.Title,
+                Text = string.IsNullOrWhiteSpace(cleanedInitialTitle) ? initialTitle : cleanedInitialTitle,
                 Width = 240
             };
             var queryArtistBox = new TextBox
@@ -1757,7 +1759,14 @@ public sealed partial class MainWindow
                 statusLabel.Text = "Searching MusicBrainz, iTunes & LRCLIB...";
                 searchBtn.IsEnabled = false;
 
-                var res = await AutoTagger.SearchAsync(track.Path, queryTitleBox.Text, queryArtistBox.Text, track.Duration, token);
+                var res = await AutoTagger.SearchAsync(
+                    track.Path,
+                    queryTitleBox.Text,
+                    queryArtistBox.Text,
+                    track.Duration,
+                    token,
+                    albumHint: current.Album,
+                    yearHint: current.Year);
                 if (token.IsCancellationRequested) return;
 
                 latestResult = res;

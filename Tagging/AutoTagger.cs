@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -22,6 +23,7 @@ public sealed class AutoTagCandidate
     public int Year { get; set; }
     public int TrackNumber { get; set; }
     public string? ArtUrl { get; set; }
+    internal long CollectionId { get; set; }
 }
 
 public sealed class AutoTagArtOption
@@ -41,11 +43,13 @@ public sealed class AutoTagSearchResult
 public static class AutoTagger
 {
     private static readonly HttpClient Http = CreateClient();
+    private static readonly SemaphoreSlim MusicBrainzGate = new(1, 1);
+    private static DateTime _lastMbRequestUtc = DateTime.MinValue;
 
     private static HttpClient CreateClient()
     {
-        var c = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("ZenMusic/1.0 (https://github.com/zenmusic)");
+        var c = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("ZenMusic/0.7 (https://github.com/ec928/ZenMusic)");
         return c;
     }
 
@@ -63,6 +67,20 @@ public static class AutoTagger
         string rawName = Path.GetFileNameWithoutExtension(path) ?? string.Empty;
         if (BracketJunkRegex.IsMatch(rawName)) return true;
         return !rawName.Contains(' ') && rawName.Contains('_');
+    }
+
+    /// <summary>
+    /// Strips leading track numbers (e.g. "01 - Sultans Of Swing") and YouTube/rip tags for clean API queries.
+    /// </summary>
+    public static string CleanQueryTitle(string? rawTitle)
+    {
+        if (string.IsNullOrWhiteSpace(rawTitle)) return string.Empty;
+        string cleaned = BracketJunkRegex.Replace(rawTitle, " ").Trim();
+        cleaned = Regex.Replace(cleaned, @"\s{2,}", " ").Trim(' ', '-', '_');
+        var numMatch = LeadingTrackNumRegex.Match(cleaned);
+        if (numMatch.Success && int.TryParse(numMatch.Groups["num"].Value, out int parsedNum) && parsedNum is > 0 and <= 999)
+            cleaned = numMatch.Groups["rest"].Value.Trim();
+        return cleaned;
     }
 
     public static AutoTagCandidate ParseFromFilename(string path)
@@ -92,7 +110,6 @@ public static class AutoTagger
         }
         else
         {
-            // Also handle "Artist_-_Title" after underscore replacement if single dash surrounded by spaces failed
             int altDash = cleaned.IndexOf(" – ", StringComparison.Ordinal);
             if (altDash > 0)
             {
@@ -132,27 +149,36 @@ public static class AutoTagger
         string? queryTitle,
         string? queryArtist,
         TimeSpan duration,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? albumHint = null,
+        int yearHint = 0)
     {
         var result = new AutoTagSearchResult();
         var fileCandidate = ParseFromFilename(filePath);
 
-        string title = !string.IsNullOrWhiteSpace(queryTitle) ? queryTitle.Trim() : fileCandidate.Title;
-        string artist = !string.IsNullOrWhiteSpace(queryArtist) ? queryArtist.Trim() : fileCandidate.Artist;
-        string searchTerm = string.IsNullOrWhiteSpace(artist) ? title : $"{artist} {title}";
+        string rawTitle = !string.IsNullOrWhiteSpace(queryTitle) ? queryTitle.Trim() : fileCandidate.Title;
+        string title = CleanQueryTitle(rawTitle);
+        if (string.IsNullOrWhiteSpace(title)) title = rawTitle;
 
-        var itunesTask = QueryItunesAsync(searchTerm, ct);
-        var mbTask = QueryMusicBrainzAsync(title, artist, ct);
+        string artist = !string.IsNullOrWhiteSpace(queryArtist) ? queryArtist.Trim() : fileCandidate.Artist;
+        string album = !string.IsNullOrWhiteSpace(albumHint) ? albumHint.Trim() : fileCandidate.Album;
+
+        var itunesTask = QueryItunesAsync(title, artist, album, ct);
+        var mbTask = QueryMusicBrainzAsync(title, artist, album, ct);
         var lyricsTask = QueryLrclibAsync(title, artist, (int)Math.Round(duration.TotalSeconds), ct);
 
         await Task.WhenAll(itunesTask, mbTask, lyricsTask);
 
-        result.Candidates.AddRange(await itunesTask);
-        result.Candidates.AddRange(await mbTask);
+        var online = new List<AutoTagCandidate>();
+        online.AddRange(await itunesTask);
+        online.AddRange(await mbTask);
+
+        var ranked = RankCandidates(online, title, artist, album, yearHint);
+        result.Candidates.AddRange(ranked);
         result.Candidates.Add(fileCandidate);
         result.Lyrics = await lyricsTask;
 
-        // Collect up to 4 distinct cover art options
+        // Collect up to 4 distinct cover art options matching top-ranked order
         var artUrls = result.Candidates
             .Select(c => (c.Source, c.ArtUrl))
             .Where(x => !string.IsNullOrWhiteSpace(x.ArtUrl))
@@ -182,6 +208,69 @@ public static class AutoTagger
         return result;
     }
 
+    public static List<AutoTagCandidate> RankCandidates(
+        IEnumerable<AutoTagCandidate> candidates,
+        string queryTitle,
+        string queryArtist,
+        string? albumHint = null,
+        int yearHint = 0)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scored = new List<(AutoTagCandidate Candidate, double Score, int OrigIndex)>();
+        int idx = 0;
+
+        foreach (var c in candidates)
+        {
+            string key = $"{c.Source}|{c.Artist}|{c.Title}|{c.Album}|{c.Year}";
+            if (!seen.Add(key)) continue;
+
+            double score = 0;
+            if (!string.IsNullOrWhiteSpace(albumHint) && !string.IsNullOrWhiteSpace(c.Album))
+            {
+                score += TokenOverlap(albumHint, c.Album) * 50.0;
+                if (string.Equals(NormalizeTokens(albumHint), NormalizeTokens(c.Album), StringComparison.Ordinal))
+                    score += 35.0;
+            }
+
+            if (yearHint > 0 && c.Year > 0)
+            {
+                if (c.Year == yearHint) score += 40.0;
+                else if (Math.Abs(c.Year - yearHint) <= 1) score += 12.0;
+                else score -= 8.0;
+            }
+
+            if (!string.IsNullOrWhiteSpace(queryTitle) && !string.IsNullOrWhiteSpace(c.Title))
+                score += TokenOverlap(queryTitle, c.Title) * 20.0;
+
+            if (!string.IsNullOrWhiteSpace(queryArtist) && !string.IsNullOrWhiteSpace(c.Artist))
+                score += TokenOverlap(queryArtist, c.Artist) * 15.0;
+
+            if (!string.IsNullOrEmpty(c.ArtUrl)) score += 3.0;
+            if (c.TrackNumber > 0) score += 2.0;
+
+            scored.Add((c, score, idx++));
+        }
+
+        return scored
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.OrigIndex)
+            .Select(x => x.Candidate)
+            .ToList();
+    }
+
+    private static string NormalizeTokens(string text) =>
+        Regex.Replace(text.ToLowerInvariant(), @"[^a-z0-9]+", " ").Trim();
+
+    private static double TokenOverlap(string a, string b)
+    {
+        var ta = NormalizeTokens(a).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tb = NormalizeTokens(b).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (ta.Length == 0 || tb.Length == 0) return 0;
+        var setB = new HashSet<string>(tb, StringComparer.Ordinal);
+        int hits = ta.Count(setB.Contains);
+        return (2.0 * hits) / (ta.Length + tb.Length);
+    }
+
     public static Task<string> FetchLyricsAsync(
         string filePath,
         string? queryTitle,
@@ -190,126 +279,278 @@ public static class AutoTagger
         CancellationToken ct = default)
     {
         var fileCandidate = ParseFromFilename(filePath);
-        string title = !string.IsNullOrWhiteSpace(queryTitle) ? queryTitle.Trim() : fileCandidate.Title;
+        string rawTitle = !string.IsNullOrWhiteSpace(queryTitle) ? queryTitle.Trim() : fileCandidate.Title;
+        string title = CleanQueryTitle(rawTitle);
+        if (string.IsNullOrWhiteSpace(title)) title = rawTitle;
         string artist = !string.IsNullOrWhiteSpace(queryArtist) ? queryArtist.Trim() : fileCandidate.Artist;
         return QueryLrclibAsync(title, artist, (int)Math.Round(duration.TotalSeconds), ct);
     }
 
-    private static async Task<List<AutoTagCandidate>> QueryItunesAsync(string term, CancellationToken ct)
+    private static async Task<List<AutoTagCandidate>> QueryItunesAsync(
+        string title,
+        string artist,
+        string albumHint,
+        CancellationToken ct)
     {
         var list = new List<AutoTagCandidate>();
-        if (string.IsNullOrWhiteSpace(term)) return list;
+        string baseTerm = string.IsNullOrWhiteSpace(artist) ? title : $"{artist} {title}";
+        if (string.IsNullOrWhiteSpace(baseTerm)) return list;
 
         try
         {
-            string url = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(term)}&media=music&entity=song&limit=5";
-            using var resp = await Http.GetAsync(url, ct);
-            if (!resp.IsSuccessStatusCode) return list;
-
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-            if (!doc.RootElement.TryGetProperty("results", out var results)) return list;
-
-            foreach (var el in results.EnumerateArray())
+            var terms = new List<string> { baseTerm };
+            if (!string.IsNullOrWhiteSpace(albumHint))
             {
-                string title = el.TryGetProperty("trackName", out var tn) ? tn.GetString() ?? "" : "";
-                string artist = el.TryGetProperty("artistName", out var an) ? an.GetString() ?? "" : "";
-                string album = el.TryGetProperty("collectionName", out var cn) ? cn.GetString() ?? "" : "";
-                string genre = el.TryGetProperty("primaryGenreName", out var gn) ? gn.GetString() ?? "" : "";
-                int trackNum = el.TryGetProperty("trackNumber", out var tno) && tno.TryGetInt32(out int tVal) ? tVal : 0;
-                int year = 0;
-                if (el.TryGetProperty("releaseDate", out var rd))
+                string albumTerm = string.IsNullOrWhiteSpace(artist) ? $"{albumHint} {title}" : $"{artist} {albumHint} {title}";
+                if (!string.Equals(albumTerm, baseTerm, StringComparison.OrdinalIgnoreCase))
+                    terms.Insert(0, albumTerm);
+            }
+
+            var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string term in terms)
+            {
+                string url = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(term)}&media=music&entity=song&limit=8";
+                using var resp = await Http.GetAsync(url, ct);
+                if (!resp.IsSuccessStatusCode) continue;
+
+                using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                if (!doc.RootElement.TryGetProperty("results", out var results)) continue;
+
+                foreach (var el in results.EnumerateArray())
                 {
-                    string? rdStr = rd.GetString();
-                    if (!string.IsNullOrEmpty(rdStr) && rdStr.Length >= 4 && int.TryParse(rdStr[..4], out int yVal))
-                        year = yVal;
+                    string tName = el.TryGetProperty("trackName", out var tn) ? tn.GetString() ?? "" : "";
+                    string aName = el.TryGetProperty("artistName", out var an) ? an.GetString() ?? "" : "";
+                    string alb = el.TryGetProperty("collectionName", out var cn) ? cn.GetString() ?? "" : "";
+                    string genre = el.TryGetProperty("primaryGenreName", out var gn) ? gn.GetString() ?? "" : "";
+                    int trackNum = el.TryGetProperty("trackNumber", out var tno) && tno.TryGetInt32(out int tVal) ? tVal : 0;
+                    long collId = el.TryGetProperty("collectionId", out var cid) && cid.TryGetInt64(out long cVal) ? cVal : 0;
+                    int year = 0;
+                    if (el.TryGetProperty("releaseDate", out var rd))
+                    {
+                        string? rdStr = rd.GetString();
+                        if (!string.IsNullOrEmpty(rdStr) && rdStr.Length >= 4 && int.TryParse(rdStr[..4], out int yVal))
+                            year = yVal;
+                    }
+
+                    string? artUrl = el.TryGetProperty("artworkUrl100", out var au) ? au.GetString() : null;
+                    if (!string.IsNullOrEmpty(artUrl))
+                        artUrl = artUrl.Replace("100x100bb", "600x600bb");
+
+                    if (string.IsNullOrWhiteSpace(tName)) continue;
+                    string dedup = $"{collId}|{tName}";
+                    if (!seenKeys.Add(dedup)) continue;
+
+                    list.Add(new AutoTagCandidate
+                    {
+                        Source = "iTunes",
+                        DisplayLabel = $"[iTunes] {aName} — {tName} ({alb}{(year > 0 ? $", {year}" : "")})",
+                        Title = tName,
+                        Artist = aName,
+                        Album = alb,
+                        AlbumArtist = aName,
+                        Genre = genre,
+                        Year = year,
+                        TrackNumber = trackNum,
+                        ArtUrl = artUrl,
+                        CollectionId = collId
+                    });
                 }
+            }
 
-                string? artUrl = el.TryGetProperty("artworkUrl100", out var au) ? au.GetString() : null;
-                if (!string.IsNullOrEmpty(artUrl))
-                    artUrl = artUrl.Replace("100x100bb", "600x600bb");
-
-                if (string.IsNullOrWhiteSpace(title)) continue;
-                list.Add(new AutoTagCandidate
+            // Apple's song search frequently puts the original single/recording year on compilation tracks.
+            // Look up the collection (album) objects once in batch so album compilation years are accurate.
+            var collIds = list.Select(c => c.CollectionId).Where(id => id > 0).Distinct().Take(12).ToList();
+            if (collIds.Count > 0)
+            {
+                var albumYears = await LookupItunesAlbumYearsAsync(collIds, ct);
+                foreach (var c in list)
                 {
-                    Source = "iTunes",
-                    DisplayLabel = $"[iTunes] {artist} — {title} ({album}{(year > 0 ? $", {year}" : "")})",
-                    Title = title,
-                    Artist = artist,
-                    Album = album,
-                    AlbumArtist = artist,
-                    Genre = genre,
-                    Year = year,
-                    TrackNumber = trackNum,
-                    ArtUrl = artUrl
-                });
+                    if (c.CollectionId > 0 && albumYears.TryGetValue(c.CollectionId, out int albumYear) && albumYear > 0)
+                    {
+                        c.Year = albumYear;
+                        c.DisplayLabel = $"[iTunes] {c.Artist} — {c.Title} ({c.Album}, {c.Year})";
+                    }
+                }
             }
         }
         catch { }
         return list;
     }
 
-    private static async Task<List<AutoTagCandidate>> QueryMusicBrainzAsync(string title, string artist, CancellationToken ct)
+    private static async Task<Dictionary<long, int>> LookupItunesAlbumYearsAsync(IReadOnlyList<long> collectionIds, CancellationToken ct)
+    {
+        var map = new Dictionary<long, int>();
+        try
+        {
+            string url = $"https://itunes.apple.com/lookup?id={string.Join(",", collectionIds)}";
+            using var resp = await Http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode) return map;
+
+            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            if (!doc.RootElement.TryGetProperty("results", out var results)) return map;
+
+            foreach (var el in results.EnumerateArray())
+            {
+                if (!el.TryGetProperty("collectionId", out var cidEl) || !cidEl.TryGetInt64(out long cid)) continue;
+                if (!el.TryGetProperty("releaseDate", out var rdEl)) continue;
+                string? rd = rdEl.GetString();
+                if (!string.IsNullOrEmpty(rd) && rd.Length >= 4 && int.TryParse(rd[..4], out int yVal) && yVal > 0)
+                    map[cid] = yVal;
+            }
+        }
+        catch { }
+        return map;
+    }
+
+    private static async Task<JsonDocument?> SendMusicBrainzGetAsync(string url, CancellationToken ct)
+    {
+        await MusicBrainzGate.WaitAsync(ct);
+        try
+        {
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                var elapsed = DateTime.UtcNow - _lastMbRequestUtc;
+                if (elapsed.TotalMilliseconds < 1100)
+                    await Task.Delay(1100 - (int)elapsed.TotalMilliseconds, ct);
+
+                _lastMbRequestUtc = DateTime.UtcNow;
+                using var resp = await Http.GetAsync(url, ct);
+                if (resp.StatusCode == HttpStatusCode.ServiceUnavailable && attempt == 0)
+                {
+                    await Task.Delay(1200, ct);
+                    continue;
+                }
+                if (!resp.IsSuccessStatusCode) return null;
+
+                using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                return await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            }
+        }
+        catch { }
+        finally
+        {
+            MusicBrainzGate.Release();
+        }
+        return null;
+    }
+
+    private static async Task<List<AutoTagCandidate>> QueryMusicBrainzAsync(
+        string title,
+        string artist,
+        string albumHint,
+        CancellationToken ct)
     {
         var list = new List<AutoTagCandidate>();
         if (string.IsNullOrWhiteSpace(title)) return list;
 
         try
         {
-            string q = string.IsNullOrWhiteSpace(artist)
+            string baseQ = string.IsNullOrWhiteSpace(artist)
                 ? $"recording:\"{title}\""
                 : $"recording:\"{title}\" AND artist:\"{artist}\"";
-            string url = $"https://musicbrainz.org/ws/2/recording/?query={Uri.EscapeDataString(q)}&fmt=json&limit=4";
-            using var resp = await Http.GetAsync(url, ct);
-            if (!resp.IsSuccessStatusCode) return list;
 
-            using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-            if (!doc.RootElement.TryGetProperty("recordings", out var recs)) return list;
+            string q = !string.IsNullOrWhiteSpace(albumHint)
+                ? $"{baseQ} AND release:\"{albumHint}\""
+                : baseQ;
 
-            foreach (var rec in recs.EnumerateArray())
+            using var doc = await SendMusicBrainzGetAsync(
+                $"https://musicbrainz.org/ws/2/recording/?query={Uri.EscapeDataString(q)}&fmt=json&limit=8",
+                ct);
+
+            bool hasRecs = doc != null &&
+                           doc.RootElement.TryGetProperty("recordings", out var recs) &&
+                           recs.GetArrayLength() > 0;
+
+            JsonDocument? fallbackDoc = null;
+            if (!hasRecs && !string.IsNullOrWhiteSpace(albumHint))
             {
-                string recTitle = rec.TryGetProperty("title", out var tEl) ? tEl.GetString() ?? "" : "";
-                string recArtist = "";
-                if (rec.TryGetProperty("artist-credit", out var acEl) && acEl.GetArrayLength() > 0)
-                {
-                    recArtist = string.Join(", ", acEl.EnumerateArray()
-                        .Select(a => a.TryGetProperty("name", out var n) ? n.GetString() : null)
-                        .Where(s => !string.IsNullOrWhiteSpace(s)));
-                }
+                fallbackDoc = await SendMusicBrainzGetAsync(
+                    $"https://musicbrainz.org/ws/2/recording/?query={Uri.EscapeDataString(baseQ)}&fmt=json&limit=8",
+                    ct);
+            }
 
-                string album = "";
-                string releaseId = "";
-                int year = 0;
-                if (rec.TryGetProperty("releases", out var rels) && rels.GetArrayLength() > 0)
+            try
+            {
+                var activeDoc = hasRecs ? doc : fallbackDoc;
+                if (activeDoc == null || !activeDoc.RootElement.TryGetProperty("recordings", out var recordings))
+                    return list;
+
+                foreach (var rec in recordings.EnumerateArray())
                 {
-                    var rel = rels[0];
-                    album = rel.TryGetProperty("title", out var rt) ? rt.GetString() ?? "" : "";
-                    releaseId = rel.TryGetProperty("id", out var rid) ? rid.GetString() ?? "" : "";
-                    if (rel.TryGetProperty("date", out var dt))
+                    string recTitle = rec.TryGetProperty("title", out var tEl) ? tEl.GetString() ?? "" : "";
+                    if (string.IsNullOrWhiteSpace(recTitle)) continue;
+
+                    string recArtist = "";
+                    if (rec.TryGetProperty("artist-credit", out var acEl) && acEl.GetArrayLength() > 0)
                     {
-                        string? dStr = dt.GetString();
-                        if (!string.IsNullOrEmpty(dStr) && dStr.Length >= 4 && int.TryParse(dStr[..4], out int yVal))
-                            year = yVal;
+                        recArtist = string.Join(", ", acEl.EnumerateArray()
+                            .Select(a => a.TryGetProperty("name", out var n) ? n.GetString() : null)
+                            .Where(s => !string.IsNullOrWhiteSpace(s)));
+                    }
+
+                    if (!rec.TryGetProperty("releases", out var rels) || rels.GetArrayLength() == 0)
+                    {
+                        list.Add(new AutoTagCandidate
+                        {
+                            Source = "MusicBrainz",
+                            DisplayLabel = $"[MusicBrainz] {recArtist} — {recTitle}",
+                            Title = recTitle,
+                            Artist = recArtist,
+                            AlbumArtist = recArtist
+                        });
+                        continue;
+                    }
+
+                    int addedForRec = 0;
+                    foreach (var rel in rels.EnumerateArray())
+                    {
+                        if (addedForRec >= 3) break;
+                        string album = rel.TryGetProperty("title", out var rt) ? rt.GetString() ?? "" : "";
+                        string releaseId = rel.TryGetProperty("id", out var rid) ? rid.GetString() ?? "" : "";
+                        int year = 0;
+                        if (rel.TryGetProperty("date", out var dt))
+                        {
+                            string? dStr = dt.GetString();
+                            if (!string.IsNullOrEmpty(dStr) && dStr.Length >= 4 && int.TryParse(dStr[..4], out int yVal))
+                                year = yVal;
+                        }
+
+                        int trackNum = 0;
+                        if (rel.TryGetProperty("media", out var mediaArr) && mediaArr.GetArrayLength() > 0)
+                        {
+                            var m0 = mediaArr[0];
+                            if (m0.TryGetProperty("track", out var tArr) && tArr.GetArrayLength() > 0 &&
+                                tArr[0].TryGetProperty("number", out var numEl))
+                            {
+                                int.TryParse(numEl.GetString(), out trackNum);
+                            }
+                        }
+
+                        string? artUrl = !string.IsNullOrEmpty(releaseId)
+                            ? $"https://coverartarchive.org/release/{releaseId}/front-500"
+                            : null;
+
+                        list.Add(new AutoTagCandidate
+                        {
+                            Source = "MusicBrainz",
+                            DisplayLabel = $"[MusicBrainz] {recArtist} — {recTitle} ({album}{(year > 0 ? $", {year}" : "")})",
+                            Title = recTitle,
+                            Artist = recArtist,
+                            Album = album,
+                            AlbumArtist = recArtist,
+                            Year = year,
+                            TrackNumber = trackNum,
+                            ArtUrl = artUrl
+                        });
+                        addedForRec++;
                     }
                 }
-
-                string? artUrl = !string.IsNullOrEmpty(releaseId)
-                    ? $"https://coverartarchive.org/release/{releaseId}/front-500"
-                    : null;
-
-                if (string.IsNullOrWhiteSpace(recTitle)) continue;
-                list.Add(new AutoTagCandidate
-                {
-                    Source = "MusicBrainz",
-                    DisplayLabel = $"[MusicBrainz] {recArtist} — {recTitle} ({album}{(year > 0 ? $", {year}" : "")})",
-                    Title = recTitle,
-                    Artist = recArtist,
-                    Album = album,
-                    AlbumArtist = recArtist,
-                    Year = year,
-                    ArtUrl = artUrl
-                });
+            }
+            finally
+            {
+                fallbackDoc?.Dispose();
             }
         }
         catch { }
@@ -331,7 +572,6 @@ public static class AutoTagger
             if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
                 return string.Empty;
 
-            // Prefer closest duration match with syncedLyrics or plainLyrics
             JsonElement? best = null;
             int bestDiff = int.MaxValue;
             bool bestHasSynced = false;
