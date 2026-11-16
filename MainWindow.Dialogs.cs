@@ -1225,12 +1225,30 @@ public sealed partial class MainWindow
             return mixed ? string.Empty : (distinct.Count == 1 ? distinct[0] : string.Empty);
         }
 
+        List<(string Value, int Count)> DistinctNonEmpty(Func<TrackItem, string> selector) =>
+            tracks.Select(selector)
+                  .Where(v => !string.IsNullOrWhiteSpace(v))
+                  .GroupBy(v => v.Trim(), StringComparer.OrdinalIgnoreCase)
+                  .Select(g => (Value: g.First().Trim(), Count: g.Count()))
+                  .OrderByDescending(x => x.Count)
+                  .ThenBy(x => x.Value, StringComparer.OrdinalIgnoreCase)
+                  .ToList();
+
+        var artistChoices = DistinctNonEmpty(t => t.Artist);
+        var albumChoices = DistinctNonEmpty(t => t.Album);
+        var genreChoices = DistinctNonEmpty(t => t.Genre);
+        var yearChoices = DistinctNonEmpty(t => t.Year > 0 ? t.Year.ToString() : string.Empty);
+
         string initArtist = CommonOrEmpty(t => t.Artist, out bool mixedArtist);
         string initAlbum = CommonOrEmpty(t => t.Album, out bool mixedAlbum);
         string initGenre = CommonOrEmpty(t => t.Genre, out bool mixedGenre);
         var distinctYears = tracks.Select(t => t.Year).Distinct().Take(2).ToList();
         bool mixedYear = distinctYears.Count > 1;
         int initYear = !mixedYear && distinctYears.Count == 1 ? distinctYears[0] : 0;
+
+        var distinctRatings = tracks.Select(t => t.Rating).Distinct().ToList();
+        bool mixedRating = distinctRatings.Count > 1;
+        double? initRating = !mixedRating && distinctRatings.Count == 1 ? distinctRatings[0] : null;
 
         var chkArtist = new CheckBox { Content = "Artist", MinWidth = 110 };
         var chkAlbum = new CheckBox { Content = "Album", MinWidth = 110 };
@@ -1244,13 +1262,41 @@ public sealed partial class MainWindow
         var albumBox = new TextBox { Text = initAlbum, PlaceholderText = mixedAlbum ? "<Multiple values>" : "" };
         var albumArtistBox = new TextBox { Text = initArtist, PlaceholderText = mixedArtist ? "<Multiple values>" : "" };
         var genreBox = new TextBox { Text = initGenre, PlaceholderText = mixedGenre ? "<Multiple values>" : "" };
-        var yearBox = new NumberBox { Value = initYear > 0 ? initYear : double.NaN, PlaceholderText = mixedYear ? "<Multiple>" : "", Minimum = 0, Maximum = 2100, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        var yearBox = new NumberBox
+        {
+            Value = initYear > 0 ? initYear : double.NaN,
+            PlaceholderText = mixedYear ? "<Multiple values>" : "",
+            Minimum = 0,
+            Maximum = 2100,
+            SpinButtonPlacementMode = yearChoices.Count > 1 ? NumberBoxSpinButtonPlacementMode.Hidden : NumberBoxSpinButtonPlacementMode.Compact
+        };
 
-        var ratingCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        var ratingCombo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            PlaceholderText = mixedRating ? "<Multiple values>" : ""
+        };
         ratingCombo.Items.Add(new ComboBoxItem { Content = "Unrated", Tag = -1.0 });
         for (double r = 0.5; r <= 5.0; r += 0.5)
             ratingCombo.Items.Add(new ComboBoxItem { Content = $"{r:0.#} ★", Tag = r });
-        ratingCombo.SelectedIndex = 0;
+        if (!mixedRating)
+        {
+            if (initRating is double rv && rv > 0)
+            {
+                for (int i = 1; i < ratingCombo.Items.Count; i++)
+                {
+                    if ((ratingCombo.Items[i] as ComboBoxItem)?.Tag is double tagR && Math.Abs(tagR - rv) < 0.05)
+                    {
+                        ratingCombo.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                ratingCombo.SelectedIndex = 0;
+            }
+        }
 
         artistBox.TextChanged += (_, _) => chkArtist.IsChecked = true;
         albumBox.TextChanged += (_, _) => chkAlbum.IsChecked = true;
@@ -1258,6 +1304,37 @@ public sealed partial class MainWindow
         genreBox.TextChanged += (_, _) => chkGenre.IsChecked = true;
         yearBox.ValueChanged += (_, _) => chkYear.IsChecked = true;
         ratingCombo.SelectionChanged += (_, _) => chkRating.IsChecked = true;
+
+        FrameworkElement WrapWithValuePicker(FrameworkElement input, IReadOnlyList<(string Value, int Count)> choices, Action<string> onPick)
+        {
+            if (choices.Count <= 1) return input;
+            var flyout = new MenuFlyout();
+            foreach (var (val, count) in choices)
+            {
+                string captured = val;
+                var item = new MenuFlyoutItem { Text = $"{captured} ({count})" };
+                item.Click += (_, _) => onPick(captured);
+                flyout.Items.Add(item);
+            }
+            var pickBtn = new Button
+            {
+                Content = new FontIcon { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), Glyph = "\uE70D", FontSize = 11 },
+                Width = 32,
+                MinWidth = 0,
+                Padding = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Flyout = flyout
+            };
+            ToolTipService.SetToolTip(pickBtn, "Pick from existing values in selection");
+            var grid = new Grid { ColumnSpacing = 4 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(input, 0);
+            Grid.SetColumn(pickBtn, 1);
+            grid.Children.Add(input);
+            grid.Children.Add(pickBtn);
+            return grid;
+        }
 
         byte[]? batchArtBytes = null;
         string batchArtMime = "image/jpeg";
@@ -1271,12 +1348,15 @@ public sealed partial class MainWindow
             Child = artPreview
         };
         var chooseArtBtn = new Button { Content = "Choose Cover Art..." };
-        var clearArtBtn = new Button { Content = "Remove Art" };
+        var clearArtBtn = new Button { Content = "Clear" };
 
+        string defaultCoverQuery = !string.IsNullOrWhiteSpace(initAlbum)
+            ? initAlbum
+            : (albumChoices.FirstOrDefault().Value ?? initArtist);
         var onlineSearchBox = new TextBox
         {
             PlaceholderText = "Album or artist to search...",
-            Text = !string.IsNullOrWhiteSpace(initAlbum) ? initAlbum : initArtist,
+            Text = defaultCoverQuery,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
         var onlineGoBtn = new Button { Content = "Search" };
@@ -1431,13 +1511,13 @@ public sealed partial class MainWindow
         artControls.Children.Add(chooseArtBtn);
         artControls.Children.Add(clearArtBtn);
 
-        var panel = new StackPanel { Spacing = 10, Width = 480 };
+        var panel = new StackPanel { Spacing = 10, Width = 490 };
         panel.Children.Add(new TextBlock { Text = $"Checked fields will be applied to all {tracks.Count:N0} selected tracks.", FontSize = 12, Opacity = 0.75 });
-        panel.Children.Add(MakeRow(chkArtist, artistBox));
-        panel.Children.Add(MakeRow(chkAlbum, albumBox));
-        panel.Children.Add(MakeRow(chkAlbumArtist, albumArtistBox));
-        panel.Children.Add(MakeRow(chkGenre, genreBox));
-        panel.Children.Add(MakeRow(chkYear, yearBox));
+        panel.Children.Add(MakeRow(chkArtist, WrapWithValuePicker(artistBox, artistChoices, v => artistBox.Text = v)));
+        panel.Children.Add(MakeRow(chkAlbum, WrapWithValuePicker(albumBox, albumChoices, v => albumBox.Text = v)));
+        panel.Children.Add(MakeRow(chkAlbumArtist, WrapWithValuePicker(albumArtistBox, artistChoices, v => albumArtistBox.Text = v)));
+        panel.Children.Add(MakeRow(chkGenre, WrapWithValuePicker(genreBox, genreChoices, v => genreBox.Text = v)));
+        panel.Children.Add(MakeRow(chkYear, WrapWithValuePicker(yearBox, yearChoices, v => { if (int.TryParse(v, out int y)) yearBox.Value = y; })));
         panel.Children.Add(MakeRow(chkRating, ratingCombo));
         panel.Children.Add(MakeRow(chkArt, artControls));
         panel.Children.Add(onlineArtTray);
