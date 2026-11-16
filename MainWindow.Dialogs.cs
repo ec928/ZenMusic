@@ -546,6 +546,24 @@ public sealed partial class MainWindow
             _engine.SetEqualizerGains(_settings.EqualizerGains);
         };
 
+        var exclusiveToggle = new ToggleSwitch
+        {
+            IsOn = _settings.WasapiExclusive,
+            MinWidth = 0,
+            OnContent = "On",
+            OffContent = "Off",
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        var (exclusiveRow, _, _) = SettingsCard.Row("\uE8D6", "WASAPI Exclusive",
+            "Bypass Windows mixer (locks output device)", exclusiveToggle);
+        exclusiveToggle.Toggled += (_, _) =>
+        {
+            if (loading) return;
+            _settings.WasapiExclusive = exclusiveToggle.IsOn;
+            _settings.Save();
+            ApplyAudioConfigFromSettings();
+        };
+
         var vizBox = new ComboBox { MinWidth = 200 };
         vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum bars", Tag = "Spectrum" });
         vizBox.Items.Add(new ComboBoxItem { Content = "Silk waveform", Tag = "Waveform" });
@@ -718,7 +736,7 @@ public sealed partial class MainWindow
 
         var panel = new StackPanel();
         panel.Children.Add(SettingsCard.Section("Audio and speakers", first: true));
-        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, rgRow, eqRow, centerRow, lfeRow, rearRow));
+        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, rgRow, eqRow, exclusiveRow, centerRow, lfeRow, rearRow));
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,

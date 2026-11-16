@@ -31,6 +31,7 @@ public sealed class WasapiAudioEngine : IDisposable
 
     private string? _currentPath;
     private string? _deviceId;
+    private bool _exclusiveMode;
     private SpeakerRoutingOptions _speakerOptions = new();
     private float _volume = 0.7f;
     private float _replayGainFactor = 1.0f;
@@ -196,14 +197,16 @@ public sealed class WasapiAudioEngine : IDisposable
         return list;
     }
 
-    public void ConfigureAudio(string? deviceId, SpeakerRoutingOptions options)
+    public void ConfigureAudio(string? deviceId, SpeakerRoutingOptions options, bool exclusiveMode = false)
     {
         bool needsRebuild;
         lock (_lock)
         {
             bool deviceChanged = !string.Equals(_deviceId ?? string.Empty, deviceId ?? string.Empty, StringComparison.Ordinal);
             bool channelCountChanged = (_speakerOptions.Layout == SpeakerLayout.Stereo20) != (options.Layout == SpeakerLayout.Stereo20);
+            bool exclusiveChanged = _exclusiveMode != exclusiveMode;
             _deviceId = string.IsNullOrEmpty(deviceId) ? null : deviceId;
+            _exclusiveMode = exclusiveMode;
             _speakerOptions = new SpeakerRoutingOptions
             {
                 Layout = options.Layout,
@@ -212,7 +215,7 @@ public sealed class WasapiAudioEngine : IDisposable
                 RearLevel = options.RearLevel
             };
             _matrixProvider?.UpdateOptions(_speakerOptions);
-            needsRebuild = _reader != null && (deviceChanged || channelCountChanged);
+            needsRebuild = _reader != null && (deviceChanged || channelCountChanged || exclusiveChanged);
         }
 
         if (needsRebuild)
@@ -298,29 +301,68 @@ public sealed class WasapiAudioEngine : IDisposable
         int endpointChannels = mixFormat?.Channels ?? 2;
         int endpointSampleRate = mixFormat?.SampleRate ?? 0;
 
-        ISampleProvider pipeline = _reader.ToSampleProvider();
-        if (pipeline.WaveFormat.SampleRate != endpointSampleRate && endpointSampleRate > 0)
+        ISampleProvider BuildPipeline(bool allowResample)
         {
-            pipeline = new WdlResamplingSampleProvider(pipeline, endpointSampleRate);
+            ISampleProvider p = _reader.ToSampleProvider();
+            if (allowResample && p.WaveFormat.SampleRate != endpointSampleRate && endpointSampleRate > 0)
+            {
+                p = new WdlResamplingSampleProvider(p, endpointSampleRate);
+            }
+            _replayGainProvider = new SmoothGainSampleProvider(p, _replayGainFactor);
+            _equalizerProvider = new EqualizerSampleProvider(_replayGainProvider, _equalizerGains);
+            _volumeProvider = new VolumeSampleProvider(_equalizerProvider) { Volume = _volume };
+            var fftTap = new FftTapSampleProvider(_volumeProvider, Fft);
+            _matrixProvider = new SpeakerMatrixProvider(fftTap, _speakerOptions, endpointChannels);
+            return _matrixProvider;
         }
 
-        _replayGainProvider = new SmoothGainSampleProvider(pipeline, _replayGainFactor);
-        _equalizerProvider = new EqualizerSampleProvider(_replayGainProvider, _equalizerGains);
-        _volumeProvider = new VolumeSampleProvider(_equalizerProvider) { Volume = _volume };
-        var fftTap = new FftTapSampleProvider(_volumeProvider, Fft);
-        _matrixProvider = new SpeakerMatrixProvider(fftTap, _speakerOptions, endpointChannels);
-
-        _output = CreateWasapiOut(_deviceId);
-        _output.PlaybackStopped += Output_PlaybackStopped;
-
-        if (_matrixProvider.WaveFormat.Channels >= 6 && mixFormat != null)
+        void InitOutput(WasapiOut output, ISampleProvider matrix)
         {
-            _output.Init(new MultichannelFloatWaveProvider(_matrixProvider, mixFormat));
+            if (matrix.WaveFormat.Channels >= 6 && mixFormat != null)
+                output.Init(new MultichannelFloatWaveProvider(matrix, mixFormat));
+            else
+                output.Init(matrix);
+        }
+
+        if (_exclusiveMode)
+        {
+            try
+            {
+                // First try native sample rate in Exclusive mode (skipping resampler)
+                var matrix = BuildPipeline(allowResample: false);
+                _output = CreateWasapiOut(_deviceId, exclusive: true);
+                InitOutput(_output, matrix);
+            }
+            catch
+            {
+                _output?.Dispose();
+                _output = null;
+                try
+                {
+                    // Retry Exclusive at endpoint's mix sample rate if DAC rejected native rate
+                    var matrix = BuildPipeline(allowResample: true);
+                    _output = CreateWasapiOut(_deviceId, exclusive: true);
+                    InitOutput(_output, matrix);
+                }
+                catch
+                {
+                    _output?.Dispose();
+                    _output = null;
+                    var matrix = BuildPipeline(allowResample: true);
+                    _output = CreateWasapiOut(_deviceId, exclusive: false);
+                    InitOutput(_output, matrix);
+                    PlaybackError?.Invoke("WASAPI Exclusive mode was rejected by this audio device; using Shared mode.");
+                }
+            }
         }
         else
         {
-            _output.Init(_matrixProvider);
+            var matrix = BuildPipeline(allowResample: true);
+            _output = CreateWasapiOut(_deviceId, exclusive: false);
+            InitOutput(_output, matrix);
         }
+
+        _output.PlaybackStopped += Output_PlaybackStopped;
 
         if (autoPlay) _output.Play();
     }
@@ -412,15 +454,17 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
-    private static WasapiOut CreateWasapiOut(string? deviceId)
+    private static WasapiOut CreateWasapiOut(string? deviceId, bool exclusive)
     {
+        var shareMode = exclusive ? AudioClientShareMode.Exclusive : AudioClientShareMode.Shared;
+        int latency = exclusive ? 100 : 60;
         if (!string.IsNullOrEmpty(deviceId))
         {
             using var enumerator = new MMDeviceEnumerator();
             var device = enumerator.GetDevice(deviceId);
-            return new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: true, latency: 60);
+            return new WasapiOut(device, shareMode, useEventSync: true, latency: latency);
         }
-        return new WasapiOut(AudioClientShareMode.Shared, useEventSync: true, latency: 60);
+        return new WasapiOut(shareMode, useEventSync: true, latency: latency);
     }
 
     private void Output_PlaybackStopped(object? sender, StoppedEventArgs e)

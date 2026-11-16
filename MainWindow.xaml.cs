@@ -736,7 +736,7 @@ public sealed partial class MainWindow : Window
             CenterLevel = _settings.CenterLevel,
             LfeGain = _settings.LfeGain,
             RearLevel = _settings.RearLevel
-        });
+        }, _settings.WasapiExclusive);
         _engine.SetEqualizerGains(_settings.EqualizerGains);
         int endpointCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
         SpeakerBadgeText.Text = _settings.SpeakerLayout switch

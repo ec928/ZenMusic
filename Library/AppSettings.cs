@@ -45,6 +45,7 @@ public sealed class AppSettings
 {
     public string? MusicFolder { get; set; }
     public string OutputDeviceId { get; set; } = string.Empty;
+    public bool WasapiExclusive { get; set; } = false;
     public SpeakerLayout SpeakerLayout { get; set; } = SpeakerLayout.Stereo20;
     public float CenterLevel { get; set; } = 0.55f;
     public float LfeGain { get; set; } = 0.85f;
@@ -99,6 +100,7 @@ public sealed class AppSettings
     public void ResetAudioAndUiToDefaults()
     {
         OutputDeviceId = string.Empty;
+        WasapiExclusive = false;
         SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(OutputDeviceId);
         CenterLevel = 0.55f;
         LfeGain = 0.85f;
