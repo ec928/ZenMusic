@@ -592,6 +592,7 @@ public sealed partial class MainWindow : Window
         if (PlaybarVisualizer != null) PlaybarVisualizer.UseLightTheme = !dark;
         UpdateShuffleButtonVisual();
         UpdateRepeatButtonVisual();
+        UpdateRightPaneButtonVisual();
         SeekRailCanvas?.Invalidate();
         VolumeRailCanvas?.Invalidate();
         // The wash is lighter in the light theme, so re-apply it at the new strength.
@@ -625,6 +626,7 @@ public sealed partial class MainWindow : Window
         bool wasOpen = RightSidebar.Visibility == Visibility.Visible && RightPaneCol.Width.Value > 0;
         RightPaneCol.Width = _rightPaneOpen ? new GridLength(316) : new GridLength(0);
         RightSidebar.Visibility = _rightPaneOpen ? Visibility.Visible : Visibility.Collapsed;
+        UpdateRightPaneButtonVisual();
 
         // Opening slides the pane in from the right; closing is immediate so the list reclaims the space at once.
         if (_rightPaneOpen && !wasOpen && _initialized)
@@ -1723,6 +1725,18 @@ public sealed partial class MainWindow : Window
         _settings.RightPaneOpen = _rightPaneOpen;
         ApplyPaneWidths();
         _settings.Save();
+    }
+
+    private void UpdateRightPaneButtonVisual()
+    {
+        if (RightPaneToggleIcon == null || RightPaneToggleBtn == null) return;
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
+        RightPaneToggleIcon.Foreground = _rightPaneOpen
+            ? (isLight ? PlaybarLightAmberBrush : PlaybarGoldBrush)
+            : (isLight ? PlaybarLightMutedIconBrush : PlaybarMutedIconBrush);
+        ToolTipService.SetToolTip(RightPaneToggleBtn, _rightPaneOpen
+            ? "Hide Queue & Track Panel (Ctrl+B)"
+            : "Show Queue & Track Panel (Ctrl+B)");
     }
 
     private void PlayAllBtn_Click(object sender, RoutedEventArgs e)

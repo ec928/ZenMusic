@@ -189,9 +189,6 @@
                 <Button x:Name="ViewToggleBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Switch Track Table / Tile View" Click="ViewToggleBtn_Click">
                     <FontIcon x:Name="ViewToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE80A;" FontSize="14"/>
                 </Button>
-                <Button x:Name="RightPaneToggleBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Toggle Playlists, Queue &amp; Inspector (Ctrl+B)" Click="RightPaneToggleBtn_Click">
-                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE90B;" FontSize="14"/>
-                </Button>
                 <Button x:Name="SettingsBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Settings (Audio, Visualizer, Theme, Rescan)" Click="SettingsBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE713;" FontSize="14"/>
                 </Button>
@@ -908,6 +905,9 @@
                         <Slider x:Name="VolumeSlider" Width="72" Opacity="0" Minimum="0" Maximum="100" Value="70" MinHeight="20" Height="22" Padding="0" VerticalAlignment="Center"
                                 ValueChanged="VolumeSlider_ValueChanged" PointerEntered="VolumeSlider_PointerEntered" PointerExited="VolumeSlider_PointerExited"/>
                     </Grid>
+                    <Button x:Name="RightPaneToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Hide Queue &amp; Track Panel (Ctrl+B)" Click="RightPaneToggleBtn_Click">
+                        <FontIcon x:Name="RightPaneToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE90D;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Button>
                     <Button x:Name="MiniPlayerToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
                         <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
