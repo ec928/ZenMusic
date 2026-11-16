@@ -4776,6 +4776,41 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
             }
         }
+        else if (e.Key == VirtualKey.Enter && !inTextBox && !ctrl && !alt &&
+                 focused is not Button && focused is not ComboBox && focused is not Slider)
+        {
+            if (IsInsideElement(focused as DependencyObject, QueueListView))
+            {
+                var qTrack = QueueListView.SelectedItem as TrackItem;
+                if (_editingPlaylist != null)
+                {
+                    if (qTrack != null && _editingPlaylistTracks.Contains(qTrack))
+                    {
+                        PlayPlaylistTracks(_editingPlaylist, qTrack);
+                        RevealTrackInMainList(qTrack);
+                        e.Handled = true;
+                    }
+                }
+                else
+                {
+                    int qIdx = qTrack != null ? _queueTracks.IndexOf(qTrack) : QueueListView.SelectedIndex;
+                    if (qIdx >= 0 && qIdx < _queueTracks.Count)
+                    {
+                        var track = _queueTracks[qIdx];
+                        PlayQueueIndex(qIdx);
+                        RevealTrackInMainList(track);
+                        e.Handled = true;
+                    }
+                }
+            }
+            else if ((IsInsideElement(focused as DependencyObject, TracksListView) ||
+                      IsInsideElement(focused as DependencyObject, AlbumsGridView)) &&
+                     GetPrimarySelectedTrack() is TrackItem track)
+            {
+                PlayFromList(_visibleTracks.ToList(), track);
+                e.Handled = true;
+            }
+        }
         else if (e.Key == VirtualKey.Space && !inTextBox)
         {
             PlayPauseBtn_Click(sender, e);

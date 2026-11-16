@@ -51,7 +51,8 @@ ZenMusic plays the music files in a folder on your PC. Point it at the folder an
 | Shortcut | Action |
 |---|---|
 | `Space` | Play / Pause |
-| `Left` / `Right` | Seek backward / forward 5 seconds |
+| `Enter` | Play selected track or queue item |
+| `Left` / `Right` | Seek backward / forward 5 seconds (`Ctrl+Left`/`Right` in Tile View) |
 | `Home` / `End` | Jump to start / end of list or queue |
 | `Ctrl+O` | Open music folder |
 | `Ctrl+F` | Focus search box |
