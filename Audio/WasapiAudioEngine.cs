@@ -437,22 +437,7 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
-    private static WaveStream CreateReader(string path)
-    {
-        string ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is ".wav" or ".aiff")
-            return new AudioFileReader(path);
-
-        // MediaFoundationReader handles MP3, FLAC, M4A/AAC, WMA, WAV cleanly on Windows 10/11
-        try
-        {
-            return new MediaFoundationReader(path);
-        }
-        catch
-        {
-            return new AudioFileReader(path);
-        }
-    }
+    private static WaveStream CreateReader(string path) => AudioFileOpener.OpenWaveStream(path);
 
     private static WasapiOut CreateWasapiOut(string? deviceId, bool exclusive)
     {

@@ -213,6 +213,9 @@ public static class MusicLibrary
                 DateTime originalWriteUtc = File.GetLastWriteTimeUtc(path);
                 using (var file = TagLib.File.Create(path))
                 {
+                    if (Path.GetExtension(path).Equals(".flac", StringComparison.OrdinalIgnoreCase))
+                        StripLegacyFlacId3Tags(file, path);
+
                     var tag = file.Tag;
                     tag.Title = d.Title;
                     tag.Performers = string.IsNullOrWhiteSpace(d.Artist) ? Array.Empty<string>() : new[] { d.Artist.Trim() };
@@ -283,6 +286,8 @@ public static class MusicLibrary
                 }
                 else if (ext is ".flac" or ".ogg" or ".opus")
                 {
+                    if (ext == ".flac")
+                        StripLegacyFlacId3Tags(file, path);
                     var xiph = (TagLib.Ogg.XiphComment)file.GetTag(TagLib.TagTypes.Xiph, true);
                     if (stars is double s && s > 0)
                     {
@@ -341,6 +346,50 @@ public static class MusicLibrary
         }
         catch { }
         return false;
+    }
+
+    private static void StripLegacyFlacId3Tags(TagLib.File file, string path)
+    {
+        const TagLib.TagTypes legacy = TagLib.TagTypes.Id3v2 | TagLib.TagTypes.Id3v1;
+        if ((file.TagTypes & legacy) == 0) return;
+
+        // Snapshot combined tag values (including rating/art from legacy ID3v2) before stripping ID3 wrapper,
+        // otherwise TagLibSharp embeds cover art inside the prepended ID3v2 block and breaks Media Foundation FLAC sniffing.
+        var comb = file.Tag;
+        string title = comb.Title ?? string.Empty;
+        string[] performers = comb.Performers ?? Array.Empty<string>();
+        string album = comb.Album ?? string.Empty;
+        string[] albumArtists = comb.AlbumArtists ?? Array.Empty<string>();
+        string[] genres = comb.Genres ?? Array.Empty<string>();
+        uint year = comb.Year;
+        uint track = comb.Track;
+        uint disc = comb.Disc;
+        string lyrics = comb.Lyrics ?? string.Empty;
+        var pics = comb.Pictures ?? Array.Empty<TagLib.IPicture>();
+        double? rating = ReadStarsFromTagLib(file, path);
+
+        file.RemoveTags(legacy);
+
+        var xiph = file.GetTag(TagLib.TagTypes.Xiph, true);
+        if (!string.IsNullOrEmpty(title) && string.IsNullOrEmpty(xiph.Title)) xiph.Title = title;
+        if (performers.Length > 0 && (xiph.Performers == null || xiph.Performers.Length == 0)) xiph.Performers = performers;
+        if (!string.IsNullOrEmpty(album) && string.IsNullOrEmpty(xiph.Album)) xiph.Album = album;
+        if (albumArtists.Length > 0 && (xiph.AlbumArtists == null || xiph.AlbumArtists.Length == 0)) xiph.AlbumArtists = albumArtists;
+        if (genres.Length > 0 && (xiph.Genres == null || xiph.Genres.Length == 0)) xiph.Genres = genres;
+        if (year > 0 && xiph.Year == 0) xiph.Year = year;
+        if (track > 0 && xiph.Track == 0) xiph.Track = track;
+        if (disc > 0 && xiph.Disc == 0) xiph.Disc = disc;
+        if (!string.IsNullOrEmpty(lyrics) && string.IsNullOrEmpty(xiph.Lyrics)) xiph.Lyrics = lyrics;
+
+        var flacTag = file.GetTag(TagLib.TagTypes.FlacMetadata, true);
+        if (pics.Length > 0 && (flacTag.Pictures == null || flacTag.Pictures.Length == 0))
+            flacTag.Pictures = pics;
+
+        if (rating is double s && s > 0 && xiph is TagLib.Ogg.XiphComment xc && xc.GetField("RATING").Length == 0)
+        {
+            int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
+            xc.SetField("RATING", val100.ToString(CultureInfo.InvariantCulture));
+        }
     }
 
     private static double? ReadStarsFromTagLib(TagLib.File file, string path)

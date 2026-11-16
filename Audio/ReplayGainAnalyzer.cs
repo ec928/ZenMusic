@@ -80,28 +80,12 @@ public static class ReplayGainAnalyzer
     {
         try
         {
-            using var reader = OpenReader(path);
+            using var reader = AudioFileOpener.OpenWaveStream(path);
             return AnalyzeSampleProvider(reader.ToSampleProvider());
         }
         catch
         {
             return null;
-        }
-    }
-
-    private static WaveStream OpenReader(string path)
-    {
-        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
-        if (ext is ".wav" or ".aiff")
-            return new AudioFileReader(path);
-
-        try
-        {
-            return new MediaFoundationReader(path);
-        }
-        catch
-        {
-            return new AudioFileReader(path);
         }
     }
 

@@ -513,6 +513,27 @@ public sealed class AudioAndLibraryTests
         Assert.Equal("Sultans of Swing: The Very Best of Dire Straits", ranked[0].Album);
     }
 
+    [Fact]
+    public void AudioFileOpener_FindFlacMagicAfterId3_DetectsSynchsafeOffset()
+    {
+        string tmp = Path.Combine(Path.GetTempPath(), $"zen_id3flac_{Guid.NewGuid():N}.flac");
+        try
+        {
+            // Minimal ID3v2.3 header claiming 128 bytes (synchsafe 0x00, 0x00, 0x01, 0x00) followed by fLaC
+            var bytes = new byte[10 + 128 + 8];
+            bytes[0] = (byte)'I'; bytes[1] = (byte)'D'; bytes[2] = (byte)'3'; bytes[3] = 3;
+            bytes[6] = 0; bytes[7] = 0; bytes[8] = 1; bytes[9] = 0;
+            bytes[138] = (byte)'f'; bytes[139] = (byte)'L'; bytes[140] = (byte)'a'; bytes[141] = (byte)'C';
+            File.WriteAllBytes(tmp, bytes);
+
+            Assert.Equal(138, AudioFileOpener.FindFlacMagicAfterId3(tmp));
+        }
+        finally
+        {
+            if (File.Exists(tmp)) File.Delete(tmp);
+        }
+    }
+
     private sealed class BoundedSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _inner;
