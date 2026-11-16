@@ -17,18 +17,19 @@ ZenMusic plays the music files in a folder on your PC. Point it at the folder an
 
 ## Sound for the speakers you have
 
-- **WASAPI playback** of `.mp3`, `.flac`, `.m4a`, `.aac`, `.wav`, `.wma`, `.ogg` and `.opus`, on the output device you choose, with automatic recovery when the device changes.
+- **WASAPI playback** of `.mp3`, `.flac`, `.m4a`, `.aac`, `.wav`, `.wma`, `.ogg` and `.opus`, on the output device you choose, with automatic recovery when the device changes and an optional **WASAPI Exclusive** mode.
 - **2.0, 2.1 or 5.1.** Pick **2.0 Stereo**, **2.1 + LFE** (a subwoofer crossover below 80 Hz), **5.1 Smart Upmix** (stereo spread across a surround system, with adjustable centre vocal fill, LFE gain and rear ambience) or **5.1 Direct** (multichannel files played as they are).
+- **On-the-fly loudness leveling & 10-band EQ.** Non-destructive ReplayGain volume matching (reads embedded tags or measures tracks in the background without touching your files) plus a 10-band equalizer with presets and custom curves.
 - **Visualizers** drawn on the GPU: spectrum bars, a silk waveform, or both, in the playbar and on the Focus Stage.
-- **Mini Player (`Ctrl+M`)** when you only want the controls.
+- **Mini Player (`Ctrl+M`)** and a **Sleep timer** (timed countdown or pause after current track).
 
 ## A library that keeps up
 
 - **Opens at once.** The library is cached, so a folder of thousands of tracks is there when the window appears, and the folder is watched for files you add or change.
 - **Table or album tiles.** Sort the table with a click on a column, or browse covers in the tile view.
-- **Find anything.** Search as you type (`Ctrl+F`), jump by typing a letter or digit, filter by star rating, or click an artist's name to see their tracks.
-- **Half-star ratings** saved into the audio files themselves, so they travel with your music.
-- **Queue and playlists** in the side pane, next to a card for the selected track with its cover, details and lyrics.
+- **Find anything.** Search as you type (`Ctrl+F`), jump by typing a letter or digit, filter by star rating, browse by **Album** or **Artist**, or right-click to filter by a track's artist or album.
+- **Half-star ratings & multi-disc sorting** saved into the audio files themselves (`Disc #` supported in Properties and Album sort).
+- **Queue, playlists & instant Smart Mixes.** Build queues, import/export `.m3u8` playlists, or generate one-click mixes (*Lucky Shuffle*, *Top Rated*, *Forgotten Gems*, *Heavy Rotation*, or custom rules) you can edit and save.
 - **Opens from File Explorer.** Open a supported audio file and it starts playing. Files that are in OneDrive but not downloaded are marked.
 
 ## Tidy tags, covers and lyrics

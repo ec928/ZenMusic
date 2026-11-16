@@ -100,14 +100,14 @@
                     <StackPanel Grid.Row="2" Grid.Column="1">
                         <TextBlock Text="Sound for the speakers you have" Style="{StaticResource AboutItemTitle}"/>
                         <TextBlock Style="{StaticResource AboutItemBody}"
-                                   Text="Stereo, 2.1 or 5.1: spread stereo across a surround system, or play multichannel files as they are."/>
+                                   Text="Stereo, 2.1 or 5.1, with on-the-fly loudness leveling, a 10-band equalizer, and optional WASAPI Exclusive mode."/>
                     </StackPanel>
 
                     <FontIcon Grid.Row="3" Glyph="&#xE8F1;" Style="{StaticResource AboutGlyph}"/>
                     <StackPanel Grid.Row="3" Grid.Column="1">
                         <TextBlock Text="Thousands of tracks, no waiting" Style="{StaticResource AboutItemTitle}"/>
                         <TextBlock Style="{StaticResource AboutItemBody}"
-                                   Text="Opens from a cache and keeps up with the folder. Click a column to sort, type to search, rate in half stars saved into the files."/>
+                                   Text="Opens from a cache and keeps up with the folder. Sort columns, browse albums or artists, spin up instant smart mixes, and rate in half stars."/>
                     </StackPanel>
 
                     <FontIcon Grid.Row="4" Glyph="&#xE8EC;" Style="{StaticResource AboutGlyph}"/>
