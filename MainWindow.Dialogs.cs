@@ -1218,37 +1218,34 @@ public sealed partial class MainWindow
 
     private async Task OpenBatchPropertiesDialogAsync(IReadOnlyList<TrackItem> tracks)
     {
-        string CommonOrEmpty(Func<TrackItem, string> selector, out bool mixed)
+        List<(string? Value, int Count)> BuildChoices(Func<TrackItem, string> selector, out string commonValue, out bool mixed)
         {
-            var distinct = tracks.Select(selector).Distinct(StringComparer.Ordinal).Take(2).ToList();
-            mixed = distinct.Count > 1;
-            return mixed ? string.Empty : (distinct.Count == 1 ? distinct[0] : string.Empty);
+            var groups = tracks.Select(selector)
+                               .Where(v => !string.IsNullOrWhiteSpace(v))
+                               .GroupBy(v => v.Trim(), StringComparer.OrdinalIgnoreCase)
+                               .Select(g => (Value: (string?)g.First().Trim(), Count: g.Count()))
+                               .OrderByDescending(x => x.Count)
+                               .ThenBy(x => x.Value, StringComparer.OrdinalIgnoreCase)
+                               .ToList();
+            int emptyCount = tracks.Count - groups.Sum(g => g.Count);
+            mixed = groups.Count > 1 || (groups.Count >= 1 && emptyCount > 0);
+            commonValue = !mixed && groups.Count == 1 ? (groups[0].Value ?? string.Empty) : string.Empty;
+            if (mixed && emptyCount > 0)
+                groups.Add((Value: null, Count: emptyCount));
+            return groups;
         }
 
-        List<(string Value, int Count)> DistinctNonEmpty(Func<TrackItem, string> selector) =>
-            tracks.Select(selector)
-                  .Where(v => !string.IsNullOrWhiteSpace(v))
-                  .GroupBy(v => v.Trim(), StringComparer.OrdinalIgnoreCase)
-                  .Select(g => (Value: g.First().Trim(), Count: g.Count()))
-                  .OrderByDescending(x => x.Count)
-                  .ThenBy(x => x.Value, StringComparer.OrdinalIgnoreCase)
-                  .ToList();
+        var artistChoices = BuildChoices(t => t.Artist, out string initArtist, out bool mixedArtist);
+        var albumChoices = BuildChoices(t => t.Album, out string initAlbum, out bool mixedAlbum);
+        var genreChoices = BuildChoices(t => t.Genre, out string initGenre, out bool mixedGenre);
+        var yearChoices = BuildChoices(t => t.Year > 0 ? t.Year.ToString() : string.Empty, out string initYearStr, out bool mixedYear);
+        int initYear = !mixedYear && int.TryParse(initYearStr, out int parsedInitYear) ? parsedInitYear : 0;
 
-        var artistChoices = DistinctNonEmpty(t => t.Artist);
-        var albumChoices = DistinctNonEmpty(t => t.Album);
-        var genreChoices = DistinctNonEmpty(t => t.Genre);
-        var yearChoices = DistinctNonEmpty(t => t.Year > 0 ? t.Year.ToString() : string.Empty);
-
-        string initArtist = CommonOrEmpty(t => t.Artist, out bool mixedArtist);
-        string initAlbum = CommonOrEmpty(t => t.Album, out bool mixedAlbum);
-        string initGenre = CommonOrEmpty(t => t.Genre, out bool mixedGenre);
-        var distinctYears = tracks.Select(t => t.Year).Distinct().Take(2).ToList();
-        bool mixedYear = distinctYears.Count > 1;
-        int initYear = !mixedYear && distinctYears.Count == 1 ? distinctYears[0] : 0;
-
-        var distinctRatings = tracks.Select(t => t.Rating).Distinct().ToList();
-        bool mixedRating = distinctRatings.Count > 1;
-        double? initRating = !mixedRating && distinctRatings.Count == 1 ? distinctRatings[0] : null;
+        var ratingCounts = tracks
+            .GroupBy(t => t.Rating is double rv && rv > 0 ? Math.Round(rv * 2.0) / 2.0 : 0.0)
+            .ToDictionary(g => g.Key, g => g.Count());
+        bool mixedRating = ratingCounts.Count > 1;
+        double? initRating = !mixedRating && ratingCounts.Count == 1 ? ratingCounts.Keys.First() : null;
 
         var chkArtist = new CheckBox { Content = "Artist", MinWidth = 110 };
         var chkAlbum = new CheckBox { Content = "Album", MinWidth = 110 };
@@ -1276,9 +1273,16 @@ public sealed partial class MainWindow
             HorizontalAlignment = HorizontalAlignment.Stretch,
             PlaceholderText = mixedRating ? "<Multiple values>" : ""
         };
-        ratingCombo.Items.Add(new ComboBoxItem { Content = "Unrated", Tag = -1.0 });
+        ratingCombo.Items.Add(new ComboBoxItem
+        {
+            Content = ratingCounts.TryGetValue(0.0, out int unratedCount) && mixedRating ? $"Unrated ({unratedCount})" : "Unrated",
+            Tag = -1.0
+        });
         for (double r = 0.5; r <= 5.0; r += 0.5)
-            ratingCombo.Items.Add(new ComboBoxItem { Content = $"{r:0.#} ★", Tag = r });
+        {
+            string label = ratingCounts.TryGetValue(r, out int count) && mixedRating ? $"{r:0.#} ★ ({count})" : $"{r:0.#} ★";
+            ratingCombo.Items.Add(new ComboBoxItem { Content = label, Tag = r });
+        }
         if (!mixedRating)
         {
             if (initRating is double rv && rv > 0)
@@ -1305,15 +1309,20 @@ public sealed partial class MainWindow
         yearBox.ValueChanged += (_, _) => chkYear.IsChecked = true;
         ratingCombo.SelectionChanged += (_, _) => chkRating.IsChecked = true;
 
-        FrameworkElement WrapWithValuePicker(FrameworkElement input, IReadOnlyList<(string Value, int Count)> choices, Action<string> onPick)
+        FrameworkElement WrapWithValuePicker(FrameworkElement input, IReadOnlyList<(string? Value, int Count)> choices, CheckBox targetCheck, Action<string> onPick)
         {
             if (choices.Count <= 1) return input;
             var flyout = new MenuFlyout();
             foreach (var (val, count) in choices)
             {
-                string captured = val;
-                var item = new MenuFlyoutItem { Text = $"{captured} ({count})" };
-                item.Click += (_, _) => onPick(captured);
+                string captured = val ?? string.Empty;
+                string display = val ?? "<Empty>";
+                var item = new MenuFlyoutItem { Text = $"{display} ({count})" };
+                item.Click += (_, _) =>
+                {
+                    onPick(captured);
+                    targetCheck.IsChecked = true;
+                };
                 flyout.Items.Add(item);
             }
             var pickBtn = new Button
@@ -1352,7 +1361,7 @@ public sealed partial class MainWindow
 
         string defaultCoverQuery = !string.IsNullOrWhiteSpace(initAlbum)
             ? initAlbum
-            : (albumChoices.FirstOrDefault().Value ?? initArtist);
+            : (albumChoices.FirstOrDefault(x => x.Value != null).Value ?? initArtist);
         var onlineSearchBox = new TextBox
         {
             PlaceholderText = "Album or artist to search...",
@@ -1513,11 +1522,11 @@ public sealed partial class MainWindow
 
         var panel = new StackPanel { Spacing = 10, Width = 490 };
         panel.Children.Add(new TextBlock { Text = $"Checked fields will be applied to all {tracks.Count:N0} selected tracks.", FontSize = 12, Opacity = 0.75 });
-        panel.Children.Add(MakeRow(chkArtist, WrapWithValuePicker(artistBox, artistChoices, v => artistBox.Text = v)));
-        panel.Children.Add(MakeRow(chkAlbum, WrapWithValuePicker(albumBox, albumChoices, v => albumBox.Text = v)));
-        panel.Children.Add(MakeRow(chkAlbumArtist, WrapWithValuePicker(albumArtistBox, artistChoices, v => albumArtistBox.Text = v)));
-        panel.Children.Add(MakeRow(chkGenre, WrapWithValuePicker(genreBox, genreChoices, v => genreBox.Text = v)));
-        panel.Children.Add(MakeRow(chkYear, WrapWithValuePicker(yearBox, yearChoices, v => { if (int.TryParse(v, out int y)) yearBox.Value = y; })));
+        panel.Children.Add(MakeRow(chkArtist, WrapWithValuePicker(artistBox, artistChoices, chkArtist, v => artistBox.Text = v)));
+        panel.Children.Add(MakeRow(chkAlbum, WrapWithValuePicker(albumBox, albumChoices, chkAlbum, v => albumBox.Text = v)));
+        panel.Children.Add(MakeRow(chkAlbumArtist, WrapWithValuePicker(albumArtistBox, artistChoices, chkAlbumArtist, v => albumArtistBox.Text = v)));
+        panel.Children.Add(MakeRow(chkGenre, WrapWithValuePicker(genreBox, genreChoices, chkGenre, v => genreBox.Text = v)));
+        panel.Children.Add(MakeRow(chkYear, WrapWithValuePicker(yearBox, yearChoices, chkYear, v => yearBox.Value = int.TryParse(v, out int y) ? y : double.NaN)));
         panel.Children.Add(MakeRow(chkRating, ratingCombo));
         panel.Children.Add(MakeRow(chkArt, artControls));
         panel.Children.Add(onlineArtTray);
