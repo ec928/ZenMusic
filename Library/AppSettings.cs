@@ -51,6 +51,8 @@ public sealed class AppSettings
     public float RearLevel { get; set; } = 0.60f;
     public string ReplayGainMode { get; set; } = "Track"; // Off | Track | Album
     public double ReplayGainPreampDb { get; set; } = 0.0;
+    public string EqualizerPreset { get; set; } = "Flat";
+    public double[] EqualizerGains { get; set; } = new double[10];
     public string VisualizerMode { get; set; } = "Spectrum"; // Spectrum | Waveform | Off
     public bool VisualizerEnabled { get; set; } = true;
     public string Theme { get; set; } = "Dark"; // Dark | Light | System
@@ -103,6 +105,8 @@ public sealed class AppSettings
         RearLevel = 0.60f;
         ReplayGainMode = "Track";
         ReplayGainPreampDb = 0.0;
+        EqualizerPreset = "Flat";
+        EqualizerGains = new double[10];
         VisualizerMode = "Spectrum";
         VisualizerEnabled = true;
         Theme = "Dark";

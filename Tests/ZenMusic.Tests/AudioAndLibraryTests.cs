@@ -437,6 +437,30 @@ public sealed class AudioAndLibraryTests
         Assert.Equal("Recent Play", heavy[0].Title);
     }
 
+    [Fact]
+    public void EqualizerSampleProvider_BypassesWhenFlatAndShapesWhenBoosted()
+    {
+        var flatSrc = new NAudio.Wave.SampleProviders.SignalGenerator(44100, 2) { Frequency = 100.0, Gain = 0.5, Type = NAudio.Wave.SampleProviders.SignalGeneratorType.Sin };
+        var eq = new EqualizerSampleProvider(flatSrc);
+        var bufFlat = new float[2048];
+        eq.Read(bufFlat, 0, bufFlat.Length);
+
+        var refSrc = new NAudio.Wave.SampleProviders.SignalGenerator(44100, 2) { Frequency = 100.0, Gain = 0.5, Type = NAudio.Wave.SampleProviders.SignalGeneratorType.Sin };
+        var bufRef = new float[2048];
+        refSrc.Read(bufRef, 0, bufRef.Length);
+        Assert.Equal(bufRef[500], bufFlat[500], 5);
+
+        eq.UpdateGains(EqualizerSampleProvider.Presets["Bass Boost"]);
+        var boostedSrc = new NAudio.Wave.SampleProviders.SignalGenerator(44100, 2) { Frequency = 64.0, Gain = 0.3, Type = NAudio.Wave.SampleProviders.SignalGeneratorType.Sin };
+        var eqBoost = new EqualizerSampleProvider(boostedSrc, EqualizerSampleProvider.Presets["Bass Boost"]);
+        var bufBoost = new float[4096];
+        eqBoost.Read(bufBoost, 0, bufBoost.Length);
+
+        float peakBoost = 0f;
+        for (int i = 2048; i < bufBoost.Length; i++) peakBoost = Math.Max(peakBoost, MathF.Abs(bufBoost[i]));
+        Assert.True(peakBoost > 0.35f);
+    }
+
     private sealed class BoundedSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _inner;

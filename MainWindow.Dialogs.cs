@@ -490,6 +490,39 @@ public sealed partial class MainWindow
             ApplyLiveReplayGain();
         };
 
+        var eqPresetBox = new ComboBox { MinWidth = 132 };
+        string[] eqOrder = { "Flat", "Rock", "Pop", "Jazz", "Classical", "Bass Boost", "Vocal", "Acoustic", "Electronic", "Custom" };
+        foreach (string pName in eqOrder)
+        {
+            eqPresetBox.Items.Add(new ComboBoxItem
+            {
+                Content = pName == "Flat" ? "Flat (Off)" : pName,
+                Tag = pName
+            });
+        }
+        int eqSelectedIdx = Array.FindIndex(eqOrder, p => string.Equals(p, _settings.EqualizerPreset, StringComparison.OrdinalIgnoreCase));
+        eqPresetBox.SelectedIndex = eqSelectedIdx >= 0 ? eqSelectedIdx : 0;
+
+        var eqBandsBtn = new Button { Content = "Bands...", Padding = new Thickness(10, 5, 10, 5), MinHeight = 0 };
+        var eqControlPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        eqControlPanel.Children.Add(eqPresetBox);
+        eqControlPanel.Children.Add(eqBandsBtn);
+        var (eqRow, _, _) = SettingsCard.Row("\uE9E9", "Equalizer", "10-band tone shaping", eqControlPanel);
+
+        eqPresetBox.SelectionChanged += (_, _) =>
+        {
+            if (loading) return;
+            string tag = (eqPresetBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Flat";
+            _settings.EqualizerPreset = tag;
+            if (EqualizerSampleProvider.Presets.TryGetValue(tag, out var presetGains))
+            {
+                _settings.EqualizerGains = (double[])presetGains.Clone();
+            }
+            _settings.Save();
+            _engine.SetEqualizerGains(_settings.EqualizerGains);
+        };
+        eqBandsBtn.Click += async (_, _) => await OpenEqualizerDialogAsync(eqPresetBox);
+
         var vizBox = new ComboBox { MinWidth = 200 };
         vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum bars", Tag = "Spectrum" });
         vizBox.Items.Add(new ComboBoxItem { Content = "Silk waveform", Tag = "Waveform" });
@@ -662,7 +695,7 @@ public sealed partial class MainWindow
 
         var panel = new StackPanel();
         panel.Children.Add(SettingsCard.Section("Audio and speakers", first: true));
-        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, rgRow, centerRow, lfeRow, rearRow));
+        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, rgRow, eqRow, centerRow, lfeRow, rearRow));
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
@@ -2296,5 +2329,122 @@ public sealed partial class MainWindow
                 ShowHudPill($"Playing {match.Artist} ({match.TrackCount} tracks)");
             }
         }
+    }
+
+    private async Task OpenEqualizerDialogAsync(ComboBox settingsPresetCombo)
+    {
+        if (_settings.EqualizerGains.Length < 10)
+            _settings.EqualizerGains = new double[10];
+
+        var gains = (double[])_settings.EqualizerGains.Clone();
+        var sliders = new Slider[10];
+        var valLabels = new TextBlock[10];
+        bool syncing = false;
+
+        var bandGrid = new Grid { ColumnSpacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
+        for (int i = 0; i < 10; i++)
+            bandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+
+        void SyncPresetComboToSettings(string presetTag)
+        {
+            for (int i = 0; i < settingsPresetCombo.Items.Count; i++)
+            {
+                if ((settingsPresetCombo.Items[i] as ComboBoxItem)?.Tag?.ToString() == presetTag)
+                {
+                    settingsPresetCombo.SelectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        string FormatGain(double db) => db >= 0.05 ? $"+{db:0.#}" : db <= -0.05 ? $"{db:0.#}" : "0";
+
+        for (int i = 0; i < 10; i++)
+        {
+            int idx = i;
+            var valText = new TextBlock
+            {
+                Text = FormatGain(gains[idx]),
+                FontSize = 11,
+                Opacity = 0.78,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            var slider = new Slider
+            {
+                Orientation = Orientation.Vertical,
+                Minimum = -12,
+                Maximum = 12,
+                StepFrequency = 0.5,
+                SmallChange = 0.5,
+                LargeChange = 2,
+                Value = Math.Clamp(gains[idx], -12, 12),
+                Height = 160,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            var freqText = new TextBlock
+            {
+                Text = EqualizerSampleProvider.BandLabels[idx],
+                FontSize = 11,
+                Opacity = 0.72,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+
+            slider.ValueChanged += (_, e) =>
+            {
+                if (syncing) return;
+                double v = Math.Round(e.NewValue * 2.0) / 2.0;
+                gains[idx] = v;
+                valText.Text = FormatGain(v);
+                _settings.EqualizerGains = (double[])gains.Clone();
+                _settings.EqualizerPreset = "Custom";
+                _settings.Save();
+                _engine.SetEqualizerGains(_settings.EqualizerGains);
+                SyncPresetComboToSettings("Custom");
+            };
+
+            sliders[idx] = slider;
+            valLabels[idx] = valText;
+
+            var col = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
+            col.Children.Add(valText);
+            col.Children.Add(slider);
+            col.Children.Add(freqText);
+            Grid.SetColumn(col, idx);
+            bandGrid.Children.Add(col);
+        }
+
+        var dlg = new ContentDialog
+        {
+            Title = "10-Band Equalizer (dB)",
+            Content = bandGrid,
+            PrimaryButtonText = "Done",
+            SecondaryButtonText = "Reset to Flat",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot,
+            RequestedTheme = RootGrid.RequestedTheme
+        };
+        dlg.SecondaryButtonClick += (_, args) =>
+        {
+            args.Cancel = true;
+            syncing = true;
+            try
+            {
+                for (int i = 0; i < 10; i++)
+                {
+                    gains[i] = 0;
+                    sliders[i].Value = 0;
+                    valLabels[i].Text = "0";
+                }
+                _settings.EqualizerPreset = "Flat";
+                _settings.EqualizerGains = new double[10];
+                _settings.Save();
+                _engine.SetEqualizerGains(_settings.EqualizerGains);
+                SyncPresetComboToSettings("Flat");
+            }
+            finally { syncing = false; }
+        };
+        dlg.Resources["ContentDialogMaxWidth"] = 560.0;
+        DialogFooter.MainButtonOnRight(dlg);
+        await dlg.ShowAsync();
     }
 }

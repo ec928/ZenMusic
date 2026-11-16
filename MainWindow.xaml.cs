@@ -90,6 +90,9 @@ public sealed partial class MainWindow : Window
     private int _activeFocusLrcIndex = -1;
     private int _activeSelectedLrcIndex = -1;
     private string? _activePlayingPathForLyrics;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _sleepTimer;
+    private DateTime? _sleepEndUtc;
+    private bool _sleepAfterCurrentTrack;
 
     private static readonly SolidColorBrush TransparentRowBrush = new(Color.FromArgb(0, 0, 0, 0));
     private static readonly SolidColorBrush PlaybarGoldBrush = new(Color.FromArgb(255, 255, 200, 59));
@@ -734,6 +737,7 @@ public sealed partial class MainWindow : Window
             LfeGain = _settings.LfeGain,
             RearLevel = _settings.RearLevel
         });
+        _engine.SetEqualizerGains(_settings.EqualizerGains);
         int endpointCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
         SpeakerBadgeText.Text = _settings.SpeakerLayout switch
         {
@@ -2183,6 +2187,9 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(BuildSleepTimerSubmenu());
+
         AddMenuIcons(menu);
         if (pos.HasValue)
             menu.ShowAt(target, pos.Value);
@@ -2642,7 +2649,95 @@ public sealed partial class MainWindow : Window
         else _progressTimer.Stop();
     }
 
-    private void Engine_TrackEnded() => PlayNext(fromAutoTrackEnd: true);
+    private void Engine_TrackEnded()
+    {
+        if (_sleepAfterCurrentTrack)
+        {
+            ClearSleepTimer(showHud: false);
+            ShowHudPill("Sleep timer paused playback");
+            return;
+        }
+        PlayNext(fromAutoTrackEnd: true);
+    }
+
+    private MenuFlyoutSubItem BuildSleepTimerSubmenu()
+    {
+        string label = "Sleep timer";
+        if (_sleepAfterCurrentTrack)
+        {
+            label = "Sleep timer (after track)";
+        }
+        else if (_sleepEndUtc is DateTime endUtc)
+        {
+            int mins = Math.Max(1, (int)Math.Ceiling((endUtc - DateTime.UtcNow).TotalMinutes));
+            label = $"Sleep timer ({mins}m left)";
+        }
+
+        var sub = new MenuFlyoutSubItem { Text = label };
+        var offItem = new MenuFlyoutItem { Text = "Off" };
+        offItem.Click += (_, _) => ClearSleepTimer(showHud: true);
+        sub.Items.Add(offItem);
+
+        var afterTrack = new MenuFlyoutItem { Text = "After current track" };
+        afterTrack.Click += (_, _) => SetSleepAfterTrack();
+        sub.Items.Add(afterTrack);
+
+        sub.Items.Add(new MenuFlyoutSeparator());
+
+        foreach (int mins in new[] { 15, 30, 45, 60, 90 })
+        {
+            int capture = mins;
+            var item = new MenuFlyoutItem { Text = $"{capture} minutes" };
+            item.Click += (_, _) => SetSleepTimerMinutes(capture);
+            sub.Items.Add(item);
+        }
+        return sub;
+    }
+
+    private void SetSleepAfterTrack()
+    {
+        _sleepTimer?.Stop();
+        _sleepEndUtc = null;
+        _sleepAfterCurrentTrack = true;
+        ShowHudPill("Sleep timer: pause after current track");
+    }
+
+    private void SetSleepTimerMinutes(int minutes)
+    {
+        _sleepAfterCurrentTrack = false;
+        _sleepEndUtc = DateTime.UtcNow.AddMinutes(minutes);
+        if (_sleepTimer == null)
+        {
+            _sleepTimer = DispatcherQueue.CreateTimer();
+            _sleepTimer.Interval = TimeSpan.FromSeconds(5);
+            _sleepTimer.Tick += SleepTimer_Tick;
+        }
+        _sleepTimer.Start();
+        ShowHudPill($"Sleep timer set for {minutes} min");
+    }
+
+    private void ClearSleepTimer(bool showHud)
+    {
+        bool wasActive = _sleepAfterCurrentTrack || _sleepEndUtc.HasValue;
+        _sleepTimer?.Stop();
+        _sleepEndUtc = null;
+        _sleepAfterCurrentTrack = false;
+        if (showHud && wasActive) ShowHudPill("Sleep timer off");
+    }
+
+    private void SleepTimer_Tick(object? sender, object e)
+    {
+        if (_sleepEndUtc is not DateTime endUtc)
+        {
+            _sleepTimer?.Stop();
+            return;
+        }
+        if (DateTime.UtcNow < endUtc) return;
+
+        ClearSleepTimer(showHud: false);
+        if (_engine.IsPlaying) _engine.Pause();
+        ShowHudPill("Sleep timer paused playback");
+    }
 
     private async void Engine_PlaybackError(string message)
     {
@@ -4172,6 +4267,8 @@ public sealed partial class MainWindow : Window
         ("Clear", ""),
         ("Save", ""),
         ("Curate", "\uE762"),
+        ("Custom Smart Mix", "\uE945"),
+        ("Sleep timer", "\uE708"),
     };
 
     private static void AddMenuIcons(MenuFlyout menu)

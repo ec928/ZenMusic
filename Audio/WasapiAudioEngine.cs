@@ -25,6 +25,7 @@ public sealed class WasapiAudioEngine : IDisposable
     private WasapiOut? _output;
     private WaveStream? _reader;
     private SmoothGainSampleProvider? _replayGainProvider;
+    private EqualizerSampleProvider? _equalizerProvider;
     private VolumeSampleProvider? _volumeProvider;
     private SpeakerMatrixProvider? _matrixProvider;
 
@@ -33,6 +34,7 @@ public sealed class WasapiAudioEngine : IDisposable
     private SpeakerRoutingOptions _speakerOptions = new();
     private float _volume = 0.7f;
     private float _replayGainFactor = 1.0f;
+    private double[] _equalizerGains = new double[10];
     private bool _isPlaying;
     private bool _suppressStoppedEvent;
     private bool _disposed;
@@ -303,7 +305,8 @@ public sealed class WasapiAudioEngine : IDisposable
         }
 
         _replayGainProvider = new SmoothGainSampleProvider(pipeline, _replayGainFactor);
-        _volumeProvider = new VolumeSampleProvider(_replayGainProvider) { Volume = _volume };
+        _equalizerProvider = new EqualizerSampleProvider(_replayGainProvider, _equalizerGains);
+        _volumeProvider = new VolumeSampleProvider(_equalizerProvider) { Volume = _volume };
         var fftTap = new FftTapSampleProvider(_volumeProvider, Fft);
         _matrixProvider = new SpeakerMatrixProvider(fftTap, _speakerOptions, endpointChannels);
 
@@ -610,6 +613,21 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
+    public void SetEqualizerGains(double[]? gains)
+    {
+        var copy = new double[10];
+        if (gains != null)
+        {
+            for (int i = 0; i < Math.Min(10, gains.Length); i++)
+                copy[i] = Math.Clamp(gains[i], -12.0, 12.0);
+        }
+        _equalizerGains = copy;
+        lock (_lock)
+        {
+            _equalizerProvider?.UpdateGains(copy);
+        }
+    }
+
     public void SetVolume(double percent)
     {
         float normalized = (float)Math.Clamp(percent / 100.0, 0.0, 1.0);
@@ -650,6 +668,7 @@ public sealed class WasapiAudioEngine : IDisposable
             _reader?.Dispose();
             _reader = null;
             _replayGainProvider = null;
+            _equalizerProvider = null;
             _volumeProvider = null;
             _matrixProvider = null;
         }
