@@ -4740,7 +4740,11 @@ public sealed partial class MainWindow : Window
                     await DeleteTracksToRecycleBinAsync(selected);
             }
         }
-        else if ((e.Key == VirtualKey.Left || e.Key == VirtualKey.Right) && !inTextBox && focused is not Slider && _engine.Duration.TotalSeconds > 0)
+        else if ((e.Key == VirtualKey.Left || e.Key == VirtualKey.Right) &&
+                 !inTextBox &&
+                 focused is not Slider &&
+                 _engine.Duration.TotalSeconds > 0 &&
+                 (ctrl || !(IsTileMode && FocusVisualizerOverlay.Visibility != Visibility.Visible && IsInsideElement(focused as DependencyObject, AlbumsGridView))))
         {
             e.Handled = true;
             double delta = e.Key == VirtualKey.Right ? 5.0 : -5.0;

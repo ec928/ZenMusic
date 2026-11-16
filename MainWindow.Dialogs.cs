@@ -1886,7 +1886,7 @@ public sealed partial class MainWindow
         (string Key, string Desc)[] items =
         {
             ("Space", "Play / Pause"),
-            ("Left / Right", "Seek backward / forward 5 seconds"),
+            ("Left / Right", "Seek 5s (Ctrl+Left/Right in Tile View)"),
             ("Home / End", "Jump to start / end of track list"),
             ("Ctrl+O", "Open music folder"),
             ("Ctrl+F", "Focus search box"),
