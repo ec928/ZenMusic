@@ -492,35 +492,49 @@ public sealed partial class MainWindow
 
         var eqPresetBox = new ComboBox { MinWidth = 180, FontSize = 12 };
         string[] eqOrder = { "Flat", "Rock", "Pop", "Jazz", "Classical", "Bass Boost", "Vocal", "Acoustic", "Electronic", "Custom" };
+        ComboBoxItem? customEqItem = null;
         foreach (string pName in eqOrder)
         {
-            eqPresetBox.Items.Add(new ComboBoxItem
+            var item = new ComboBoxItem
             {
-                Content = pName == "Flat" ? "Flat (Off)" : pName,
+                Content = pName == "Flat" ? "Flat (Off)" : pName == "Custom" ? "Custom..." : pName,
                 Tag = pName
-            });
+            };
+            if (pName == "Custom") customEqItem = item;
+            eqPresetBox.Items.Add(item);
         }
-        eqPresetBox.Items.Add(new ComboBoxItem { Content = "Adjust 10 bands...", Tag = "__EditBands__" });
         int eqSelectedIdx = Array.FindIndex(eqOrder, p => string.Equals(p, _settings.EqualizerPreset, StringComparison.OrdinalIgnoreCase));
         eqPresetBox.SelectedIndex = eqSelectedIdx >= 0 ? eqSelectedIdx : 0;
 
         var (eqRow, _, _) = SettingsCard.Row("\uE9E9", "Equalizer", "10-band tone shaping", eqPresetBox);
 
-        bool updatingEqCombo = false;
+        bool openingEqDialog = false;
+        async Task OpenCustomEqOnceAsync()
+        {
+            if (openingEqDialog) return;
+            openingEqDialog = true;
+            try
+            {
+                eqPresetBox.IsDropDownOpen = false;
+                await OpenEqualizerDialogAsync(eqPresetBox);
+            }
+            finally { openingEqDialog = false; }
+        }
+
+        if (customEqItem != null)
+        {
+            customEqItem.Tapped += async (_, _) => await OpenCustomEqOnceAsync();
+        }
+
         eqPresetBox.SelectionChanged += async (_, _) =>
         {
-            if (loading || updatingEqCombo) return;
+            if (loading) return;
             string tag = (eqPresetBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Flat";
-            if (tag == "__EditBands__")
+            if (tag == "Custom")
             {
-                updatingEqCombo = true;
-                try
-                {
-                    int curIdx = Array.FindIndex(eqOrder, p => string.Equals(p, _settings.EqualizerPreset, StringComparison.OrdinalIgnoreCase));
-                    eqPresetBox.SelectedIndex = curIdx >= 0 ? curIdx : 0;
-                }
-                finally { updatingEqCombo = false; }
-                await OpenEqualizerDialogAsync(eqPresetBox);
+                _settings.EqualizerPreset = "Custom";
+                _settings.Save();
+                await OpenCustomEqOnceAsync();
                 return;
             }
             _settings.EqualizerPreset = tag;
