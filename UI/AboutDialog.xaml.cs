@@ -21,9 +21,13 @@ public sealed partial class AboutDialog : ContentDialog
         VersionText.Text = $"Version {GetDisplayVersion()}";
         try
         {
-            string icon = System.IO.Path.Combine(AppContext.BaseDirectory, "ZenMusic.ico");
-            if (System.IO.File.Exists(icon))
-                AppIconImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(icon));
+            string pngIcon = System.IO.Path.Combine(AppContext.BaseDirectory, "ZenMusic.png");
+            string icoIcon = System.IO.Path.Combine(AppContext.BaseDirectory, "ZenMusic.ico");
+            string? iconPath = System.IO.File.Exists(pngIcon) ? pngIcon : (System.IO.File.Exists(icoIcon) ? icoIcon : null);
+            if (iconPath != null)
+            {
+                AppIconImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
+            }
         }
         catch (Exception ex)
         {
