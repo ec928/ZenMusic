@@ -1743,38 +1743,69 @@ public sealed partial class MainWindow
             TextBlock FieldLabel(string text) => new() { Text = text, FontSize = 11.5, Opacity = 0.72, Margin = new Thickness(2, 0, 0, 0) };
             string initialTitle = string.IsNullOrWhiteSpace(current.Title) ? parsed.Title : current.Title;
             string cleanedInitialTitle = AutoTagger.CleanQueryTitle(initialTitle);
+            string initialArtist = string.IsNullOrWhiteSpace(current.Artist) ? parsed.Artist : current.Artist;
+            string initialAlbum = !string.IsNullOrWhiteSpace(current.Album)
+                ? current.Album.Trim()
+                : (!string.Equals(parsed.Album, initialArtist, StringComparison.OrdinalIgnoreCase) ? parsed.Album : string.Empty);
+
             var queryTitleBox = new TextBox
             {
                 Header = FieldLabel("Search Title"),
                 Text = string.IsNullOrWhiteSpace(cleanedInitialTitle) ? initialTitle : cleanedInitialTitle,
-                Width = 240
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var queryArtistBox = new TextBox
             {
                 Header = FieldLabel("Search Artist"),
-                Text = string.IsNullOrWhiteSpace(current.Artist) ? parsed.Artist : current.Artist,
-                Width = 220
+                Text = initialArtist,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            var queryAlbumBox = new TextBox
+            {
+                Header = FieldLabel("Search Album (optional)"),
+                Text = initialAlbum,
+                PlaceholderText = "Album name...",
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var searchBtn = new Button { Content = "Search", VerticalAlignment = VerticalAlignment.Bottom };
-            var loadingRing = new ProgressRing { Width = 20, Height = 20, IsActive = true, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(6, 0, 0, 6) };
-            var statusLabel = new TextBlock { FontSize = 11, Opacity = 0.75, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(6, 0, 0, 8), Text = "Searching MusicBrainz, iTunes & LRCLIB..." };
+            var loadingRing = new ProgressRing { Width = 18, Height = 18, IsActive = true, VerticalAlignment = VerticalAlignment.Center };
+            var statusLabel = new TextBlock { FontSize = 11, Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Text = "Searching MusicBrainz, iTunes & LRCLIB..." };
 
-            var searchRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            var searchRow = new Grid { ColumnSpacing = 8 };
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(queryTitleBox, 0);
+            Grid.SetColumn(queryArtistBox, 1);
+            Grid.SetColumn(queryAlbumBox, 2);
+            Grid.SetColumn(searchBtn, 3);
             searchRow.Children.Add(queryTitleBox);
             searchRow.Children.Add(queryArtistBox);
+            searchRow.Children.Add(queryAlbumBox);
             searchRow.Children.Add(searchBtn);
-            searchRow.Children.Add(loadingRing);
-            searchRow.Children.Add(statusLabel);
 
             var matchCombo = new ComboBox { Header = FieldLabel("Matched Release / Source"), HorizontalAlignment = HorizontalAlignment.Stretch };
 
             var selectAllBtn = new Button { Content = "Select All (Recommended)", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
             var emptyOnlyBtn = new Button { Content = "Only Empty Fields", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
             var uncheckAllBtn = new Button { Content = "Uncheck All", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
-            var presetRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            presetRow.Children.Add(selectAllBtn);
-            presetRow.Children.Add(emptyOnlyBtn);
-            presetRow.Children.Add(uncheckAllBtn);
+            var presetButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            presetButtons.Children.Add(selectAllBtn);
+            presetButtons.Children.Add(emptyOnlyBtn);
+            presetButtons.Children.Add(uncheckAllBtn);
+
+            var statusPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            statusPanel.Children.Add(loadingRing);
+            statusPanel.Children.Add(statusLabel);
+
+            var presetRow = new Grid();
+            presetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            presetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(presetButtons, 0);
+            Grid.SetColumn(statusPanel, 1);
+            presetRow.Children.Add(presetButtons);
+            presetRow.Children.Add(statusPanel);
 
             CheckBox MakeCheck(string label) => new() { Content = label, VerticalAlignment = VerticalAlignment.Center, MinWidth = 110 };
             TextBox MakeProposedBox() => new() { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center };
@@ -1978,7 +2009,7 @@ public sealed partial class MainWindow
                     queryArtistBox.Text,
                     track.Duration,
                     token,
-                    albumHint: current.Album,
+                    albumHint: queryAlbumBox.Text,
                     yearHint: current.Year);
                 if (token.IsCancellationRequested) return;
 
@@ -2032,6 +2063,17 @@ public sealed partial class MainWindow
             }
 
             searchBtn.Click += async (_, _) => await RunSearchAsync();
+            async void QueryBox_KeyDown(object _, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+            {
+                if (e.Key == Windows.System.VirtualKey.Enter)
+                {
+                    e.Handled = true;
+                    await RunSearchAsync();
+                }
+            }
+            queryTitleBox.KeyDown += QueryBox_KeyDown;
+            queryArtistBox.KeyDown += QueryBox_KeyDown;
+            queryAlbumBox.KeyDown += QueryBox_KeyDown;
 
             var bodyGrid = new Grid { ColumnSpacing = 18, Width = 860 };
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
