@@ -466,6 +466,12 @@ public sealed class AudioAndLibraryTests
     {
         Assert.Equal("Sultans Of Swing", ZenMusic.Tagging.AutoTagger.CleanQueryTitle("01 - Sultans Of Swing [Official Audio]"));
         Assert.Equal("Lady Writer", ZenMusic.Tagging.AutoTagger.CleanQueryTitle("02. Lady Writer"));
+        Assert.Equal(
+            "[iTunes] Dire Straits — Sultans of Swing: The Very Best of Dire Straits, 1998",
+            ZenMusic.Tagging.AutoTagger.FormatDisplayLabel("iTunes", "Dire Straits", "Sultans of Swing", "Sultans of Swing: The Very Best of Dire Straits", 1998));
+        Assert.Equal(
+            "[iTunes] Dire Straits — Sultans of Swing · Private Investigations, 2005",
+            ZenMusic.Tagging.AutoTagger.FormatDisplayLabel("iTunes", "Dire Straits", "Sultans of Swing", "Private Investigations", 2005));
 
         var candidates = new[]
         {
