@@ -192,8 +192,25 @@
                 <Button x:Name="RightPaneToggleBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Toggle Playlists, Queue &amp; Inspector (Ctrl+B)" Click="RightPaneToggleBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE90B;" FontSize="14"/>
                 </Button>
-                <Button x:Name="SettingsBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Settings &amp; About (Audio, Visualizer, Theme, Rescan)" Click="SettingsBtn_Click">
+                <Button x:Name="SettingsBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Settings (Audio, Visualizer, Theme, Rescan)" Click="SettingsBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE713;" FontSize="14"/>
+                </Button>
+                <Button x:Name="InfoBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Help &amp; About">
+                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE946;" FontSize="14"/>
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="Keyboard shortcuts (F1)" Click="InfoShortcuts_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE765;"/>
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="About ZenMusic" Click="InfoAbout_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE946;"/>
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </Button.Flyout>
                 </Button>
             </StackPanel>
         </Grid>

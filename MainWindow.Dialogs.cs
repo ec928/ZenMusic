@@ -619,35 +619,12 @@ public sealed partial class MainWindow
             ApplyCoverTint(_lastCoverTint, fade: false);
         };
 
-        string appVersion = typeof(MainWindow).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?.Split('+')[0]
-            ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
-            ?? "0.1.0";
-
         var rescanNowBtn = new Button { Content = "Rescan now" };
         rescanNowBtn.Click += (_, _) => RescanBtn_Click(this, new RoutedEventArgs());
         string librarySubtitle = string.IsNullOrWhiteSpace(_settings.MusicFolder)
             ? "No music folder selected"
             : $"{_settings.MusicFolder} · Watched automatically for changes (F5)";
         var (rescanRow, _, _) = SettingsCard.Row("", "Music library folder", librarySubtitle, rescanNowBtn);
-
-        var shortcutsBtn = new Button { Content = "Shortcuts" };
-        shortcutsBtn.Click += async (_, _) =>
-        {
-            CloseSettingsPanel();
-            await ShowShortcutsHelpAsync();
-        };
-        var (shortcutsRow, _, _) = SettingsCard.Row("", "Keyboard shortcuts", "Playback, navigation, F11 stage and editing (F1)", shortcutsBtn);
-
-        var aboutBtn = new Button { Content = "About" };
-        aboutBtn.Click += async (_, _) =>
-        {
-            CloseSettingsPanel();
-            await ShowAboutDialogAsync();
-        };
-        var (aboutRow, _, _) = SettingsCard.Row("", "About ZenMusic",
-            $"Version {appVersion} · Features, licence and GitHub", aboutBtn);
 
         int localCount = _allTracks.Count(t => !t.IsCloudOnly);
         int measuredCount = _allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue);
@@ -744,10 +721,22 @@ public sealed partial class MainWindow
             SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row,
             tintRow));
         panel.Children.Add(SettingsCard.Section("Library and application"));
-        panel.Children.Add(SettingsCard.Card(rescanRow, rgAnalyzeRow, resetRow, shortcutsRow, aboutRow));
+        panel.Children.Add(SettingsCard.Card(rescanRow, rgAnalyzeRow, resetRow));
 
         loading = false;
         return panel;
+    }
+
+    private async void InfoShortcuts_Click(object sender, RoutedEventArgs e)
+    {
+        CloseSettingsPanel();
+        await ShowShortcutsHelpAsync();
+    }
+
+    private async void InfoAbout_Click(object sender, RoutedEventArgs e)
+    {
+        CloseSettingsPanel();
+        await ShowAboutDialogAsync();
     }
 
     private async Task OpenPropertiesDialogAsync(IReadOnlyList<TrackItem> tracks)
