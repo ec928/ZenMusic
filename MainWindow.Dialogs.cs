@@ -1270,7 +1270,125 @@ public sealed partial class MainWindow
         };
         var chooseArtBtn = new Button { Content = "Choose Cover Art..." };
         var clearArtBtn = new Button { Content = "Remove Art" };
-        chooseArtBtn.Click += async (_, _) =>
+
+        var onlineSearchBox = new TextBox
+        {
+            PlaceholderText = "Album or artist to search...",
+            Text = !string.IsNullOrWhiteSpace(initAlbum) ? initAlbum : initArtist,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        var onlineGoBtn = new Button { Content = "Search" };
+        var onlineStatusText = new TextBlock { Text = "", FontSize = 11, Opacity = 0.72 };
+        var onlineThumbsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var onlineQueryGrid = new Grid { ColumnSpacing = 6 };
+        onlineQueryGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        onlineQueryGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(onlineSearchBox, 0);
+        Grid.SetColumn(onlineGoBtn, 1);
+        onlineQueryGrid.Children.Add(onlineSearchBox);
+        onlineQueryGrid.Children.Add(onlineGoBtn);
+
+        var onlineArtTray = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
+        onlineArtTray.Children.Add(onlineQueryGrid);
+        onlineArtTray.Children.Add(onlineThumbsPanel);
+        onlineArtTray.Children.Add(onlineStatusText);
+
+        CancellationTokenSource? coverSearchCts = null;
+        async Task RunOnlineCoverSearchAsync()
+        {
+            coverSearchCts?.Cancel();
+            coverSearchCts = new CancellationTokenSource();
+            var ct = coverSearchCts.Token;
+
+            onlineGoBtn.IsEnabled = false;
+            onlineStatusText.Text = "Searching iTunes album art...";
+            onlineThumbsPanel.Children.Clear();
+
+            string query = string.IsNullOrWhiteSpace(onlineSearchBox.Text)
+                ? (!string.IsNullOrWhiteSpace(albumBox.Text) ? albumBox.Text : artistBox.Text)
+                : onlineSearchBox.Text.Trim();
+            string artistHint = !string.IsNullOrWhiteSpace(artistBox.Text) ? artistBox.Text.Trim() : initArtist;
+
+            var opts = await AutoTagger.SearchAlbumCoversAsync(query, artistHint, ct);
+            if (ct.IsCancellationRequested) return;
+
+            onlineGoBtn.IsEnabled = true;
+            if (opts.Count == 0)
+            {
+                onlineStatusText.Text = "No online covers found — try editing the search query.";
+                return;
+            }
+
+            onlineStatusText.Text = $"Click a cover below to apply to all {tracks.Count:N0} tracks:";
+            foreach (var opt in opts)
+            {
+                var thumb = new Image { Width = 62, Height = 62, Stretch = Stretch.UniformToFill };
+                await SetImageFromBytesAsync(opt.Bytes, thumb);
+                var border = new Border
+                {
+                    Width = 64,
+                    Height = 64,
+                    CornerRadius = new CornerRadius(6),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)),
+                    Child = thumb
+                };
+                ToolTipService.SetToolTip(border, opt.Source);
+                var captured = opt.Bytes;
+                border.Tapped += async (_, _) =>
+                {
+                    batchArtBytes = captured;
+                    batchArtMime = captured.Length >= 4 && captured[0] == 0x89 && captured[1] == 0x50 ? "image/png" : "image/jpeg";
+                    await SetImageFromBytesAsync(batchArtBytes, artPreview);
+                    chkArt.IsChecked = true;
+                };
+                onlineThumbsPanel.Children.Add(border);
+            }
+        }
+        onlineGoBtn.Click += async (_, _) => await RunOnlineCoverSearchAsync();
+        onlineSearchBox.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                e.Handled = true;
+                await RunOnlineCoverSearchAsync();
+            }
+        };
+
+        var tracksWithArt = tracks.Where(t => t.HasEmbeddedArt).Take(4).ToList();
+        var artFlyout = new MenuFlyout();
+        foreach (var srcTrack in tracksWithArt)
+        {
+            var captured = srcTrack;
+            var copyItem = new MenuFlyoutItem { Text = $"Copy from \"{captured.DisplayTitle}\"" };
+            copyItem.Click += async (_, _) =>
+            {
+                var det = await Task.Run(() => MusicLibrary.ReadFullDetails(captured.Path));
+                if (det.ArtBytes is { Length: > 0 })
+                {
+                    batchArtBytes = det.ArtBytes;
+                    batchArtMime = string.IsNullOrWhiteSpace(det.ArtMimeType) ? "image/jpeg" : det.ArtMimeType;
+                    await SetImageFromBytesAsync(batchArtBytes, artPreview);
+                    chkArt.IsChecked = true;
+                }
+            };
+            artFlyout.Items.Add(copyItem);
+        }
+        if (tracksWithArt.Count > 0)
+            artFlyout.Items.Add(new MenuFlyoutSeparator());
+
+        var findOnlineItem = new MenuFlyoutItem { Text = "Find cover online..." };
+        findOnlineItem.Click += async (_, _) =>
+        {
+            onlineArtTray.Visibility = Visibility.Visible;
+            if (!string.IsNullOrWhiteSpace(albumBox.Text))
+                onlineSearchBox.Text = albumBox.Text.Trim();
+            await RunOnlineCoverSearchAsync();
+        };
+        artFlyout.Items.Add(findOnlineItem);
+
+        var browseFileItem = new MenuFlyoutItem { Text = "Browse image file..." };
+        browseFileItem.Click += async (_, _) =>
         {
             var picker = new FileOpenPicker();
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
@@ -1284,6 +1402,9 @@ public sealed partial class MainWindow
             await SetImageFromBytesAsync(batchArtBytes, artPreview);
             chkArt.IsChecked = true;
         };
+        artFlyout.Items.Add(browseFileItem);
+        chooseArtBtn.Flyout = artFlyout;
+
         clearArtBtn.Click += (_, _) =>
         {
             batchArtBytes = null;
@@ -1317,6 +1438,7 @@ public sealed partial class MainWindow
         panel.Children.Add(MakeRow(chkYear, yearBox));
         panel.Children.Add(MakeRow(chkRating, ratingCombo));
         panel.Children.Add(MakeRow(chkArt, artControls));
+        panel.Children.Add(onlineArtTray);
 
         var dlg = new ContentDialog
         {

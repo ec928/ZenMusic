@@ -614,4 +614,70 @@ public static class AutoTagger
         catch { }
         return string.Empty;
     }
+
+    /// <summary>
+    /// Searches album artwork from iTunes (entity=album) and returns up to 5 downloaded cover options.
+    /// </summary>
+    public static async Task<List<AutoTagArtOption>> SearchAlbumCoversAsync(
+        string? queryText,
+        string? artistHint = null,
+        CancellationToken ct = default)
+    {
+        var results = new List<AutoTagArtOption>();
+        string cleanQuery = StripArtistPrefix(queryText?.Trim() ?? string.Empty, artistHint ?? string.Empty);
+        string term = string.IsNullOrWhiteSpace(artistHint)
+            ? cleanQuery
+            : (cleanQuery.Contains(artistHint, StringComparison.OrdinalIgnoreCase)
+                ? cleanQuery
+                : $"{artistHint} {cleanQuery}".Trim());
+        if (string.IsNullOrWhiteSpace(term)) return results;
+
+        var urls = new List<(string Label, string Url)>();
+        try
+        {
+            string url = $"https://itunes.apple.com/search?term={Uri.EscapeDataString(term)}&media=music&entity=album&limit=8";
+            using var resp = await Http.GetAsync(url, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                if (doc.RootElement.TryGetProperty("results", out var items))
+                {
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var el in items.EnumerateArray())
+                    {
+                        string? art = el.TryGetProperty("artworkUrl100", out var au) ? au.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(art)) continue;
+                        string hdArt = art.Replace("100x100bb", "600x600bb");
+                        if (!seen.Add(hdArt)) continue;
+
+                        string alb = el.TryGetProperty("collectionName", out var cn) ? cn.GetString() ?? "" : "";
+                        string artArtist = el.TryGetProperty("artistName", out var an) ? an.GetString() ?? "" : "";
+                        string label = string.IsNullOrWhiteSpace(artArtist) ? alb : $"{artArtist} — {alb}";
+                        urls.Add((label, hdArt));
+                        if (urls.Count >= 5) break;
+                    }
+                }
+            }
+        }
+        catch { }
+
+        var downloads = urls.Select(async entry =>
+        {
+            try
+            {
+                byte[] bytes = await Http.GetByteArrayAsync(entry.Url, ct);
+                if (bytes.Length > 0)
+                    return new AutoTagArtOption { Source = entry.Label, Url = entry.Url, Bytes = bytes };
+            }
+            catch { }
+            return null;
+        });
+
+        foreach (var opt in await Task.WhenAll(downloads))
+        {
+            if (opt != null) results.Add(opt);
+        }
+        return results;
+    }
 }
