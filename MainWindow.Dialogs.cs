@@ -1151,6 +1151,8 @@ public sealed partial class MainWindow
 
         bool tagsSaved = await SaveTrackDetailsAsync(track, updated);
         if (!tagsSaved) return;
+        RefreshVisibleTracks();
+        SaveLibraryCacheSnapshot();
 
         string rawDate = dateTextBox.Text.Trim();
         if (!string.IsNullOrEmpty(rawDate) &&
@@ -1995,7 +1997,8 @@ public sealed partial class MainWindow
                 ArtChanged = chkArt.IsChecked == true && chosenArtBytes is { Length: > 0 }
             };
 
-            await SaveTrackDetailsAsync(track, updated);
+            if (await SaveTrackDetailsAsync(track, updated))
+                RefreshVisibleTracks();
         }
         SaveLibraryCacheSnapshot();
     }

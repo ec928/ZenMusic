@@ -7,6 +7,13 @@ namespace ZenMusic.Library;
 
 public sealed class TrackItem : INotifyPropertyChanged
 {
+    private string _title = string.Empty;
+    private string _artist = string.Empty;
+    private string _album = string.Empty;
+    private string _genre = string.Empty;
+    private int _year;
+    private int _trackNumber;
+    private int _discNumber;
     private double? _rating;
     private bool _isNowPlaying;
     private bool _isEvenRow;
@@ -27,17 +34,89 @@ public sealed class TrackItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(FileName));
             OnPropertyChanged(nameof(DisplayTitle));
+            OnPropertyChanged(nameof(ArtInitial));
             OnPropertyChanged(nameof(HasDirtyFilename));
         }
     }
     public string FileName => System.IO.Path.GetFileName(Path);
-    public string Title { get; set; } = string.Empty;
-    public string Artist { get; set; } = string.Empty;
-    public string Album { get; set; } = string.Empty;
-    public string Genre { get; set; } = string.Empty;
-    public int Year { get; set; }
-    public int TrackNumber { get; set; }
-    public int DiscNumber { get; set; }
+    public string Title
+    {
+        get => _title;
+        set
+        {
+            if (string.Equals(_title, value, StringComparison.Ordinal)) return;
+            _title = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayTitle));
+            OnPropertyChanged(nameof(ArtInitial));
+        }
+    }
+    public string Artist
+    {
+        get => _artist;
+        set
+        {
+            if (string.Equals(_artist, value, StringComparison.Ordinal)) return;
+            _artist = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayArtist));
+            OnPropertyChanged(nameof(ArtInitial));
+        }
+    }
+    public string Album
+    {
+        get => _album;
+        set
+        {
+            if (string.Equals(_album, value, StringComparison.Ordinal)) return;
+            _album = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayAlbum));
+            OnPropertyChanged(nameof(ArtInitial));
+        }
+    }
+    public string Genre
+    {
+        get => _genre;
+        set
+        {
+            if (string.Equals(_genre, value, StringComparison.Ordinal)) return;
+            _genre = value;
+            OnPropertyChanged();
+        }
+    }
+    public int Year
+    {
+        get => _year;
+        set
+        {
+            if (_year == value) return;
+            _year = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(YearText));
+            OnPropertyChanged(nameof(TileMetaText));
+        }
+    }
+    public int TrackNumber
+    {
+        get => _trackNumber;
+        set
+        {
+            if (_trackNumber == value) return;
+            _trackNumber = value;
+            OnPropertyChanged();
+        }
+    }
+    public int DiscNumber
+    {
+        get => _discNumber;
+        set
+        {
+            if (_discNumber == value) return;
+            _discNumber = value;
+            OnPropertyChanged();
+        }
+    }
     public TimeSpan Duration { get; set; }
     public int Bitrate { get; set; }
     public int SampleRate { get; set; }

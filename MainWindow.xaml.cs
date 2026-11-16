@@ -3971,6 +3971,11 @@ public sealed partial class MainWindow : Window
             if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
                 yield return t;
         }
+        foreach (var t in _visibleTracks)
+        {
+            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        }
         foreach (var t in _queueTracks)
         {
             if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
@@ -4042,6 +4047,8 @@ public sealed partial class MainWindow : Window
             PushUndo(async () =>
             {
                 await SaveTrackDetailsAsync(track, snapshotBefore, pushUndo: false);
+                RefreshVisibleTracks();
+                SaveLibraryCacheSnapshot();
                 ShowHudPill($"Undone: Edit \"{track.DisplayTitle}\"");
             });
         }

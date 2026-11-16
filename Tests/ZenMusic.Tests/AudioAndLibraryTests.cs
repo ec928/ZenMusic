@@ -534,6 +534,32 @@ public sealed class AudioAndLibraryTests
         }
     }
 
+    [Fact]
+    public void TrackItem_RaisesPropertyChangedForMetadataAndDisplayProperties()
+    {
+        var item = new ZenMusic.Library.TrackItem { Path = @"C:\Music\song.mp3" };
+        var changed = new HashSet<string>();
+        item.PropertyChanged += (_, e) => { if (e.PropertyName != null) changed.Add(e.PropertyName); };
+
+        item.Title = "New Title";
+        item.Artist = "New Artist";
+        item.Album = "New Album";
+        item.Genre = "Rock";
+        item.Year = 1998;
+
+        Assert.Contains("Title", changed);
+        Assert.Contains("DisplayTitle", changed);
+        Assert.Contains("ArtInitial", changed);
+        Assert.Contains("Artist", changed);
+        Assert.Contains("DisplayArtist", changed);
+        Assert.Contains("Album", changed);
+        Assert.Contains("DisplayAlbum", changed);
+        Assert.Contains("Genre", changed);
+        Assert.Contains("Year", changed);
+        Assert.Contains("YearText", changed);
+        Assert.Contains("TileMetaText", changed);
+    }
+
     private sealed class BoundedSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _inner;
