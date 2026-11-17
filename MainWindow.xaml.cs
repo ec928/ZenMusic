@@ -238,6 +238,9 @@ public sealed partial class MainWindow : Window
             string iconPath = Path.Combine(AppContext.BaseDirectory, "ZenMusic.ico");
             if (File.Exists(iconPath))
                 AppWindow.SetIcon(iconPath);
+            string logoPath = Path.Combine(AppContext.BaseDirectory, "ZenMusic.png");
+            if (File.Exists(logoPath))
+                TitleBarLogoImage.Source = new BitmapImage(new Uri(logoPath));
         }
         catch { }
 
