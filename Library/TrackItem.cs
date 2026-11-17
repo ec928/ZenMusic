@@ -36,6 +36,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             OnPropertyChanged(nameof(DisplayTitle));
             OnPropertyChanged(nameof(ArtInitial));
             OnPropertyChanged(nameof(HasDirtyFilename));
+            OnPropertyChanged(nameof(TechHoverText));
         }
     }
     public string FileName => System.IO.Path.GetFileName(Path);
@@ -73,6 +74,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(DisplayAlbum));
             OnPropertyChanged(nameof(ArtInitial));
+            OnPropertyChanged(nameof(AlbumHoverText));
         }
     }
     public string Genre
@@ -105,6 +107,8 @@ public sealed class TrackItem : INotifyPropertyChanged
             if (_trackNumber == value) return;
             _trackNumber = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(AlbumHoverText));
+            OnPropertyChanged(nameof(DetailText));
         }
     }
     public int DiscNumber
@@ -115,6 +119,8 @@ public sealed class TrackItem : INotifyPropertyChanged
             if (_discNumber == value) return;
             _discNumber = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(AlbumHoverText));
+            OnPropertyChanged(nameof(DetailText));
         }
     }
     public TimeSpan Duration { get; set; }
@@ -137,6 +143,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(DateAddedText));
             OnPropertyChanged(nameof(DateAddedFullText));
+            OnPropertyChanged(nameof(DateAddedHoverText));
         }
     }
     public bool IsCloudOnly { get; set; }
@@ -153,6 +160,8 @@ public sealed class TrackItem : INotifyPropertyChanged
             if (_playCount == value) return;
             _playCount = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(DateAddedHoverText));
+            OnPropertyChanged(nameof(DetailText));
         }
     }
 
@@ -164,6 +173,8 @@ public sealed class TrackItem : INotifyPropertyChanged
             if (_lastPlayedUtc == value) return;
             _lastPlayedUtc = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(DateAddedHoverText));
+            OnPropertyChanged(nameof(DetailText));
         }
     }
 
@@ -243,6 +254,101 @@ public sealed class TrackItem : INotifyPropertyChanged
     public string DateAddedText => DateAddedUtc.ToLocalTime().ToString("MM'/'yyyy");
     public string DateAddedFullText => DateAddedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
 
+    public static string ActiveDetailField { get; set; } = "Bitrate";
+
+    public string DetailText => GetDetailText(ActiveDetailField);
+
+    public string GetDetailText(string field) => field switch
+    {
+        "Track" => DiscNumber > 1 && TrackNumber > 0
+            ? $"{DiscNumber}.{TrackNumber:D2}"
+            : TrackNumber > 0 ? TrackNumber.ToString("D2") : string.Empty,
+        "Codec" => Codec,
+        "SampleRate" => SampleRate > 0
+            ? (SampleRate % 1000 == 0
+                ? $"{SampleRate / 1000}k"
+                : string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.#}k", SampleRate / 1000.0))
+            : string.Empty,
+        "Channels" => (SampleRate > 0 || Bitrate > 0 || !string.IsNullOrWhiteSpace(Codec)) ? ChannelsText : string.Empty,
+        "ReplayGain" => ReplayGainTrackDb.HasValue
+            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:+0.0;-0.0;0.0}", ReplayGainTrackDb.Value)
+            : string.Empty,
+        "Plays" => PlayCount.ToString(),
+        "LastPlayed" => LastPlayedUtc.HasValue ? LastPlayedUtc.Value.ToLocalTime().ToString("MM'/'yy") : "—",
+        _ => BitrateNumberText
+    };
+
+    public string? AlbumHoverText
+    {
+        get
+        {
+            string album = Album?.Trim() ?? string.Empty;
+            string trackLabel = TrackNumber > 0
+                ? (DiscNumber > 1 ? $"Disc {DiscNumber}, Track {TrackNumber}" : $"Track {TrackNumber}")
+                : (DiscNumber > 1 ? $"Disc {DiscNumber}" : string.Empty);
+
+            if (album.Length > 0 && trackLabel.Length > 0) return $"{album}\n{trackLabel}";
+            if (album.Length > 0) return album;
+            if (trackLabel.Length > 0) return trackLabel;
+            return null;
+        }
+    }
+
+    public string DateAddedHoverText
+    {
+        get
+        {
+            if (PlayCount <= 0 && !LastPlayedUtc.HasValue)
+                return DateAddedFullText;
+
+            var sb = new System.Text.StringBuilder(DateAddedFullText);
+            if (PlayCount > 0)
+                sb.Append($"\nPlays: {PlayCount}");
+            if (LastPlayedUtc.HasValue)
+                sb.Append($"\nLast played: {LastPlayedUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}");
+            return sb.ToString();
+        }
+    }
+
+    public string? TechHoverText
+    {
+        get
+        {
+            var lines = new System.Collections.Generic.List<string>(3);
+
+            var specs = new System.Collections.Generic.List<string>(4);
+            if (!string.IsNullOrWhiteSpace(Codec)) specs.Add(Codec.Trim());
+            if (Bitrate > 0) specs.Add(BitrateText);
+            if (SampleRate > 0)
+                specs.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.#} kHz", SampleRate / 1000.0));
+            if (specs.Count > 0 && Channels > 0)
+                specs.Add(ChannelsText);
+            if (specs.Count > 0)
+                lines.Add(string.Join(" · ", specs));
+
+            if (ReplayGainTrackDb.HasValue || ReplayGainAlbumDb.HasValue)
+            {
+                var rg = new System.Collections.Generic.List<string>(2);
+                if (ReplayGainTrackDb.HasValue)
+                    rg.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "Track {0:+0.0;-0.0;0.0} dB", ReplayGainTrackDb.Value));
+                if (ReplayGainAlbumDb.HasValue)
+                    rg.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "Album {0:+0.0;-0.0;0.0} dB", ReplayGainAlbumDb.Value));
+                lines.Add($"ReplayGain: {string.Join(" · ", rg)}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(FileName))
+                lines.Add(FileName);
+
+            return lines.Count > 0 ? string.Join("\n", lines) : null;
+        }
+    }
+
+    public void NotifyDetailChanged()
+    {
+        OnPropertyChanged(nameof(DetailText));
+        OnPropertyChanged(nameof(TechHoverText));
+    }
+
     public void CopyMetadataFrom(TrackItem other)
     {
         if (ReferenceEquals(this, other)) return;
@@ -263,6 +369,8 @@ public sealed class TrackItem : INotifyPropertyChanged
             || DateAddedUtc != other.DateAddedUtc
             || IsCloudOnly != other.IsCloudOnly
             || HasEmbeddedArt != other.HasEmbeddedArt
+            || ReplayGainTrackDb != other.ReplayGainTrackDb
+            || ReplayGainAlbumDb != other.ReplayGainAlbumDb
             || (other.Rating.HasValue && !Nullable.Equals(_rating, other.Rating));
 
         Index = other.Index;

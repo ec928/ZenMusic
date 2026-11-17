@@ -594,6 +594,52 @@ public sealed class AudioAndLibraryTests
         Assert.Contains("Year", changed);
         Assert.Contains("YearText", changed);
         Assert.Contains("TileMetaText", changed);
+        Assert.Contains("AlbumHoverText", changed);
+    }
+
+    [Fact]
+    public void TrackItem_DetailAndHoverTexts_FormatExpectedFields()
+    {
+        var item = new ZenMusic.Library.TrackItem
+        {
+            Path = @"C:\Music\04 - Midnight.flac",
+            Album = "Night Drive",
+            DiscNumber = 2,
+            TrackNumber = 4,
+            Codec = "FLAC",
+            Bitrate = 980,
+            SampleRate = 44100,
+            Channels = 6,
+            ReplayGainTrackDb = -4.2,
+            ReplayGainAlbumDb = -3.5,
+            PlayCount = 7,
+            DateAddedUtc = new DateTime(2026, 11, 10, 12, 30, 0, DateTimeKind.Utc),
+            LastPlayedUtc = new DateTime(2026, 11, 16, 18, 0, 0, DateTimeKind.Utc)
+        };
+
+        Assert.Equal("Night Drive\nDisc 2, Track 4", item.AlbumHoverText);
+        Assert.Contains("FLAC · 980 kbps · 44.1 kHz · 5.1", item.TechHoverText);
+        Assert.Contains("ReplayGain: Track -4.2 dB · Album -3.5 dB", item.TechHoverText);
+        Assert.Contains("04 - Midnight.flac", item.TechHoverText);
+        Assert.Contains("Plays: 7", item.DateAddedHoverText);
+        Assert.Contains("Last played:", item.DateAddedHoverText);
+
+        Assert.Equal("980", item.GetDetailText("Bitrate"));
+        Assert.Equal("2.04", item.GetDetailText("Track"));
+        Assert.Equal("FLAC", item.GetDetailText("Codec"));
+        Assert.Equal("44.1k", item.GetDetailText("SampleRate"));
+        Assert.Equal("5.1", item.GetDetailText("Channels"));
+        Assert.Equal("-4.2", item.GetDetailText("ReplayGain"));
+        Assert.Equal("7", item.GetDetailText("Plays"));
+        Assert.False(string.IsNullOrEmpty(item.GetDetailText("LastPlayed")));
+
+        item.Album = string.Empty;
+        item.DiscNumber = 1;
+        Assert.Equal("Track 4", item.AlbumHoverText);
+        Assert.Equal("04", item.GetDetailText("Track"));
+
+        item.TrackNumber = 0;
+        Assert.Null(item.AlbumHoverText);
     }
 
     private sealed class BoundedSampleProvider : ISampleProvider

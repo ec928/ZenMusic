@@ -250,7 +250,7 @@
                         <ColumnDefinition x:Name="HeaderColRating" Width="78"/>
                         <ColumnDefinition x:Name="HeaderColLength" Width="56"/>
                         <ColumnDefinition x:Name="HeaderColDateAdded" Width="88"/>
-                        <ColumnDefinition x:Name="HeaderColBitrate" Width="58"/>
+                        <ColumnDefinition x:Name="HeaderColBitrate" Width="64"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="TileSortLabel" Grid.Column="0" Text="Sort by" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
                     <Button x:Name="HeaderTitleBtn" Grid.Column="0" Tag="Title" Content="Title ▲" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="28,0,-4,0" Click="SortHeader_Click"/>
@@ -261,7 +261,12 @@
                     <Button Grid.Column="5" Tag="Rating" Content="Rating" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="6" Tag="Duration" Content="Length" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Margin="-4,0,4,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="7" Tag="DateAdded" Content="Date Added" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Center" Margin="0" Click="SortHeader_Click"/>
-                    <Button Grid.Column="8" Tag="Bitrate" Content="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Center" Margin="0" Click="SortHeader_Click"/>
+                    <Button x:Name="HeaderDetailBtn" Grid.Column="8" Tag="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Center" Margin="0" Click="HeaderDetailBtn_Click" ToolTipService.ToolTip="Click to choose field or sort">
+                        <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                            <TextBlock x:Name="HeaderDetailLabel" Text="Bitrate" VerticalAlignment="Center"/>
+                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE70D;" FontSize="8" Opacity="0.6" VerticalAlignment="Center" Margin="0,1,0,0"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
 
                 <!-- Virtualized Track List -->
@@ -329,18 +334,24 @@
                                             <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
                                         </Grid>
                                     </Border>
-                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
                                     <FontIcon Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
                                 </Grid>
 
-                                <TextBlock Grid.Column="1" Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="2" Text="{x:Bind Album, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="3" Text="{x:Bind Genre, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
+                                <Border Grid.Column="2" Background="Transparent" Margin="0,0,8,0" ToolTipService.ToolTip="{x:Bind AlbumHoverText, Mode=OneWay}">
+                                    <TextBlock Text="{x:Bind Album, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="3" Text="{x:Bind Genre, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
                                 <TextBlock Grid.Column="4" Text="{x:Bind YearText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
                                 <ui:StarRatingCell Grid.Column="5" Value="{x:Bind Rating, Mode=OneWay}" Quiet="{x:Bind local:MainWindow.Not(IsNowPlaying), Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" Visibility="{x:Bind local:MainWindow.ColRatingVis()}" ToolTipService.ToolTip="Click stars (left half = .5, right half = .0; click again to clear)"/>
-                                <TextBlock Grid.Column="6" Text="{x:Bind DurationText, Mode=OneWay}" FontSize="12" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0"/>
-                                <TextBlock Grid.Column="7" Text="{x:Bind DateAddedText, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind DateAddedFullText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                <TextBlock Grid.Column="8" Text="{x:Bind BitrateNumberText, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind BitrateText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                <TextBlock Grid.Column="6" Text="{x:Bind DurationText, Mode=OneWay}" FontSize="12" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Stretch" TextAlignment="Right" Margin="0,0,8,0"/>
+                                <Border Grid.Column="7" Background="Transparent" ToolTipService.ToolTip="{x:Bind DateAddedHoverText, Mode=OneWay}">
+                                    <TextBlock Text="{x:Bind DateAddedText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                </Border>
+                                <Border Grid.Column="8" Background="Transparent" ToolTipService.ToolTip="{x:Bind TechHoverText, Mode=OneWay}">
+                                    <TextBlock Text="{x:Bind DetailText, Mode=OneWay}" FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                </Border>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>

@@ -74,6 +74,7 @@ public sealed class AppSettings
     // Persistent sort state
     public string SortColumn { get; set; } = "Title";
     public bool SortAscending { get; set; } = true;
+    public string DetailColumnField { get; set; } = "Bitrate";
 
     // Persistent window geometry
     public int WindowWidth { get; set; } = 1480;
@@ -118,6 +119,7 @@ public sealed class AppSettings
         InspectorHeight = 208;
         InspectorArtMode = 2;
         ViewMode = "Table";
+        DetailColumnField = "Bitrate";
         WindowWidth = 1480;
         WindowHeight = 900;
         WindowX = null;

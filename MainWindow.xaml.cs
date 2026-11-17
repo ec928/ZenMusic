@@ -205,7 +205,7 @@ public sealed partial class MainWindow : Window
     public static GridLength ColRatingWidth() => IsColVisible("Rating") ? new GridLength(78) : new GridLength(0);
     public static GridLength ColLengthWidth() => IsColVisible("Length") ? new GridLength(56) : new GridLength(0);
     public static GridLength ColDateAddedWidth() => IsColVisible("DateAdded") ? new GridLength(88) : new GridLength(0);
-    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(58) : new GridLength(0);
+    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(64) : new GridLength(0);
     public static Visibility ColRatingVis() => IsColVisible("Rating") ? Visibility.Visible : Visibility.Collapsed;
 
     private SavedPlaylist? _editingPlaylist;
@@ -247,6 +247,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(TitleBarDragRegion);
 
         _settings = AppSettings.Load();
+        TrackItem.ActiveDetailField = NormalizeDetailField(_settings.DetailColumnField);
         foreach (var kv in _settings.ColumnVisibility)
             _columnVisible[kv.Key] = kv.Value;
 
@@ -750,6 +751,7 @@ public sealed partial class MainWindow : Window
         TableHeaderRowDef.Height = new GridLength(32);
         TableHeaderGrid.Visibility = Visibility.Visible;
         ApplyColumnWidths();
+        UpdateSortHeaders();
         ViewToggleIcon.Glyph = isGrid ? "\uE8FD" : "\uE80A";
         ToolTipService.SetToolTip(ViewToggleBtn, isGrid ? "Switch to Track Table" : "Switch to Tile View");
     }
@@ -1352,14 +1354,185 @@ public sealed partial class MainWindow : Window
             ("DateAdded", false) => source.OrderByDescending(t => t.DateAddedUtc).ThenBy(t => t.Index),
             ("Bitrate", true) => source.OrderBy(t => t.Bitrate).ThenBy(t => t.Index),
             ("Bitrate", false) => source.OrderByDescending(t => t.Bitrate).ThenBy(t => t.Index),
+            ("Track", true) => source.OrderBy(t => t.TrackNumber > 0 ? 0 : 1).ThenBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue).ThenBy(t => t.TrackNumber).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Track", false) => source.OrderBy(t => t.TrackNumber > 0 ? 0 : 1).ThenByDescending(t => t.DiscNumber).ThenByDescending(t => t.TrackNumber).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Codec", true) => source.OrderBy(t => string.IsNullOrWhiteSpace(t.Codec) ? 1 : 0).ThenBy(t => t.Codec, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Bitrate).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Codec", false) => source.OrderByDescending(t => t.Codec, StringComparer.OrdinalIgnoreCase).ThenByDescending(t => t.Bitrate).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("SampleRate", true) => source.OrderBy(t => t.SampleRate > 0 ? 0 : 1).ThenBy(t => t.SampleRate).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("SampleRate", false) => source.OrderByDescending(t => t.SampleRate).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Channels", true) => source.OrderBy(t => t.Channels).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Channels", false) => source.OrderByDescending(t => t.Channels).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("ReplayGain", true) => source.OrderBy(t => t.ReplayGainTrackDb.HasValue ? 0 : 1).ThenBy(t => t.ReplayGainTrackDb ?? 0).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("ReplayGain", false) => source.OrderBy(t => t.ReplayGainTrackDb.HasValue ? 0 : 1).ThenByDescending(t => t.ReplayGainTrackDb ?? double.MinValue).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Plays", true) => source.OrderBy(t => t.PlayCount).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("Plays", false) => source.OrderByDescending(t => t.PlayCount).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("LastPlayed", true) => source.OrderBy(t => t.LastPlayedUtc.HasValue ? 0 : 1).ThenBy(t => t.LastPlayedUtc ?? DateTime.MaxValue).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("LastPlayed", false) => source.OrderBy(t => t.LastPlayedUtc.HasValue ? 0 : 1).ThenByDescending(t => t.LastPlayedUtc ?? DateTime.MinValue).ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("FileName", true) => source.OrderBy(t => t.FileName, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
+            ("FileName", false) => source.OrderByDescending(t => t.FileName, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
             (_, false) => source.OrderByDescending(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index),
             _ => source.OrderBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase).ThenBy(t => t.Index)
         };
     }
 
+    private static readonly (string Key, string MenuLabel, string HeaderLabel)[] DetailDisplayFields =
+    {
+        ("Bitrate", "Bitrate", "Bitrate"),
+        ("Track", "Track #", "Track"),
+        ("Codec", "Codec", "Codec"),
+        ("SampleRate", "Sample Rate", "Rate"),
+        ("Channels", "Channels", "Ch"),
+        ("ReplayGain", "ReplayGain", "Gain"),
+        ("Plays", "Plays", "Plays"),
+        ("LastPlayed", "Last Played", "Played")
+    };
+
+    private static readonly (string Key, string MenuLabel, string HeaderLabel)[] DetailSortFields =
+    {
+        ("Bitrate", "Bitrate", "Bitrate"),
+        ("Track", "Track #", "Track"),
+        ("Codec", "Codec", "Codec"),
+        ("SampleRate", "Sample Rate", "Rate"),
+        ("Channels", "Channels", "Ch"),
+        ("ReplayGain", "ReplayGain", "Gain"),
+        ("Plays", "Plays", "Plays"),
+        ("LastPlayed", "Last Played", "Played")
+    };
+
+    private static string NormalizeDetailField(string? field)
+    {
+        foreach (var entry in DetailDisplayFields)
+        {
+            if (string.Equals(entry.Key, field, StringComparison.OrdinalIgnoreCase))
+                return entry.Key;
+        }
+        return "Bitrate";
+    }
+
+    private static string GetDetailDisplayMenuLabel(string field)
+    {
+        foreach (var entry in DetailDisplayFields)
+            if (string.Equals(entry.Key, field, StringComparison.Ordinal)) return entry.MenuLabel;
+        return "Bitrate";
+    }
+
+    private static string GetDetailDisplayHeaderLabel(string field)
+    {
+        foreach (var entry in DetailDisplayFields)
+            if (string.Equals(entry.Key, field, StringComparison.Ordinal)) return entry.HeaderLabel;
+        return "Bitrate";
+    }
+
+    private static bool TryGetDetailSortMeta(string col, out string menuLabel, out string headerLabel)
+    {
+        foreach (var entry in DetailSortFields)
+        {
+            if (string.Equals(entry.Key, col, StringComparison.Ordinal))
+            {
+                menuLabel = entry.MenuLabel;
+                headerLabel = entry.HeaderLabel;
+                return true;
+            }
+        }
+        menuLabel = string.Empty;
+        headerLabel = string.Empty;
+        return false;
+    }
+
+    private void TrimmedCell_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not TextBlock tb) return;
+        ToolTipService.SetToolTip(tb, tb.IsTextTrimmed && !string.IsNullOrEmpty(tb.Text) ? tb.Text : null);
+    }
+
+    private void TrimmedCell_IsTextTrimmedChanged(TextBlock sender, IsTextTrimmedChangedEventArgs args)
+    {
+        ToolTipService.SetToolTip(sender, sender.IsTextTrimmed && !string.IsNullOrEmpty(sender.Text) ? sender.Text : null);
+    }
+
     private void SortHeader_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not string col) return;
+        ApplySortColumn(col);
+    }
+
+    private void HeaderDetailBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new MenuFlyout();
+
+        if (IsTileMode)
+        {
+            menu.Items.Add(new MenuFlyoutItem { Text = "Sort by", IsEnabled = false });
+            foreach (var (key, menuLabel, _) in DetailSortFields)
+            {
+                bool active = string.Equals(_settings.SortColumn, key, StringComparison.Ordinal);
+                string arrow = active ? (_settings.SortAscending ? " \u25B4" : " \u25BE") : string.Empty;
+                var item = new MenuFlyoutItem { Text = $"{menuLabel}{arrow}" };
+                if (active)
+                    item.Icon = new FontIcon { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), Glyph = "\uE73E" };
+                string captured = key;
+                item.Click += (_, _) => ApplySortColumn(captured);
+                menu.Items.Add(item);
+            }
+        }
+        else
+        {
+            string activeField = TrackItem.ActiveDetailField;
+            string activeLabel = GetDetailDisplayMenuLabel(activeField);
+            bool sortedByActive = string.Equals(_settings.SortColumn, activeField, StringComparison.Ordinal);
+            string arrow = sortedByActive ? (_settings.SortAscending ? " \u25B4" : " \u25BE") : string.Empty;
+            var sortTrigger = new MenuFlyoutItem
+            {
+                Text = $"Sort by {activeLabel}{arrow}",
+                Icon = new FontIcon { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), Glyph = "\uE8CB" }
+            };
+            sortTrigger.Click += (_, _) => ApplySortColumn(activeField);
+            menu.Items.Add(sortTrigger);
+
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(new MenuFlyoutItem { Text = "Show in column", IsEnabled = false });
+
+            foreach (var (key, menuLabel, _) in DetailDisplayFields)
+            {
+                var radio = new RadioMenuFlyoutItem
+                {
+                    Text = menuLabel,
+                    GroupName = "DetailDisplayField",
+                    IsChecked = string.Equals(activeField, key, StringComparison.Ordinal)
+                };
+                string captured = key;
+                radio.Click += (_, _) => SetDetailColumnField(captured);
+                menu.Items.Add(radio);
+            }
+        }
+
+        menu.ShowAt(HeaderDetailBtn, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+    }
+
+    private void SetDetailColumnField(string field)
+    {
+        string normalized = NormalizeDetailField(field);
+        if (string.Equals(TrackItem.ActiveDetailField, normalized, StringComparison.Ordinal) &&
+            string.Equals(_settings.DetailColumnField, normalized, StringComparison.Ordinal))
+            return;
+
+        TrackItem.ActiveDetailField = normalized;
+        _settings.DetailColumnField = normalized;
+        RefreshDetailColumnDisplay();
+        UpdateSortHeaders();
+        _ = Task.Run(() => _settings.Save());
+    }
+
+    private void RefreshDetailColumnDisplay()
+    {
+        foreach (var t in _allTracks) t.NotifyDetailChanged();
+        foreach (var t in _visibleTracks) t.NotifyDetailChanged();
+        foreach (var t in _queueTracks) t.NotifyDetailChanged();
+        foreach (var t in _editingPlaylistTracks) t.NotifyDetailChanged();
+    }
+
+    private void ApplySortColumn(string col)
+    {
         if (string.Equals(_settings.SortColumn, col, StringComparison.Ordinal))
         {
             _settings.SortAscending = !_settings.SortAscending;
@@ -1367,7 +1540,8 @@ public sealed partial class MainWindow : Window
         else
         {
             _settings.SortColumn = col;
-            _settings.SortAscending = col is not ("Rating" or "Year" or "Bitrate" or "DateAdded");
+            _settings.SortAscending = col is not ("Rating" or "Year" or "Bitrate" or "DateAdded"
+                or "SampleRate" or "Channels" or "ReplayGain" or "Plays" or "LastPlayed");
         }
         UpdateSortHeaders();
         RefreshVisibleTracks(scrollToSelection: true);
@@ -1398,7 +1572,14 @@ public sealed partial class MainWindow : Window
         var menu = new MenuFlyout();
         foreach (string col in new[] { "Genre", "Year", "Rating", "Length", "DateAdded", "Bitrate" })
         {
-            string label = col == "DateAdded" ? "Date Added" : col;
+            string label = col switch
+            {
+                "DateAdded" => "Date Added",
+                "Bitrate" => TrackItem.ActiveDetailField == "Bitrate"
+                    ? "Bitrate"
+                    : $"Bitrate ({GetDetailDisplayMenuLabel(TrackItem.ActiveDetailField)})",
+                _ => col
+            };
             var toggle = new ToggleMenuFlyoutItem
             {
                 Text = label,
@@ -1423,6 +1604,45 @@ public sealed partial class MainWindow : Window
         foreach (var child in TableHeaderGrid.Children.OfType<Button>())
         {
             string tag = child.Tag?.ToString() ?? string.Empty;
+            if (ReferenceEquals(child, HeaderDetailBtn))
+            {
+                string activeField = TrackItem.ActiveDetailField;
+                string activeDisplay = GetDetailDisplayMenuLabel(activeField);
+                string activeHeader = GetDetailDisplayHeaderLabel(activeField);
+
+                if (IsTileMode)
+                {
+                    if (TryGetDetailSortMeta(_settings.SortColumn, out string sortMenuLabel, out string sortHeaderLabel))
+                    {
+                        string arrow = _settings.SortAscending ? "\u25B4" : "\u25BE";
+                        HeaderDetailLabel.Text = $"{sortHeaderLabel} {arrow}";
+                        ToolTipService.SetToolTip(child, $"Sorted by: {sortMenuLabel} ({(_settings.SortAscending ? "Ascending" : "Descending")})\nClick to choose sort");
+                    }
+                    else
+                    {
+                        HeaderDetailLabel.Text = activeHeader;
+                        ToolTipService.SetToolTip(child, "Click to sort by Bitrate, Codec, Plays...");
+                    }
+                }
+                else if (string.Equals(_settings.SortColumn, activeField, StringComparison.Ordinal))
+                {
+                    string arrow = _settings.SortAscending ? "\u25B4" : "\u25BE";
+                    HeaderDetailLabel.Text = $"{activeHeader} {arrow}";
+                    ToolTipService.SetToolTip(child, $"Showing & sorted by: {activeDisplay} ({(_settings.SortAscending ? "Ascending" : "Descending")})\nClick to change field or sort");
+                }
+                else if (TryGetDetailSortMeta(_settings.SortColumn, out string sortMenuLabel, out _))
+                {
+                    HeaderDetailLabel.Text = activeHeader;
+                    ToolTipService.SetToolTip(child, $"Showing: {activeDisplay} · Sorted by: {sortMenuLabel}\nClick to change field or sort");
+                }
+                else
+                {
+                    HeaderDetailLabel.Text = activeHeader;
+                    ToolTipService.SetToolTip(child, $"Showing: {activeDisplay}\nClick to change field or sort");
+                }
+                continue;
+            }
+
             string label = tag switch
             {
                 "Index" => "#",
@@ -2387,6 +2607,7 @@ public sealed partial class MainWindow : Window
                     {
                         peer.ReplayGainTrackDb = rg.TrackGainDb;
                         peer.ReplayGainTrackPeak = rg.TrackPeak;
+                        peer.NotifyDetailChanged();
                     }
                     SaveLibraryCacheSnapshot();
                 }

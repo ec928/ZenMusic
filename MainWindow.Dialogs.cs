@@ -666,6 +666,7 @@ public sealed partial class MainWindow
                             {
                                 peer.ReplayGainTrackDb = rg.TrackGainDb;
                                 peer.ReplayGainTrackPeak = rg.TrackPeak;
+                                peer.NotifyDetailChanged();
                             }
                             if (string.Equals(_engine.CurrentPath, t.Path, StringComparison.OrdinalIgnoreCase))
                                 _engine.SetReplayGainFactor(GetTrackReplayGainFactor(t));
@@ -693,6 +694,9 @@ public sealed partial class MainWindow
         {
             _settingsAudioPending = false;
             _settings.ResetAudioAndUiToDefaults();
+            TrackItem.ActiveDetailField = _settings.DetailColumnField;
+            RefreshDetailColumnDisplay();
+            UpdateSortHeaders();
             _settings.Save();
             if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p &&
                 p.State == Microsoft.UI.Windowing.OverlappedPresenterState.Maximized)
@@ -1839,7 +1843,7 @@ public sealed partial class MainWindow
             {
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
-                Height = 140,
+                Height = 116,
                 FontSize = 12
             };
             ScrollViewer.SetVerticalScrollBarVisibility(boxLyrics, ScrollBarVisibility.Auto);
@@ -1900,12 +1904,20 @@ public sealed partial class MainWindow
                 Child = selArtImg
             };
 
-            var artThumbsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            var artThumbsGrid = new Grid
+            {
+                ColumnSpacing = 8,
+                RowSpacing = 8,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            for (int c = 0; c < 3; c++)
+                artThumbsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
             var artThumbsScroll = new ScrollViewer
             {
-                Content = artThumbsPanel,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
+                Content = artThumbsGrid,
+                MaxHeight = 236,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
             var artHintText = new TextBlock { Text = "No cover options yet", FontSize = 11, Opacity = 0.65 };
 
@@ -2023,21 +2035,26 @@ public sealed partial class MainWindow
 
                 boxLyrics.Text = res.Lyrics.Replace("\r\n", "\r").Replace("\n", "\r");
 
-                artThumbsPanel.Children.Clear();
+                artThumbsGrid.Children.Clear();
+                artThumbsGrid.RowDefinitions.Clear();
                 artThumbBorders.Clear();
                 if (res.ArtOptions.Count > 0)
                 {
                     artHintText.Visibility = Visibility.Collapsed;
+                    int rows = (res.ArtOptions.Count + 2) / 3;
+                    for (int r = 0; r < rows; r++)
+                        artThumbsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
                     for (int i = 0; i < res.ArtOptions.Count; i++)
                     {
                         int capturedIdx = i;
                         var opt = res.ArtOptions[i];
-                        var thumbImg = new Image { Width = 60, Height = 60, Stretch = Stretch.UniformToFill };
+                        var thumbImg = new Image { Width = 70, Height = 70, Stretch = Stretch.UniformToFill };
                         await SetImageFromBytesAsync(opt.Bytes, thumbImg);
                         var b = new Border
                         {
-                            Width = 62,
-                            Height = 62,
+                            Width = 72,
+                            Height = 72,
                             CornerRadius = new CornerRadius(6),
                             BorderThickness = new Thickness(1),
                             BorderBrush = new SolidColorBrush(Color.FromArgb(50, 128, 128, 128)),
@@ -2045,8 +2062,10 @@ public sealed partial class MainWindow
                         };
                         ToolTipService.SetToolTip(b, $"{opt.Source} cover #{i + 1}");
                         b.Tapped += async (_, _) => await SelectArtOptionAsync(opt.Bytes, capturedIdx);
+                        Grid.SetRow(b, i / 3);
+                        Grid.SetColumn(b, i % 3);
                         artThumbBorders.Add(b);
-                        artThumbsPanel.Children.Add(b);
+                        artThumbsGrid.Children.Add(b);
                     }
                     await SelectArtOptionAsync(res.ArtOptions[0].Bytes, 0);
                 }
