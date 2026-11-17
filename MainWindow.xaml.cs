@@ -2206,7 +2206,8 @@ public sealed partial class MainWindow : Window
         var previous = targets.Select(t => (Track: t, OldRating: t.Rating)).ToList();
 
         foreach (var t in targets) t.Rating = newRating;
-        if (GetPrimarySelectedTrack() is TrackItem sel && targets.Contains(sel))
+        if ((GetPrimarySelectedTrack() ?? _inspectorTrack) is TrackItem sel &&
+            targets.Any(t => ReferenceEquals(t, sel) || string.Equals(t.Path, sel.Path, StringComparison.OrdinalIgnoreCase)))
             UpdateSelectedRatingVisuals(newRating);
         SyncPlayingTrackRating(targets, newRating);
         UpdateSidebarCounts();
@@ -2218,8 +2219,12 @@ public sealed partial class MainWindow : Window
             {
                 QuietFolderWatcher();
                 foreach (var (tr, oldR) in previous) tr.Rating = oldR;
-                if (GetPrimarySelectedTrack() is TrackItem s && previous.Any(x => x.Track == s))
-                    UpdateSelectedRatingVisuals(s.Rating);
+                if ((GetPrimarySelectedTrack() ?? _inspectorTrack) is TrackItem s)
+                {
+                    var match = previous.FirstOrDefault(x => ReferenceEquals(x.Track, s) || string.Equals(x.Track.Path, s.Path, StringComparison.OrdinalIgnoreCase));
+                    if (match.Track != null)
+                        UpdateSelectedRatingVisuals(match.OldRating);
+                }
                 if (_queueIndex >= 0 && _queueIndex < _queueTracks.Count)
                 {
                     var p = _queueTracks[_queueIndex];
@@ -4093,8 +4098,8 @@ public sealed partial class MainWindow : Window
         double width = btn.ActualWidth > 0 ? btn.ActualWidth : 20.0;
         double rating = x < width * 0.5 ? starIndex - 0.5 : starIndex;
         _lastStarPointerUtc = DateTime.UtcNow;
-        var current = GetPrimarySelectedTrack()?.Rating;
-        ApplyRatingToSelection(Nullable.Equals(current, rating) ? null : rating);
+        var current = (GetPrimarySelectedTrack() ?? _inspectorTrack)?.Rating;
+        ApplyRatingToCard(Nullable.Equals(current, rating) ? null : rating);
     }
 
     private void RateStarBtn_Click(object sender, RoutedEventArgs e)
@@ -4120,8 +4125,7 @@ public sealed partial class MainWindow : Window
             ApplyRatingToSelection(value);
             return;
         }
-        var matching = _allTracks.Where(x => string.Equals(x.Path, shown.Path, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (!matching.Contains(shown)) matching.Add(shown);
+        var matching = EnumerateMatchingTrackItems(shown).ToList();
         ApplyRatingToTargets(matching, value, pushUndo: true);
         UpdateSelectedRatingVisuals(shown.Rating);
     }
