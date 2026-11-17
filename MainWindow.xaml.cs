@@ -199,13 +199,20 @@ public sealed partial class MainWindow : Window
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static double _titleStar = 2.2;
+    private static double _artistStar = 1.15;
+    private static double _albumStar = 1.35;
+
     private static bool IsColVisible(string name) => _columnVisible.TryGetValue(name, out bool v) && v;
+    public static GridLength ColTitleWidth() => new(_titleStar, GridUnitType.Star);
+    public static GridLength ColArtistWidth() => new(_artistStar, GridUnitType.Star);
+    public static GridLength ColAlbumWidth() => new(_albumStar, GridUnitType.Star);
     public static GridLength ColGenreWidth() => IsColVisible("Genre") ? new GridLength(0.9, GridUnitType.Star) : new GridLength(0);
     public static GridLength ColYearWidth() => IsColVisible("Year") ? new GridLength(48) : new GridLength(0);
     public static GridLength ColRatingWidth() => IsColVisible("Rating") ? new GridLength(78) : new GridLength(0);
     public static GridLength ColLengthWidth() => IsColVisible("Length") ? new GridLength(56) : new GridLength(0);
-    public static GridLength ColDateAddedWidth() => IsColVisible("DateAdded") ? new GridLength(88) : new GridLength(0);
-    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(64) : new GridLength(0);
+    public static GridLength ColDateAddedWidth() => IsColVisible("DateAdded") ? new GridLength(64) : new GridLength(0);
+    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(58) : new GridLength(0);
     public static Visibility ColRatingVis() => IsColVisible("Rating") ? Visibility.Visible : Visibility.Collapsed;
 
     private SavedPlaylist? _editingPlaylist;
@@ -655,6 +662,7 @@ public sealed partial class MainWindow : Window
         RightPaneCol.Width = _rightPaneOpen ? new GridLength(316) : new GridLength(0);
         RightSidebar.Visibility = _rightPaneOpen ? Visibility.Visible : Visibility.Collapsed;
         UpdateRightPaneButtonVisual();
+        ApplyColumnWidths();
 
         // Opening slides the pane in from the right; closing is immediate so the list reclaims the space at once.
         if (_rightPaneOpen && !wasOpen && _initialized)
@@ -680,10 +688,25 @@ public sealed partial class MainWindow : Window
     private void ApplyColumnWidths()
     {
         bool tiles = IsTileMode;
+        if (_rightPaneOpen)
+        {
+            _titleStar = 2.2;
+            _artistStar = 1.15;
+            _albumStar = 1.35;
+        }
+        else
+        {
+            // When the 316 px dock is hidden, spread the gained space toward Album and Artist
+            // instead of letting Title absorb over half of it.
+            _titleStar = 1.95;
+            _artistStar = 1.2;
+            _albumStar = 1.55;
+        }
+
         GridLength Fit(GridLength table) => tiles && table.Value > 0 ? GridLength.Auto : table;
-        HeaderColTitle.Width = tiles ? GridLength.Auto : new GridLength(2.4, GridUnitType.Star);
-        HeaderColArtist.Width = tiles ? GridLength.Auto : new GridLength(1.1, GridUnitType.Star);
-        HeaderColAlbum.Width = tiles ? GridLength.Auto : new GridLength(1.2, GridUnitType.Star);
+        HeaderColTitle.Width = tiles ? GridLength.Auto : ColTitleWidth();
+        HeaderColArtist.Width = tiles ? GridLength.Auto : ColArtistWidth();
+        HeaderColAlbum.Width = tiles ? GridLength.Auto : ColAlbumWidth();
         HeaderColGenre.Width = Fit(ColGenreWidth());
         HeaderColYear.Width = Fit(ColYearWidth());
         HeaderColRating.Width = Fit(ColRatingWidth());
@@ -703,6 +726,23 @@ public sealed partial class MainWindow : Window
                 : ReferenceEquals(button, HeaderTitleBtn) ? new Thickness(50, 0, 8, 0)
                 : new Thickness(0, 0, 8, 0);
         }
+
+        if (!tiles && TracksListView.ItemsPanelRoot is Panel panel)
+        {
+            foreach (var child in panel.Children)
+                ApplyRowTextColumnWidths(child as SelectorItem);
+        }
+    }
+
+    private static void ApplyRowTextColumnWidths(SelectorItem? container)
+    {
+        if (container?.ContentTemplateRoot is not Grid row || row.ColumnDefinitions.Count < 3) return;
+        if (Math.Abs(row.ColumnDefinitions[0].Width.Value - _titleStar) > 0.01)
+            row.ColumnDefinitions[0].Width = ColTitleWidth();
+        if (Math.Abs(row.ColumnDefinitions[1].Width.Value - _artistStar) > 0.01)
+            row.ColumnDefinitions[1].Width = ColArtistWidth();
+        if (Math.Abs(row.ColumnDefinitions[2].Width.Value - _albumStar) > 0.01)
+            row.ColumnDefinitions[2].Width = ColAlbumWidth();
     }
 
     private readonly Dictionary<Button, Thickness> _headerTableMargins = new();
@@ -1226,6 +1266,10 @@ public sealed partial class MainWindow : Window
             FitTilesToWidth();
             ApplyTileSize(args.ItemContainer);
         }
+        else if (!args.InRecycleQueue && ReferenceEquals(sender, TracksListView))
+        {
+            ApplyRowTextColumnWidths(args.ItemContainer);
+        }
         if (args.InRecycleQueue || args.Item is not TrackItem track) return;
         if (track.CoverThumbnail != null || track.ArtLoadAttempted) return;
         if (!track.HasEmbeddedArt || track.IsCloudOnly)
@@ -1650,7 +1694,7 @@ public sealed partial class MainWindow : Window
             {
                 "Index" => "#",
                 "Duration" => "Length",
-                "DateAdded" => "Date Added",
+                "DateAdded" => IsTileMode ? "Date Added" : "Added",
                 _ => tag
             };
             child.Content = string.Equals(tag, _settings.SortColumn, StringComparison.Ordinal)
