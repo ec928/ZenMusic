@@ -25,6 +25,12 @@ public sealed class FftAnalyzer
     private readonly float[] _bands = new float[BandCount];
     private readonly float[] _peaks = new float[BandCount];
     private readonly float[] _waveform = new float[WaveformPoints];
+    private readonly float[] _frameBands = new float[BandCount];
+    private readonly float[] _framePeaks = new float[BandCount];
+    private readonly float[] _frameWave = new float[WaveformPoints];
+    private int _frameBandCount;
+    private int _frameWaveCount;
+    private long _lastFrameTimestamp;
     private readonly object _computeLock = new();
 
     private volatile int _sampleRate = 44100;
@@ -59,6 +65,15 @@ public sealed class FftAnalyzer
 
     public void Clear()
     {
+        lock (_computeLock)
+        {
+            _lastFrameTimestamp = 0;
+            _frameBandCount = 0;
+            _frameWaveCount = 0;
+            Array.Clear(_frameBands);
+            Array.Clear(_framePeaks);
+            Array.Clear(_frameWave);
+        }
         Array.Clear(_ring);
         Array.Clear(_bands);
         Array.Clear(_peaks);
@@ -76,6 +91,22 @@ public sealed class FftAnalyzer
     {
         lock (_computeLock)
         {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            long last = _lastFrameTimestamp;
+            if (last != 0 && now - last < System.Diagnostics.Stopwatch.Frequency / 50)
+            {
+                int cachedBands = Math.Min(_frameBandCount, Math.Min(outBands.Length, outPeaks.Length));
+                for (int i = 0; i < cachedBands; i++)
+                {
+                    outBands[i] = _frameBands[i];
+                    outPeaks[i] = _framePeaks[i];
+                }
+                int cachedWave = Math.Min(_frameWaveCount, outWaveform.Length);
+                for (int i = 0; i < cachedWave; i++)
+                    outWaveform[i] = _frameWave[i];
+                return;
+            }
+
             int writePos = Volatile.Read(ref _writeIndex);
             int len = _ring.Length;
             int start = (writePos - FftSize + len) % len;
@@ -151,7 +182,15 @@ public sealed class FftAnalyzer
 
                 outBands[b] = _bands[b];
                 outPeaks[b] = _peaks[b];
+                _frameBands[b] = _bands[b];
+                _framePeaks[b] = _peaks[b];
             }
+            _frameBandCount = bCount;
+
+            for (int i = 0; i < wCount; i++)
+                _frameWave[i] = _waveform[i];
+            _frameWaveCount = wCount;
+            _lastFrameTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
 
             BassEnergy = Math.Clamp((_bands[0] + _bands[1] + _bands[2] + _bands[3] + _bands[4]) / 5f, 0f, 1f);
         }

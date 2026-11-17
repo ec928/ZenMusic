@@ -330,11 +330,10 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(_settings.MusicFolder) && Directory.Exists(_settings.MusicFolder))
         {
             RecordRecentFolder(_settings.MusicFolder);
-            LoadCachedLibraryAndRestoreSession(_settings.MusicFolder);
             StartFolderWatcher(_settings.MusicFolder);
-            _ = ScanFolderAsync(_settings.MusicFolder, isStartupDelta: true);
+            _ = OpenFolderFromCacheAsync(_settings.MusicFolder, _hasLaunchFiles ? launchFiles : null);
         }
-        if (_hasLaunchFiles && launchFiles != null)
+        else if (_hasLaunchFiles && launchFiles != null)
         {
             _ = OpenLaunchFilesAsync(launchFiles);
         }
@@ -384,16 +383,41 @@ public sealed partial class MainWindow : Window
         PlayFromList(tracksToPlay, tracksToPlay[0]);
     }
 
-    private void LoadCachedLibraryAndRestoreSession(string folder)
+    private async Task OpenFolderFromCacheAsync(string folder, IReadOnlyList<string>? launchFiles)
     {
-        var instant = LibraryCache.LoadInstantTracks(AppPaths.LibraryCachePath, folder);
-        if (instant.Count == 0) return;
+        var cacheMap = await Task.Run(() => LibraryCache.Load(AppPaths.LibraryCachePath));
+        var instant = LibraryCache.TracksInFolder(cacheMap, folder);
+        if (instant.Count > 0)
+        {
+            _allTracks.Clear();
+            _allTracks.AddRange(instant);
+            RefreshVisibleTracks();
+            EmptyStatePanel.Visibility = Visibility.Collapsed;
+            RestoreSessionQueue();
+        }
 
-        _allTracks.Clear();
-        _allTracks.AddRange(instant);
-        RefreshVisibleTracks();
-        EmptyStatePanel.Visibility = Visibility.Collapsed;
-        RestoreSessionQueue();
+        List<TrackItem>? launchedOutsideFolder = null;
+        if (launchFiles != null)
+        {
+            await OpenLaunchFilesAsync(launchFiles);
+            var wanted = new HashSet<string>(launchFiles, StringComparer.OrdinalIgnoreCase);
+            launchedOutsideFolder = _allTracks.Where(t => wanted.Contains(t.Path)).ToList();
+        }
+
+        await ScanFolderAsync(folder, isStartupDelta: true, cacheMap);
+
+        if (launchedOutsideFolder == null) return;
+        var present = new HashSet<string>(_allTracks.Select(t => t.Path), StringComparer.OrdinalIgnoreCase);
+        bool restored = false;
+        foreach (var track in launchedOutsideFolder)
+        {
+            if (present.Add(track.Path))
+            {
+                _allTracks.Add(track);
+                restored = true;
+            }
+        }
+        if (restored) RefreshVisibleTracks();
     }
 
     private void RestoreSessionQueue()
@@ -812,11 +836,14 @@ public sealed partial class MainWindow : Window
             var watcher = new FileSystemWatcher(folder)
             {
                 IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                InternalBufferSize = 64 * 1024
             };
             watcher.Created += OnWatchedFolderChanged;
             watcher.Deleted += OnWatchedFolderChanged;
+            watcher.Changed += OnWatchedFolderChanged;
             watcher.Renamed += OnWatchedFolderRenamed;
+            watcher.Error += OnWatchedFolderError;
             watcher.EnableRaisingEvents = true;
             _folderWatcher = watcher;
         }
@@ -844,6 +871,36 @@ public sealed partial class MainWindow : Window
             ScheduleWatcherRescan();
     }
 
+    private DateTime _watcherRestartNotBeforeUtc;
+
+    private void OnWatchedFolderError(object sender, ErrorEventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!ReferenceEquals(sender, _folderWatcher)) return;
+            if (DateTime.UtcNow < _watcherRestartNotBeforeUtc) return;
+            _watcherRestartNotBeforeUtc = DateTime.UtcNow.AddSeconds(2);
+            string folder = _settings.MusicFolder ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return;
+            try
+            {
+                _folderWatcher.EnableRaisingEvents = false;
+                _folderWatcher.Dispose();
+            }
+            catch { }
+            _folderWatcher = null;
+            StartFolderWatcher(folder);
+            _ = ScanFolderAsync(folder, isStartupDelta: true);
+        });
+    }
+
+    private void QuietFolderWatcher(int seconds = 3)
+    {
+        var until = DateTime.UtcNow.AddSeconds(seconds);
+        if (until > _suppressWatcherUntilUtc)
+            _suppressWatcherUntilUtc = until;
+    }
+
     private void ScheduleWatcherRescan()
     {
         var prev = _watcherDebounceCts;
@@ -859,7 +916,8 @@ public sealed partial class MainWindow : Window
                 if (next.IsCancellationRequested) return;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (!next.IsCancellationRequested && !string.IsNullOrWhiteSpace(_settings.MusicFolder) && Directory.Exists(_settings.MusicFolder))
+                    if (next.IsCancellationRequested || DateTime.UtcNow < _suppressWatcherUntilUtc) return;
+                    if (!string.IsNullOrWhiteSpace(_settings.MusicFolder) && Directory.Exists(_settings.MusicFolder))
                         _ = ScanFolderAsync(_settings.MusicFolder, isStartupDelta: true);
                 });
             }
@@ -867,7 +925,7 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private async Task ScanFolderAsync(string folder, bool isStartupDelta = false)
+    private async Task ScanFolderAsync(string folder, bool isStartupDelta = false, IReadOnlyDictionary<string, CachedTrackEntry>? cacheMap = null)
     {
         StartFolderWatcher(folder);
         _scanCts?.Cancel();
@@ -882,7 +940,7 @@ public sealed partial class MainWindow : Window
             EmptyStatePanel.Visibility = Visibility.Collapsed;
         }
 
-        var cacheMap = await Task.Run(() => LibraryCache.Load(AppPaths.LibraryCachePath));
+        cacheMap ??= await Task.Run(() => LibraryCache.Load(AppPaths.LibraryCachePath));
         var tracks = await LibraryScanner.ScanFolderAsync(folder, cts.Token, batch =>
         {
             if (isStartupDelta && _allTracks.Count > 0) return;
@@ -1886,10 +1944,12 @@ public sealed partial class MainWindow : Window
         SyncPlayingTrackRating(targets, newRating);
         UpdateSidebarCounts();
 
+        QuietFolderWatcher();
         if (pushUndo)
         {
             PushUndo(() =>
             {
+                QuietFolderWatcher();
                 foreach (var (tr, oldR) in previous) tr.Rating = oldR;
                 if (GetPrimarySelectedTrack() is TrackItem s && previous.Any(x => x.Track == s))
                     UpdateSelectedRatingVisuals(s.Rating);
@@ -1902,7 +1962,12 @@ public sealed partial class MainWindow : Window
                 UpdateSidebarCounts();
                 _ = Task.Run(() =>
                 {
-                    foreach (var (tr, oldR) in previous) MusicLibrary.TryWriteStars(tr.Path, oldR);
+                    foreach (var (tr, oldR) in previous)
+                    {
+                        QuietFolderWatcher();
+                        MusicLibrary.TryWriteStars(tr.Path, oldR);
+                    }
+                    QuietFolderWatcher();
                 });
                 SaveLibraryCacheSoon();
                 ShowHudPill("Undone: Star rating");
@@ -1912,7 +1977,12 @@ public sealed partial class MainWindow : Window
 
         _ = Task.Run(() =>
         {
-            foreach (var t in targets) MusicLibrary.TryWriteStars(t.Path, newRating);
+            foreach (var t in targets)
+            {
+                QuietFolderWatcher();
+                MusicLibrary.TryWriteStars(t.Path, newRating);
+            }
+            QuietFolderWatcher();
         });
         SaveLibraryCacheSoon();
     }
@@ -2341,10 +2411,13 @@ public sealed partial class MainWindow : Window
         _queueIndex = index;
         var track = _queueTracks[index];
         _activePlayingPathForLyrics = track.Path;
-        _engine.PlayFile(track.Path, GetTrackReplayGainFactor(track));
+        bool started = _engine.PlayFile(track.Path, GetTrackReplayGainFactor(track));
         SetNowPlayingTrack(track.Path);
-        track.PlayCount++;
-        track.LastPlayedUtc = DateTime.UtcNow;
+        if (started)
+        {
+            track.PlayCount++;
+            track.LastPlayedUtc = DateTime.UtcNow;
+        }
 
         if (!string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase))
         {
@@ -2413,7 +2486,8 @@ public sealed partial class MainWindow : Window
         byte[]? bytes = await Task.Run(() => MusicLibrary.ReadEmbeddedArtBytes(track.Path));
         if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
 
-        _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album, bytes);
+        await _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album, bytes);
+        if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
         var cover = await CreateBitmapFromBytesAsync(bytes);
         var backdrop = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 40);
         if (!string.Equals(_activePlayingPathForLyrics, track.Path, StringComparison.OrdinalIgnoreCase)) return;
@@ -3826,8 +3900,9 @@ public sealed partial class MainWindow : Window
 
     private async Task<(bool Ok, string? Error)> RenameTrackPathAsync(TrackItem track, string oldPath, string newPath)
     {
-        _suppressWatcherUntilUtc = DateTime.UtcNow.AddSeconds(2);
+        QuietFolderWatcher();
         var (renamed, renameErr) = await _engine.RenameFileAsync(oldPath, newPath);
+        QuietFolderWatcher();
         if (!renamed) return (false, renameErr);
 
         track.Path = newPath;
@@ -3923,11 +3998,12 @@ public sealed partial class MainWindow : Window
             {
                 if (File.Exists(t.Path))
                 {
-                    _suppressWatcherUntilUtc = DateTime.UtcNow.AddSeconds(2);
+                    QuietFolderWatcher();
                     await Task.Run(() => Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
                         t.Path,
                         Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
                         Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin));
+                    QuietFolderWatcher();
                 }
                 deletedPaths.Add(t.Path);
             }
@@ -4019,6 +4095,7 @@ public sealed partial class MainWindow : Window
     {
         MusicLibrary.TrackDetails? snapshotBefore = pushUndo ? await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path)) : null;
 
+        QuietFolderWatcher();
         var (saved, error) = await _engine.WithFileReleasedAsync(
             track.Path,
             () => Task.Run(() =>
@@ -4026,6 +4103,7 @@ public sealed partial class MainWindow : Window
                 bool ok = MusicLibrary.TryWriteFullDetails(track.Path, updated, out string? err);
                 return (ok, err);
             }));
+        QuietFolderWatcher();
 
         if (!saved)
         {
@@ -4113,7 +4191,7 @@ public sealed partial class MainWindow : Window
             if (updated.ArtChanged)
                 await LoadPlayingArtAndSmtcAsync(track);
             else
-                _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album);
+                await _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album);
         }
 
         return true;

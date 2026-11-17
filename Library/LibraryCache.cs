@@ -63,26 +63,23 @@ public static class LibraryCache
     }
 
     public static IReadOnlyList<TrackItem> LoadInstantTracks(string cachePath, string folder)
+        => TracksInFolder(Load(cachePath), folder);
+
+    public static IReadOnlyList<TrackItem> TracksInFolder(IReadOnlyDictionary<string, CachedTrackEntry> cache, string folder)
     {
         var list = new List<TrackItem>();
-        if (string.IsNullOrWhiteSpace(folder) || !File.Exists(cachePath)) return list;
-        string normalizedFolder = folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        try
+        if (string.IsNullOrWhiteSpace(folder) || cache.Count == 0) return list;
+        string trimmed = folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedFolder = trimmed + Path.DirectorySeparatorChar;
+        int index = 1;
+        foreach (var entry in cache.Values)
         {
-            string json = File.ReadAllText(cachePath);
-            var entries = JsonSerializer.Deserialize<List<CachedTrackEntry>>(json, JsonOptions);
-            if (entries == null) return list;
-            int index = 1;
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrWhiteSpace(entry.Path)) continue;
-                if (!entry.Path.StartsWith(normalizedFolder, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(Path.GetDirectoryName(entry.Path), folder.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-                    continue;
-                list.Add(ToTrackItem(entry, index++, isCloudOnly: false));
-            }
+            if (string.IsNullOrWhiteSpace(entry.Path)) continue;
+            if (!entry.Path.StartsWith(normalizedFolder, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(Path.GetDirectoryName(entry.Path), trimmed, StringComparison.OrdinalIgnoreCase))
+                continue;
+            list.Add(ToTrackItem(entry, index++, isCloudOnly: false));
         }
-        catch { }
         return list;
     }
 

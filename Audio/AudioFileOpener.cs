@@ -5,17 +5,22 @@ using System.IO;
 namespace ZenMusic.Audio;
 
 /// <summary>
-/// Opens audio files for playback and loudness analysis, handling WAV/AIFF directly and
-/// skipping any legacy ID3v2 header prepended before a FLAC stream so Windows Media Foundation
-/// never fails with MF_E_UNSUPPORTED_BYTESTREAM_TYPE (0xC00D36C4).
+/// Opens audio files for playback and loudness analysis.
+/// AIFF uses the managed reader. WAV uses Media Foundation, then <c>WaveFileReader</c>
+/// when that rejects the file. A FLAC with an ID3v2 header before the fLaC magic is
+/// opened from that offset so Media Foundation does not fail with
+/// MF_E_UNSUPPORTED_BYTESTREAM_TYPE (0xC00D36C4).
 /// </summary>
 public static class AudioFileOpener
 {
     public static WaveStream OpenWaveStream(string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is ".wav" or ".aiff")
-            return new AudioFileReader(path);
+        if (ext is ".aiff" or ".aif")
+            return new AiffFileReader(path);
+
+        if (ext == ".wav")
+            return OpenWav(path);
 
         if (ext == ".flac")
         {
@@ -38,7 +43,19 @@ public static class AudioFileOpener
                 if (flacOffset > 0)
                     return OpenStreamAtOffset(path, flacOffset);
             }
-            return new AudioFileReader(path);
+            throw;
+        }
+    }
+
+    private static WaveStream OpenWav(string path)
+    {
+        try
+        {
+            return new MediaFoundationReader(path);
+        }
+        catch
+        {
+            return new WaveFileReader(path);
         }
     }
 

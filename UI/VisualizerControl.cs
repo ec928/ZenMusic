@@ -38,6 +38,8 @@ public sealed class VisualizerControl : UserControl
     private bool _isPlaying;
     private bool _isStageVisible = true;
     private bool _useLightTheme;
+    private CanvasLinearGradientBrush? _spectrumBrush;
+    private bool _spectrumBrushIsLight;
 
     public bool MirrorHorizontally { get; set; }
 
@@ -48,6 +50,7 @@ public sealed class VisualizerControl : UserControl
         {
             if (_useLightTheme == value) return;
             _useLightTheme = value;
+            DisposeSpectrumBrush();
             _canvas.Invalidate();
         }
     }
@@ -90,6 +93,7 @@ public sealed class VisualizerControl : UserControl
             Visibility = Visibility.Collapsed
         };
         _canvas.Draw += Canvas_Draw;
+        _canvas.CreateResources += (_, _) => DisposeSpectrumBrush();
         _renderTimer = DispatcherQueue.CreateTimer();
         _renderTimer.Interval = TimeSpan.FromMilliseconds(16);
         _renderTimer.Tick += (_, _) => _canvas.Invalidate();
@@ -97,8 +101,45 @@ public sealed class VisualizerControl : UserControl
         Unloaded += (_, _) =>
         {
             _renderTimer.Stop();
+            DisposeSpectrumBrush();
             _canvas.RemoveFromVisualTree();
         };
+    }
+
+    private void DisposeSpectrumBrush()
+    {
+        _spectrumBrush?.Dispose();
+        _spectrumBrush = null;
+    }
+
+    private CanvasLinearGradientBrush SpectrumBrush(CanvasControl sender, float height)
+    {
+        if (_spectrumBrush != null && _spectrumBrushIsLight == _useLightTheme)
+        {
+            _spectrumBrush.EndPoint = new Vector2(0, height);
+            return _spectrumBrush;
+        }
+
+        DisposeSpectrumBrush();
+        _spectrumBrushIsLight = _useLightTheme;
+        _spectrumBrush = new CanvasLinearGradientBrush(sender, _useLightTheme
+            ? new[]
+            {
+                new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(245, 180, 83, 9) },
+                new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(235, 217, 119, 6) },
+                new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(180, 245, 158, 11) }
+            }
+            : new[]
+            {
+                new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(250, 255, 246, 214) },
+                new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(230, 255, 200, 59) },
+                new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(165, 217, 119, 6) }
+            })
+        {
+            StartPoint = new Vector2(0, 0),
+            EndPoint = new Vector2(0, height)
+        };
+        return _spectrumBrush;
     }
 
     public void AttachAnalyzer(FftAnalyzer analyzer)
@@ -144,7 +185,7 @@ public sealed class VisualizerControl : UserControl
 
         if (_mode == VisualizerMode.Spectrum)
         {
-            DrawSpectrum(ds, w, h);
+            DrawSpectrum(ds, sender, w, h);
         }
         else if (_mode == VisualizerMode.Waveform)
         {
@@ -152,12 +193,12 @@ public sealed class VisualizerControl : UserControl
         }
         else if (_mode == VisualizerMode.BarsAndWaveform)
         {
-            DrawSpectrum(ds, w, h);
+            DrawSpectrum(ds, sender, w, h);
             DrawWaveform(ds, w, h);
         }
     }
 
-    private void DrawSpectrum(Microsoft.Graphics.Canvas.CanvasDrawingSession ds, float w, float h)
+    private void DrawSpectrum(Microsoft.Graphics.Canvas.CanvasDrawingSession ds, CanvasControl sender, float w, float h)
     {
         int totalBands = _bands.Length;
         bool isCompactWing = w < 340f;
@@ -166,23 +207,7 @@ public sealed class VisualizerControl : UserControl
         float barW = Math.Max(2f, (w - gap * (count - 1)) / count);
         float corner = Math.Min(2.5f, barW * 0.4f);
 
-        using var brush = new CanvasLinearGradientBrush(ds, _useLightTheme
-            ? new[]
-            {
-                new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(245, 180, 83, 9) },
-                new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(235, 217, 119, 6) },
-                new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(180, 245, 158, 11) }
-            }
-            : new[]
-            {
-                new CanvasGradientStop { Position = 0.0f, Color = Color.FromArgb(250, 255, 246, 214) }, // Crisp Ivory/White top
-                new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(230, 255, 200, 59) }, // Signature Warm Gold mid
-                new CanvasGradientStop { Position = 1.0f, Color = Color.FromArgb(165, 217, 119, 6) }    // Deep Amber base
-            })
-        {
-            StartPoint = new Vector2(0, 0),
-            EndPoint = new Vector2(0, h)
-        };
+        var brush = SpectrumBrush(sender, h);
 
         var peakColor = _useLightTheme ? Color.FromArgb(210, 40, 40, 40) : Color.FromArgb(235, 255, 255, 255);
         var baselineColor = _useLightTheme ? Color.FromArgb(55, 217, 119, 6) : Color.FromArgb(45, 255, 200, 59);

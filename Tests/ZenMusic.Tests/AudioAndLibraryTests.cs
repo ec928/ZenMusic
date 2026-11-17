@@ -143,6 +143,40 @@ public sealed class AudioAndLibraryTests
         Assert.InRange(maxIdx, 20, 35); // ~1 kHz lies in upper-mid log band
     }
 
+    [Fact]
+    public void FftAnalyzer_ReusesFrameUntilCleared()
+    {
+        var fft = new FftAnalyzer();
+        fft.SetSampleRate(44100);
+
+        var samples = new float[FftAnalyzer.FftSize * 2];
+        for (int i = 0; i < FftAnalyzer.FftSize; i++)
+        {
+            float v = MathF.Sin(2f * MathF.PI * 1000f * i / 44100f);
+            samples[i * 2] = v;
+            samples[i * 2 + 1] = v;
+        }
+        fft.PushSamples(samples, 0, samples.Length, 2);
+
+        var first = new float[FftAnalyzer.BandCount];
+        var second = new float[FftAnalyzer.BandCount];
+        var peaks = new float[FftAnalyzer.BandCount];
+        var wave = new float[FftAnalyzer.WaveformPoints];
+        fft.ComputeFrame(first, peaks, wave, smoothing: 0.5f);
+        fft.ComputeFrame(second, peaks, wave, smoothing: 0.5f);
+        Assert.Equal(first, second);
+
+        fft.Clear();
+        Array.Clear(samples);
+        fft.PushSamples(samples, 0, samples.Length, 2);
+        var after = new float[FftAnalyzer.BandCount];
+        fft.ComputeFrame(after, peaks, wave, smoothing: 0.5f);
+        float maxAfter = 0f;
+        for (int i = 0; i < after.Length; i++)
+            if (after[i] > maxAfter) maxAfter = after[i];
+        Assert.True(maxAfter < 0.2f);
+    }
+
     [Theory]
     [InlineData(13, 0.5)]
     [InlineData(64, 2.0)]

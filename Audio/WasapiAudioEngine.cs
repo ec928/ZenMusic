@@ -120,7 +120,7 @@ public sealed class WasapiAudioEngine : IDisposable
         });
     }
 
-    public void UpdateSmtcMetadata(string title, string artist, string album, byte[]? artBytes = null)
+    public async Task UpdateSmtcMetadata(string title, string artist, string album, byte[]? artBytes = null)
     {
         if (_smtc == null) return;
         try
@@ -139,7 +139,7 @@ public sealed class WasapiAudioEngine : IDisposable
                 using (var writer = new Windows.Storage.Streams.DataWriter(stream.GetOutputStreamAt(0)))
                 {
                     writer.WriteBytes(artBytes);
-                    writer.StoreAsync().AsTask().GetAwaiter().GetResult();
+                    await writer.StoreAsync().AsTask();
                     writer.DetachStream();
                 }
                 stream.Seek(0);
@@ -224,13 +224,13 @@ public sealed class WasapiAudioEngine : IDisposable
         }
     }
 
-    public void PlayFile(string path, float replayGainFactor = 1.0f)
+    public bool PlayFile(string path, float replayGainFactor = 1.0f)
     {
-        if (_disposed) return;
+        if (_disposed) return false;
         if (!File.Exists(path))
         {
             PlaybackError?.Invoke($"File not found: {path}");
-            return;
+            return false;
         }
 
         try
@@ -243,11 +243,13 @@ public sealed class WasapiAudioEngine : IDisposable
                 OpenAndStartGraph(path, TimeSpan.Zero, autoPlay: true);
             }
             UpdatePlaybackState(true);
+            return true;
         }
         catch (Exception ex)
         {
             Stop();
             PlaybackError?.Invoke($"Cannot play {Path.GetFileName(path)}: {ex.Message}");
+            return false;
         }
     }
 

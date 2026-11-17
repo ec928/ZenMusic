@@ -8,7 +8,7 @@ Structured around **working end-to-end thin slices** so you can launch, listen, 
 **Goal**: A runnable, self-contained `ZenMusic.exe` in `Bin\` that scans a music folder, displays a clean track list, plays audio through the WASAPI engine with **2.0 Stereo / 5.1 Surround** switching in the **`⚙` Settings** menu, and renders a live **60 fps Win2D Visualizer**.
 
 - [ ] **Project & Build Foundation**:
-  - `ZenMusic.csproj` (`net8.0-windows10.0.19041.0`, WinUI 3, Win2D, `NAudio`, `Microsoft.Data.Sqlite`, `TagLibSharp`) outputting directly to `Bin\`.
+  - `ZenMusic.csproj` (`net8.0-windows10.0.19041.0`, WinUI 3, Win2D, `NAudio.Core`, `NAudio.Wasapi`, `TagLibSharp`) outputting directly to `Bin\`.
   - `Tests\ZenMusic.Tests\ZenMusic.Tests.csproj` (`net8.0` xUnit) testing the 2.0/5.1 channel matrix, FFT binning, and half-star tag parser.
   - Core MIV utilities: `AppPaths.cs`, `AtomicFile.cs`, `ListMerge.cs`.
 - [ ] **WASAPI Audio Engine (`Audio\WasapiAudioEngine.cs`)**:
@@ -26,18 +26,16 @@ Structured around **working end-to-end thin slices** so you can launch, listen, 
 
 ---
 
-## Slice 2: SQLite Library, Playlists & MediaMonkey (`MM5.DB`) Migration
-**Goal**: Persistent instant-load library, full static & smart playlist management, and one-click import from MediaMonkey 2024.
+## Slice 2: Library Cache, Playlists & MediaMonkey (`MM5.DB`) Migration
+**Goal**: Persistent instant-load library, full static and smart playlist management, and one-click import from MediaMonkey 2024. The library that ships is `library-cache.json`. Do not add SQLite.
 
-- [ ] **SQLite + FTS5 Database (`Library\MusicDatabase.cs`)**:
-  - Instant search across Latin + CJK tracks, facet filtering (`All files`, `Albums`, `Artists`, `Genres`, `Years`, `Ratings`), and `ArtCache` thumbnail deduplication.
 - [ ] **First-Class Playlists (`Library\PlaylistService.cs` & UI)**:
   - Create, rename, delete (with Undo), drag-and-drop track ordering, right-click `Add to playlist`, `Save Queue as Playlist`, and `.m3u` / `.m3u8` import/export.
   - Rule-based **Smart / Auto-Playlists** (`Top Rated 4★+`, `Recently Added`, `Most Played`, custom rules).
 - [ ] **MediaMonkey 2024 (`MM5.DB`) Importer**:
   - One-click import in `⚙` Settings bringing over all ratings, `PlayCounter`, `DateAdded` (`Timestamp`), `LastTimePlayed`, and existing MediaMonkey playlists.
 - [ ] **Two-Way Half-Star Rating Sync**:
-  - Inline half-star clicking in the table, inspector, and playbar with immediate SQLite update + background ID3 `POPM` / Vorbis `RATING` tag write-back.
+  - Inline half-star clicking in the table, inspector, and playbar. The click updates the in-memory track, schedules `library-cache.json`, and writes ID3 `POPM` / Vorbis `RATING` on a background queue.
 
 ---
 
