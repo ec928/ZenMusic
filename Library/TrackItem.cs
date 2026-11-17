@@ -10,6 +10,7 @@ public sealed class TrackItem : INotifyPropertyChanged
     private string _title = string.Empty;
     private string _artist = string.Empty;
     private string _album = string.Empty;
+    private string _albumArtist = string.Empty;
     private string _genre = string.Empty;
     private int _year;
     private int _trackNumber;
@@ -75,6 +76,16 @@ public sealed class TrackItem : INotifyPropertyChanged
             OnPropertyChanged(nameof(DisplayAlbum));
             OnPropertyChanged(nameof(ArtInitial));
             OnPropertyChanged(nameof(AlbumHoverText));
+        }
+    }
+    public string AlbumArtist
+    {
+        get => _albumArtist;
+        set
+        {
+            if (string.Equals(_albumArtist, value, StringComparison.Ordinal)) return;
+            _albumArtist = value;
+            OnPropertyChanged();
         }
     }
     public string Genre
@@ -357,6 +368,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             || !string.Equals(Title, other.Title, StringComparison.Ordinal)
             || !string.Equals(Artist, other.Artist, StringComparison.Ordinal)
             || !string.Equals(Album, other.Album, StringComparison.Ordinal)
+            || !string.Equals(AlbumArtist, other.AlbumArtist, StringComparison.Ordinal)
             || !string.Equals(Genre, other.Genre, StringComparison.Ordinal)
             || Year != other.Year
             || TrackNumber != other.TrackNumber
@@ -377,6 +389,7 @@ public sealed class TrackItem : INotifyPropertyChanged
         Title = other.Title;
         Artist = other.Artist;
         Album = other.Album;
+        AlbumArtist = other.AlbumArtist;
         Genre = other.Genre;
         Year = other.Year;
         TrackNumber = other.TrackNumber;

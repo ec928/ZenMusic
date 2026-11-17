@@ -1239,8 +1239,35 @@ public sealed partial class MainWindow
             return groups;
         }
 
+        var albumArtistByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (tracks.Count <= 250)
+        {
+            var needLookup = tracks.Where(t => !t.IsCloudOnly && string.IsNullOrEmpty(t.AlbumArtist)).Select(t => t.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (needLookup.Count > 0)
+            {
+                var readResults = await Task.Run(() =>
+                {
+                    var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string p in needLookup)
+                        map[p] = MusicLibrary.ReadAlbumArtist(p);
+                    return map;
+                });
+                foreach (var kv in readResults)
+                    albumArtistByPath[kv.Key] = kv.Value;
+                foreach (var t in tracks)
+                {
+                    if (albumArtistByPath.TryGetValue(t.Path, out string? aa) && !string.IsNullOrEmpty(aa))
+                        t.AlbumArtist = aa;
+                }
+            }
+        }
+
         var artistChoices = BuildChoices(t => t.Artist, out string initArtist, out bool mixedArtist);
         var albumChoices = BuildChoices(t => t.Album, out string initAlbum, out bool mixedAlbum);
+        var albumArtistChoices = BuildChoices(
+            t => albumArtistByPath.TryGetValue(t.Path, out string? aa) ? aa : t.AlbumArtist,
+            out string initAlbumArtist,
+            out bool mixedAlbumArtist);
         var genreChoices = BuildChoices(t => t.Genre, out string initGenre, out bool mixedGenre);
         var yearChoices = BuildChoices(t => t.Year > 0 ? t.Year.ToString() : string.Empty, out string initYearStr, out bool mixedYear);
         int initYear = !mixedYear && int.TryParse(initYearStr, out int parsedInitYear) ? parsedInitYear : 0;
@@ -1261,7 +1288,7 @@ public sealed partial class MainWindow
 
         var artistBox = new TextBox { Text = initArtist, PlaceholderText = mixedArtist ? "<Multiple values>" : "" };
         var albumBox = new TextBox { Text = initAlbum, PlaceholderText = mixedAlbum ? "<Multiple values>" : "" };
-        var albumArtistBox = new TextBox { Text = initArtist, PlaceholderText = mixedArtist ? "<Multiple values>" : "" };
+        var albumArtistBox = new TextBox { Text = initAlbumArtist, PlaceholderText = mixedAlbumArtist ? "<Multiple values>" : "" };
         var genreBox = new TextBox { Text = initGenre, PlaceholderText = mixedGenre ? "<Multiple values>" : "" };
         var yearBox = new NumberBox
         {
@@ -1528,7 +1555,7 @@ public sealed partial class MainWindow
         panel.Children.Add(new TextBlock { Text = $"Checked fields will be applied to all {tracks.Count:N0} selected tracks.", FontSize = 12, Opacity = 0.75 });
         panel.Children.Add(MakeRow(chkArtist, WrapWithValuePicker(artistBox, artistChoices, chkArtist, v => artistBox.Text = v)));
         panel.Children.Add(MakeRow(chkAlbum, WrapWithValuePicker(albumBox, albumChoices, chkAlbum, v => albumBox.Text = v)));
-        panel.Children.Add(MakeRow(chkAlbumArtist, WrapWithValuePicker(albumArtistBox, artistChoices, chkAlbumArtist, v => albumArtistBox.Text = v)));
+        panel.Children.Add(MakeRow(chkAlbumArtist, WrapWithValuePicker(albumArtistBox, albumArtistChoices, chkAlbumArtist, v => albumArtistBox.Text = v)));
         panel.Children.Add(MakeRow(chkGenre, WrapWithValuePicker(genreBox, genreChoices, chkGenre, v => genreBox.Text = v)));
         panel.Children.Add(MakeRow(chkYear, WrapWithValuePicker(yearBox, yearChoices, chkYear, v => yearBox.Value = int.TryParse(v, out int y) ? y : double.NaN)));
         panel.Children.Add(MakeRow(chkRating, ratingCombo));

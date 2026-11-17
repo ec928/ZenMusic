@@ -4413,6 +4413,7 @@ public sealed partial class MainWindow : Window
                 peer.Title = updated.Title;
                 peer.Artist = updated.Artist;
                 peer.Album = updated.Album;
+                peer.AlbumArtist = updated.AlbumArtist;
                 peer.Genre = updated.Genre;
                 peer.Year = updated.Year;
                 peer.TrackNumber = updated.TrackNumber;
@@ -4430,6 +4431,7 @@ public sealed partial class MainWindow : Window
                 peer.Title = updated.Title;
                 peer.Artist = updated.Artist;
                 peer.Album = updated.Album;
+                peer.AlbumArtist = updated.AlbumArtist;
                 peer.Genre = updated.Genre;
                 peer.Year = updated.Year;
                 peer.TrackNumber = updated.TrackNumber;

@@ -101,6 +101,7 @@ public static class MusicLibrary
             item.Title = string.IsNullOrWhiteSpace(tag.Title) ? item.Title : tag.Title.Trim();
             item.Artist = tag.JoinedPerformers?.Trim() ?? string.Empty;
             item.Album = tag.Album?.Trim() ?? string.Empty;
+            item.AlbumArtist = tag.JoinedAlbumArtists?.Trim() ?? string.Empty;
             item.Genre = tag.JoinedGenres?.Trim() ?? string.Empty;
             item.Year = (int)tag.Year;
             item.TrackNumber = (int)tag.Track;
@@ -145,6 +146,19 @@ public static class MusicLibrary
         {
             using var file = TagLib.File.Create(path);
             return file.Tag.Lyrics?.Trim() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    public static string ReadAlbumArtist(string path)
+    {
+        try
+        {
+            using var file = TagLib.File.Create(path);
+            return file.Tag.JoinedAlbumArtists?.Trim() ?? string.Empty;
         }
         catch
         {

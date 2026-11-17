@@ -13,6 +13,7 @@ public sealed class CachedTrackEntry
     public string Title { get; set; } = string.Empty;
     public string Artist { get; set; } = string.Empty;
     public string Album { get; set; } = string.Empty;
+    public string AlbumArtist { get; set; } = string.Empty;
     public string Genre { get; set; } = string.Empty;
     public int Year { get; set; }
     public int TrackNumber { get; set; }
@@ -105,6 +106,7 @@ public static class LibraryCache
         Title = e.Title,
         Artist = e.Artist,
         Album = e.Album,
+        AlbumArtist = e.AlbumArtist,
         Genre = e.Genre,
         Year = e.Year,
         TrackNumber = e.TrackNumber,
@@ -137,6 +139,7 @@ public static class LibraryCache
         Title = t.Title,
         Artist = t.Artist,
         Album = t.Album,
+        AlbumArtist = t.AlbumArtist,
         Genre = t.Genre,
         Year = t.Year,
         TrackNumber = t.TrackNumber,
