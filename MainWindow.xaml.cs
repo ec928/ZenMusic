@@ -4138,7 +4138,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateSelectedRatingVisuals(double? rating)
     {
-        var fills = new[] { StarFill1, StarFill2, StarFill3, StarFill4, StarFill5 };
+        var fills = new[] { StarFillHost1, StarFillHost2, StarFillHost3, StarFillHost4, StarFillHost5 };
         double r = rating ?? 0;
         for (int i = 0; i < fills.Length; i++)
         {
@@ -4151,7 +4151,7 @@ public sealed partial class MainWindow : Window
             else if (r >= threshold - 0.5)
             {
                 fills[i].Visibility = Visibility.Visible;
-                fills[i].Clip = new RectangleGeometry { Rect = new Rect(0, 0, 8, 20) };
+                fills[i].Clip = new RectangleGeometry { Rect = new Rect(0, 0, 7, 16) };
             }
             else
             {

@@ -596,31 +596,41 @@
                                             <Button x:Name="StarBtn1" Tag="1" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 0.5★, right half for 1.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg1" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill1" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <Grid x:Name="StarFillHost1" Visibility="Collapsed">
+                                                        <TextBlock x:Name="StarFill1" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Grid>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn2" Tag="2" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 1.5★, right half for 2.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg2" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill2" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <Grid x:Name="StarFillHost2" Visibility="Collapsed">
+                                                        <TextBlock x:Name="StarFill2" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Grid>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn3" Tag="3" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 2.5★, right half for 3.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg3" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill3" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <Grid x:Name="StarFillHost3" Visibility="Collapsed">
+                                                        <TextBlock x:Name="StarFill3" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Grid>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn4" Tag="4" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 3.5★, right half for 4.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg4" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill4" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <Grid x:Name="StarFillHost4" Visibility="Collapsed">
+                                                        <TextBlock x:Name="StarFill4" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Grid>
                                                 </Grid>
                                             </Button>
                                             <Button x:Name="StarBtn5" Tag="5" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 4.5★, right half for 5.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg5" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="StarFill5" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                                    <Grid x:Name="StarFillHost5" Visibility="Collapsed">
+                                                        <TextBlock x:Name="StarFill5" Text="★" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Grid>
                                                 </Grid>
                                             </Button>
                                             <Button Tag="0" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Clear rating">

@@ -25,6 +25,7 @@ public sealed class StarRatingCell : Grid
 
     private readonly TextBlock[] _bgs = new TextBlock[5];
     private readonly TextBlock[] _fills = new TextBlock[5];
+    private readonly Grid[] _fillHosts = new Grid[5];
     private double? _hoverValue;
     private bool _forceDarkPalette;
 
@@ -102,12 +103,22 @@ public sealed class StarRatingCell : Grid
                 Foreground = DarkGoldBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            // Clip the full-column host rather than the centered TextBlock so x = StarWidth * 0.5
+            // bisects the star glyph instead of clipping ~70% of its intrinsic text width.
+            var fillHost = new Grid
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
                 Visibility = Visibility.Collapsed,
                 IsHitTestVisible = false
             };
-            SetColumn(fill, i);
-            Children.Add(fill);
+            fillHost.Children.Add(fill);
+            SetColumn(fillHost, i);
+            Children.Add(fillHost);
             _fills[i] = fill;
+            _fillHosts[i] = fillHost;
         }
 
         PointerPressed += StarRatingCell_PointerPressed;
@@ -169,18 +180,18 @@ public sealed class StarRatingCell : Grid
             double threshold = i + 1;
             if (r >= threshold)
             {
-                _fills[i].Visibility = Visibility.Visible;
-                _fills[i].Clip = null;
+                _fillHosts[i].Visibility = Visibility.Visible;
+                _fillHosts[i].Clip = null;
             }
             else if (r >= threshold - 0.5)
             {
-                _fills[i].Visibility = Visibility.Visible;
-                _fills[i].Clip = new RectangleGeometry { Rect = new Rect(0, 0, StarWidth * 0.5, 18) };
+                _fillHosts[i].Visibility = Visibility.Visible;
+                _fillHosts[i].Clip = new RectangleGeometry { Rect = new Rect(0, 0, StarWidth * 0.5, Height) };
             }
             else
             {
-                _fills[i].Visibility = Visibility.Collapsed;
-                _fills[i].Clip = null;
+                _fillHosts[i].Visibility = Visibility.Collapsed;
+                _fillHosts[i].Clip = null;
             }
         }
     }
