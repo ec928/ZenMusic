@@ -70,6 +70,13 @@ public sealed partial class MainWindow : Window
     private FileSystemWatcher? _folderWatcher;
     private CancellationTokenSource? _watcherDebounceCts;
     private DateTime _suppressWatcherUntilUtc = DateTime.MinValue;
+    private readonly SemaphoreSlim _tagWriteGate = new(1, 1);
+    private readonly object _pendingRatingsLock = new();
+    private readonly Dictionary<string, (double? Rating, long Version)> _pendingRatingWrites = new(StringComparer.OrdinalIgnoreCase);
+    private long _ratingWriteVersion;
+    private int _flushingPendingRatings;
+    private volatile bool _ratingFlushRequested;
+    private int _releasingFileForTagWrite;
     private int _scanId;
     private int _queueIndex = -1;
     private bool _isDraggingSeek;
@@ -334,8 +341,9 @@ public sealed partial class MainWindow : Window
             SaveSessionState();
             _settings.Save();
             _cacheSaveTimer?.Stop();
-            SaveLibraryCacheSnapshot();
             _engine.Dispose();
+            FlushPendingRatingWritesSync();
+            SaveLibraryCacheSnapshot();
         };
 
         if (!string.IsNullOrWhiteSpace(_settings.MusicFolder) && Directory.Exists(_settings.MusicFolder))
@@ -2203,11 +2211,18 @@ public sealed partial class MainWindow : Window
     private void ApplyRatingToTargets(IReadOnlyList<TrackItem> targets, double? newRating, bool pushUndo)
     {
         if (targets.Count == 0) return;
-        var previous = targets.Select(t => (Track: t, OldRating: t.Rating)).ToList();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var previous = new List<(TrackItem Sample, string Path, double? OldRating)>();
+        foreach (var t in targets)
+        {
+            if (seenPaths.Add(t.Path))
+                previous.Add((t, t.Path, t.Rating));
+            foreach (var peer in EnumerateMatchingTrackItems(t))
+                peer.Rating = newRating;
+        }
 
-        foreach (var t in targets) t.Rating = newRating;
         if ((GetPrimarySelectedTrack() ?? _inspectorTrack) is TrackItem sel &&
-            targets.Any(t => ReferenceEquals(t, sel) || string.Equals(t.Path, sel.Path, StringComparison.OrdinalIgnoreCase)))
+            seenPaths.Contains(sel.Path))
             UpdateSelectedRatingVisuals(newRating);
         SyncPlayingTrackRating(targets, newRating);
         UpdateSidebarCounts();
@@ -2218,12 +2233,16 @@ public sealed partial class MainWindow : Window
             PushUndo(() =>
             {
                 QuietFolderWatcher();
-                foreach (var (tr, oldR) in previous) tr.Rating = oldR;
+                foreach (var (sample, _, oldR) in previous)
+                {
+                    foreach (var peer in EnumerateMatchingTrackItems(sample))
+                        peer.Rating = oldR;
+                }
                 if ((GetPrimarySelectedTrack() ?? _inspectorTrack) is TrackItem s)
                 {
-                    var match = previous.FirstOrDefault(x => ReferenceEquals(x.Track, s) || string.Equals(x.Track.Path, s.Path, StringComparison.OrdinalIgnoreCase));
-                    if (match.Track != null)
-                        UpdateSelectedRatingVisuals(match.OldRating);
+                    int idx = previous.FindIndex(x => string.Equals(x.Path, s.Path, StringComparison.OrdinalIgnoreCase));
+                    if (idx >= 0)
+                        UpdateSelectedRatingVisuals(previous[idx].OldRating);
                 }
                 if (_queueIndex >= 0 && _queueIndex < _queueTracks.Count)
                 {
@@ -2232,30 +2251,14 @@ public sealed partial class MainWindow : Window
                     FocusRatingCell.Value = p.Rating;
                 }
                 UpdateSidebarCounts();
-                _ = Task.Run(() =>
-                {
-                    foreach (var (tr, oldR) in previous)
-                    {
-                        QuietFolderWatcher();
-                        MusicLibrary.TryWriteStars(tr.Path, oldR);
-                    }
-                    QuietFolderWatcher();
-                });
+                EnqueueRatingWrites(previous.Select(x => (x.Path, x.OldRating)));
                 SaveLibraryCacheSoon();
                 ShowHudPill("Undone: Star rating");
                 return Task.CompletedTask;
             });
         }
 
-        _ = Task.Run(() =>
-        {
-            foreach (var t in targets)
-            {
-                QuietFolderWatcher();
-                MusicLibrary.TryWriteStars(t.Path, newRating);
-            }
-            QuietFolderWatcher();
-        });
+        EnqueueRatingWrites(previous.Select(x => (x.Path, newRating)));
         SaveLibraryCacheSoon();
     }
 
@@ -2685,6 +2688,7 @@ public sealed partial class MainWindow : Window
         var track = _queueTracks[index];
         _activePlayingPathForLyrics = track.Path;
         bool started = _engine.PlayFile(track.Path, GetTrackReplayGainFactor(track));
+        _ = FlushPendingRatingWritesAsync();
         SetNowPlayingTrack(track.Path);
         if (started)
         {
@@ -3007,7 +3011,12 @@ public sealed partial class MainWindow : Window
         FocusVisualizer.IsAudioPlaying = playing;
 
         if (playing) _progressTimer.Start();
-        else _progressTimer.Stop();
+        else
+        {
+            _progressTimer.Stop();
+            if (Volatile.Read(ref _releasingFileForTagWrite) == 0)
+                _ = FlushPendingRatingWritesAsync();
+        }
     }
 
     private void Engine_TrackEnded()
@@ -4094,7 +4103,9 @@ public sealed partial class MainWindow : Window
     private void StarBtn_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not Button btn || !int.TryParse(btn.Tag?.ToString(), out int starIndex)) return;
-        double x = e.GetCurrentPoint(btn).Position.X;
+        var pt = e.GetCurrentPoint(btn);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        double x = pt.Position.X;
         double width = btn.ActualWidth > 0 ? btn.ActualWidth : 20.0;
         double rating = x < width * 0.5 ? starIndex - 0.5 : starIndex;
         _lastStarPointerUtc = DateTime.UtcNow;
@@ -4172,11 +4183,37 @@ public sealed partial class MainWindow : Window
 
     private async Task<(bool Ok, string? Error)> RenameTrackPathAsync(TrackItem track, string oldPath, string newPath)
     {
-        QuietFolderWatcher();
-        var (renamed, renameErr) = await _engine.RenameFileAsync(oldPath, newPath);
-        QuietFolderWatcher();
+        bool renamed;
+        string? renameErr;
+        await _tagWriteGate.WaitAsync();
+        try
+        {
+            QuietFolderWatcher();
+            Interlocked.Increment(ref _releasingFileForTagWrite);
+            try
+            {
+                (renamed, renameErr) = await _engine.RenameFileAsync(oldPath, newPath);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _releasingFileForTagWrite);
+                QuietFolderWatcher();
+            }
+        }
+        finally
+        {
+            _tagWriteGate.Release();
+        }
         if (!renamed) return (false, renameErr);
 
+        lock (_pendingRatingsLock)
+        {
+            if (_pendingRatingWrites.Remove(oldPath, out var pending))
+                _pendingRatingWrites[newPath] = pending;
+        }
+
+        foreach (var peer in EnumerateTrackItemsByPath(oldPath).ToList())
+            peer.Path = newPath;
         track.Path = newPath;
         if (_artThumbCache.TryRemove(oldPath, out var cachedThumb))
             _artThumbCache[newPath] = cachedThumb;
@@ -4309,30 +4346,239 @@ public sealed partial class MainWindow : Window
             await ShowErrorDialogAsync("Some files could not be deleted", string.Join("\n", errors));
     }
 
+    private IEnumerable<TrackItem> EnumerateTrackItemsByPath(string path)
+    {
+        var seen = new HashSet<TrackItem>();
+        foreach (var t in _allTracks)
+            if (string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        foreach (var t in _visibleTracks)
+            if (string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        foreach (var t in _queueTracks)
+            if (string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+        foreach (var t in _editingPlaylistTracks)
+            if (string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
+                yield return t;
+    }
+
     private IEnumerable<TrackItem> EnumerateMatchingTrackItems(TrackItem primary)
     {
-        var seen = new HashSet<TrackItem> { primary };
         yield return primary;
+        foreach (var t in EnumerateTrackItemsByPath(primary.Path))
+        {
+            if (!ReferenceEquals(t, primary))
+                yield return t;
+        }
+    }
 
-        foreach (var t in _allTracks)
+    private bool TryGetPendingRating(string path, out double? rating, out long version)
+    {
+        lock (_pendingRatingsLock)
         {
-            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
-                yield return t;
+            if (_pendingRatingWrites.TryGetValue(path, out var entry))
+            {
+                rating = entry.Rating;
+                version = entry.Version;
+                return true;
+            }
         }
-        foreach (var t in _visibleTracks)
+        rating = null;
+        version = 0;
+        return false;
+    }
+
+    private double? ResolveTrackRating(TrackItem track, double? diskRating)
+    {
+        bool hasPending = TryGetPendingRating(track.Path, out double? pending, out _);
+        return MusicLibrary.ResolveEffectiveRating(hasPending, pending, diskRating, track.Rating);
+    }
+
+    private async Task<(bool Ok, MusicLibrary.TrackDetails Details, string? Error)> ReadTrackDetailsSafelyAsync(string path)
+    {
+        await _tagWriteGate.WaitAsync();
+        try
         {
-            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
-                yield return t;
+            return await Task.Run(() =>
+            {
+                bool ok = MusicLibrary.TryReadFullDetails(path, out var d, out var err);
+                return (ok, d, err);
+            });
         }
-        foreach (var t in _queueTracks)
+        finally
         {
-            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
-                yield return t;
+            _tagWriteGate.Release();
         }
-        foreach (var t in _editingPlaylistTracks)
+    }
+
+    private void ApplyTrackFileStats(string path, long fileSize, long fileWriteUtcTicks)
+    {
+        foreach (var t in EnumerateTrackItemsByPath(path))
         {
-            if (string.Equals(t.Path, primary.Path, StringComparison.OrdinalIgnoreCase) && seen.Add(t))
-                yield return t;
+            t.FileSize = fileSize;
+            t.FileWriteUtcTicks = fileWriteUtcTicks;
+        }
+    }
+
+    private void UpdateTrackFileStats(string path)
+    {
+        long fileSize;
+        long fileWriteUtcTicks;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists) return;
+            fileSize = info.Length;
+            fileWriteUtcTicks = info.LastWriteTimeUtc.Ticks;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (DispatcherQueue.HasThreadAccess)
+            ApplyTrackFileStats(path, fileSize, fileWriteUtcTicks);
+        else
+            DispatcherQueue.TryEnqueue(() => ApplyTrackFileStats(path, fileSize, fileWriteUtcTicks));
+    }
+
+    private void EnqueueRatingWrites(IEnumerable<(string Path, double? Rating)> writes)
+    {
+        var deduped = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, rating) in writes)
+        {
+            if (MusicLibrary.SupportsRatingTag(path))
+                deduped[path] = rating;
+        }
+        if (deduped.Count == 0) return;
+
+        lock (_pendingRatingsLock)
+        {
+            foreach (var kv in deduped)
+            {
+                long ver = ++_ratingWriteVersion;
+                _pendingRatingWrites[kv.Key] = (kv.Value, ver);
+            }
+        }
+        _ = FlushPendingRatingWritesAsync();
+    }
+
+    private async Task FlushPendingRatingWritesAsync()
+    {
+        _ratingFlushRequested = true;
+        if (Interlocked.CompareExchange(ref _flushingPendingRatings, 1, 0) != 0)
+            return;
+
+        try
+        {
+            while (_ratingFlushRequested)
+            {
+                _ratingFlushRequested = false;
+                List<(string Path, double? Rating, long Version)> snapshot;
+                lock (_pendingRatingsLock)
+                {
+                    if (_pendingRatingWrites.Count == 0) break;
+                    snapshot = _pendingRatingWrites
+                        .Select(kv => (kv.Key, kv.Value.Rating, kv.Value.Version))
+                        .ToList();
+                }
+
+                foreach (var (path, _, version) in snapshot)
+                {
+                    if (_engine.IsPlaying && string.Equals(_engine.CurrentPath, path, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    await _tagWriteGate.WaitAsync();
+                    try
+                    {
+                        double? currentRating;
+                        lock (_pendingRatingsLock)
+                        {
+                            if (!_pendingRatingWrites.TryGetValue(path, out var entry) || entry.Version != version)
+                                continue;
+                            currentRating = entry.Rating;
+                        }
+
+                        if (_engine.IsPlaying && string.Equals(_engine.CurrentPath, path, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        QuietFolderWatcher();
+                        bool ok;
+                        if (string.Equals(_engine.CurrentPath, path, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Interlocked.Increment(ref _releasingFileForTagWrite);
+                            try
+                            {
+                                ok = await _engine.WithFileReleasedAsync(path, () => Task.Run(() => MusicLibrary.TryWriteStars(path, currentRating)));
+                            }
+                            finally
+                            {
+                                Interlocked.Decrement(ref _releasingFileForTagWrite);
+                            }
+                        }
+                        else
+                        {
+                            ok = await Task.Run(() => MusicLibrary.TryWriteStars(path, currentRating));
+                        }
+                        QuietFolderWatcher();
+
+                        if (ok)
+                        {
+                            lock (_pendingRatingsLock)
+                            {
+                                if (_pendingRatingWrites.TryGetValue(path, out var entry) && entry.Version == version)
+                                    _pendingRatingWrites.Remove(path);
+                            }
+                            UpdateTrackFileStats(path);
+                            DispatcherQueue.TryEnqueue(SaveLibraryCacheSoon);
+                        }
+                    }
+                    finally
+                    {
+                        _tagWriteGate.Release();
+                    }
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _flushingPendingRatings, 0);
+            if (_ratingFlushRequested)
+                _ = FlushPendingRatingWritesAsync();
+        }
+    }
+
+    private void FlushPendingRatingWritesSync()
+    {
+        bool locked = _tagWriteGate.Wait(TimeSpan.FromSeconds(3));
+        try
+        {
+            List<(string Path, double? Rating, long Version)> snapshot;
+            lock (_pendingRatingsLock)
+            {
+                if (_pendingRatingWrites.Count == 0) return;
+                snapshot = _pendingRatingWrites
+                    .Select(kv => (kv.Key, kv.Value.Rating, kv.Value.Version))
+                    .ToList();
+            }
+
+            foreach (var (path, rating, version) in snapshot)
+            {
+                if (MusicLibrary.TryWriteStars(path, rating))
+                {
+                    lock (_pendingRatingsLock)
+                    {
+                        if (_pendingRatingWrites.TryGetValue(path, out var entry) && entry.Version == version)
+                            _pendingRatingWrites.Remove(path);
+                    }
+                    UpdateTrackFileStats(path);
+                }
+            }
+        }
+        finally
+        {
+            if (locked) _tagWriteGate.Release();
         }
     }
 
@@ -4365,30 +4611,66 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> SaveTrackDetailsAsync(TrackItem track, MusicLibrary.TrackDetails updated, bool pushUndo = true)
     {
-        MusicLibrary.TrackDetails? snapshotBefore = pushUndo ? await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path)) : null;
-
-        QuietFolderWatcher();
-        var (saved, error) = await _engine.WithFileReleasedAsync(
-            track.Path,
-            () => Task.Run(() =>
+        MusicLibrary.TrackDetails? snapshotBefore = null;
+        if (pushUndo)
+        {
+            var (snapOk, snap, snapErr) = await ReadTrackDetailsSafelyAsync(track.Path);
+            if (!snapOk)
             {
-                bool ok = MusicLibrary.TryWriteFullDetails(track.Path, updated, out string? err);
-                return (ok, err);
-            }));
-        QuietFolderWatcher();
+                await ShowErrorDialogAsync(
+                    "Could not save tags",
+                    $"Failed to read current tags from \"{track.FileName}\":\n\n{snapErr ?? "The file may be read-only or in use by another program."}");
+                return false;
+            }
+            snap.Rating = ResolveTrackRating(track, snap.Rating);
+            snapshotBefore = snap;
+        }
+
+        bool hadPending = TryGetPendingRating(track.Path, out _, out long pendingVersionBeforeSave);
+
+        bool saved;
+        string? error;
+        await _tagWriteGate.WaitAsync();
+        try
+        {
+            QuietFolderWatcher();
+            Interlocked.Increment(ref _releasingFileForTagWrite);
+            try
+            {
+                (saved, error) = await _engine.WithFileReleasedAsync(
+                    track.Path,
+                    () => Task.Run(() =>
+                    {
+                        bool ok = MusicLibrary.TryWriteFullDetails(track.Path, updated, out string? err);
+                        return (ok, err);
+                    }));
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _releasingFileForTagWrite);
+                QuietFolderWatcher();
+            }
+        }
+        finally
+        {
+            _tagWriteGate.Release();
+        }
 
         if (!saved)
         {
-            var errDlg = new ContentDialog
-            {
-                Title = "Could not save tags",
-                Content = $"Failed to write tags to \"{track.FileName}\":\n\n{error ?? "The file may be read-only or in use by another program."}",
-                CloseButtonText = "OK",
-                XamlRoot = RootGrid.XamlRoot,
-                RequestedTheme = RootGrid.RequestedTheme
-            };
-            await errDlg.ShowAsync();
+            await ShowErrorDialogAsync(
+                "Could not save tags",
+                $"Failed to write tags to \"{track.FileName}\":\n\n{error ?? "The file may be read-only or in use by another program."}");
             return false;
+        }
+
+        if (hadPending)
+        {
+            lock (_pendingRatingsLock)
+            {
+                if (_pendingRatingWrites.TryGetValue(track.Path, out var entry) && entry.Version == pendingVersionBeforeSave)
+                    _pendingRatingWrites.Remove(track.Path);
+            }
         }
 
         if (pushUndo && snapshotBefore != null)
@@ -4403,51 +4685,60 @@ public sealed partial class MainWindow : Window
             });
         }
 
-        if (updated.ArtChanged || (track.CoverThumbnail == null && updated.ArtBytes is { Length: > 0 }))
+        var (fileSize, fileWriteUtcTicks) = await Task.Run(() =>
         {
-            bool hasArt = updated.ArtBytes is { Length: > 0 };
-            ImageSource? newThumb = hasArt
+            try
+            {
+                var info = new FileInfo(track.Path);
+                return info.Exists ? (info.Length, info.LastWriteTimeUtc.Ticks) : (0L, 0L);
+            }
+            catch
+            {
+                return (0L, 0L);
+            }
+        });
+
+        bool updateArt = updated.ArtChanged || (track.CoverThumbnail == null && updated.ArtBytes is { Length: > 0 });
+        bool hasArt = updated.ArtBytes is { Length: > 0 };
+        ImageSource? newThumb = null;
+        if (updateArt)
+        {
+            newThumb = hasArt
                 ? await CacheAndBuildThumbnailAsync(track.Path, updated.ArtBytes)
                 : null;
             if (!hasArt)
                 _artThumbCache[track.Path] = null;
+        }
 
-            foreach (var peer in EnumerateMatchingTrackItems(track))
+        foreach (var peer in EnumerateMatchingTrackItems(track))
+        {
+            peer.Title = updated.Title;
+            peer.Artist = updated.Artist;
+            peer.Album = updated.Album;
+            peer.AlbumArtist = updated.AlbumArtist;
+            peer.Genre = updated.Genre;
+            peer.Year = updated.Year;
+            peer.TrackNumber = updated.TrackNumber;
+            peer.DiscNumber = updated.DiscNumber;
+            peer.Rating = updated.Rating;
+            if (fileSize > 0)
             {
-                peer.Title = updated.Title;
-                peer.Artist = updated.Artist;
-                peer.Album = updated.Album;
-                peer.AlbumArtist = updated.AlbumArtist;
-                peer.Genre = updated.Genre;
-                peer.Year = updated.Year;
-                peer.TrackNumber = updated.TrackNumber;
-                peer.DiscNumber = updated.DiscNumber;
-                peer.Rating = updated.Rating;
+                peer.FileSize = fileSize;
+                peer.FileWriteUtcTicks = fileWriteUtcTicks;
+            }
+            if (updateArt)
+            {
                 peer.HasEmbeddedArt = hasArt;
                 peer.ArtLoadAttempted = true;
                 peer.CoverThumbnail = newThumb;
             }
         }
-        else
-        {
-            foreach (var peer in EnumerateMatchingTrackItems(track))
-            {
-                peer.Title = updated.Title;
-                peer.Artist = updated.Artist;
-                peer.Album = updated.Album;
-                peer.AlbumArtist = updated.AlbumArtist;
-                peer.Genre = updated.Genre;
-                peer.Year = updated.Year;
-                peer.TrackNumber = updated.TrackNumber;
-                peer.DiscNumber = updated.DiscNumber;
-                peer.Rating = updated.Rating;
-            }
-        }
 
-        if ((GetPrimarySelectedTrack() ?? _inspectorTrack) == track)
+        if ((GetPrimarySelectedTrack() ?? _inspectorTrack) is { } shown &&
+            string.Equals(shown.Path, track.Path, StringComparison.OrdinalIgnoreCase))
         {
-            UpdateSelectedTrackLabels(track);
-            UpdateSelectedRatingVisuals(track.Rating);
+            UpdateSelectedTrackLabels(shown);
+            UpdateSelectedRatingVisuals(shown.Rating);
             UpdateSelectedLyricsPreview(updated.Lyrics);
             if (updated.ArtChanged)
                 await LoadArtAsync(track.Path, SelectedArtImage);
@@ -4468,6 +4759,7 @@ public sealed partial class MainWindow : Window
                 await _engine.UpdateSmtcMetadata(track.DisplayTitle, track.Artist, track.Album);
         }
 
+        UpdateSidebarCounts();
         return true;
     }
 

@@ -642,6 +642,173 @@ public sealed class AudioAndLibraryTests
         Assert.Null(item.AlbumHoverText);
     }
 
+    [Fact]
+    public void MusicLibrary_ResolveEffectiveRating_PrioritizesPendingThenDiskThenCached()
+    {
+        Assert.Equal(4.5, MusicLibrary.ResolveEffectiveRating(hasPendingWrite: true, pendingRating: 4.5, diskRating: 2.0, cachedRating: 3.0));
+        Assert.Null(MusicLibrary.ResolveEffectiveRating(hasPendingWrite: true, pendingRating: null, diskRating: 4.0, cachedRating: 4.0));
+        Assert.Equal(3.5, MusicLibrary.ResolveEffectiveRating(hasPendingWrite: false, pendingRating: null, diskRating: 3.5, cachedRating: 2.0));
+        Assert.Equal(4.0, MusicLibrary.ResolveEffectiveRating(hasPendingWrite: false, pendingRating: null, diskRating: null, cachedRating: 4.0));
+        Assert.Null(MusicLibrary.ResolveEffectiveRating(hasPendingWrite: false, pendingRating: null, diskRating: null, cachedRating: null));
+    }
+
+    [Theory]
+    [InlineData(@"C:\Music\track.mp3", true)]
+    [InlineData(@"C:\Music\track.FLAC", true)]
+    [InlineData(@"C:\Music\track.m4a", true)]
+    [InlineData(@"C:\Music\track.ogg", true)]
+    [InlineData(@"C:\Music\track.opus", true)]
+    [InlineData(@"C:\Music\track.wma", true)]
+    [InlineData(@"C:\Music\track.wav", false)]
+    public void MusicLibrary_SupportsRatingTag_IdentifiesSupportedFormats(string path, bool expected)
+    {
+        Assert.Equal(expected, MusicLibrary.SupportsRatingTag(path));
+    }
+
+    [Fact]
+    public void MusicLibrary_TryWriteFullDetails_PreservesUpdatesAndClearsMp3Rating()
+    {
+        string tmpDir = Path.Combine(Path.GetTempPath(), $"zen_mp3_props_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            string ratedPath = Path.Combine(tmpDir, "rated.mp3");
+            WriteMinimalMp3(ratedPath);
+
+            Assert.True(MusicLibrary.TryWriteStars(ratedPath, 4.0));
+            Assert.True(MusicLibrary.TryReadFullDetails(ratedPath, out var initial, out _));
+            Assert.Equal(4.0, initial.Rating);
+
+            initial.Title = "Edited Title";
+            initial.Artist = "Edited Artist";
+            initial.Album = "Edited Album";
+            initial.Year = 2024;
+            Assert.True(MusicLibrary.TryWriteFullDetails(ratedPath, initial, out string? err), err);
+
+            Assert.True(MusicLibrary.TryReadFullDetails(ratedPath, out var afterEdit, out _));
+            Assert.Equal("Edited Title", afterEdit.Title);
+            Assert.Equal("Edited Artist", afterEdit.Artist);
+            Assert.Equal("Edited Album", afterEdit.Album);
+            Assert.Equal(2024, afterEdit.Year);
+            Assert.Equal(4.0, afterEdit.Rating);
+
+            afterEdit.Rating = 4.5;
+            Assert.True(MusicLibrary.TryWriteFullDetails(ratedPath, afterEdit, out err), err);
+            Assert.True(MusicLibrary.TryReadFullDetails(ratedPath, out var afterHalfStar, out _));
+            Assert.Equal(4.5, afterHalfStar.Rating);
+
+            afterHalfStar.Rating = null;
+            Assert.True(MusicLibrary.TryWriteFullDetails(ratedPath, afterHalfStar, out err), err);
+            Assert.True(MusicLibrary.TryReadFullDetails(ratedPath, out var afterClear, out _));
+            Assert.Null(afterClear.Rating);
+
+            // Editing properties of an unrated MP3 should not synthesize a zero POPM frame.
+            string unratedPath = Path.Combine(tmpDir, "unrated.mp3");
+            WriteMinimalMp3(unratedPath);
+            Assert.True(MusicLibrary.TryWriteFullDetails(unratedPath, new MusicLibrary.TrackDetails
+            {
+                Title = "No Rating Track",
+                Rating = null
+            }, out err), err);
+            using (var tf = TagLib.File.Create(unratedPath))
+            {
+                var id3 = tf.GetTag(TagLib.TagTypes.Id3v2, false) as TagLib.Id3v2.Tag;
+                Assert.True(id3 == null || !id3.GetFrames<TagLib.Id3v2.PopularimeterFrame>().Any());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MusicLibrary_TryWriteFullDetails_PreservesFlacXiphAndMigratesLegacyId3PopmRating()
+    {
+        string tmpDir = Path.Combine(Path.GetTempPath(), $"zen_flac_props_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            string flacPath = Path.Combine(tmpDir, "xiph.flac");
+            WriteMinimalFlac(flacPath);
+
+            Assert.True(MusicLibrary.TryWriteStars(flacPath, 3.5));
+            Assert.True(MusicLibrary.TryReadFullDetails(flacPath, out var d1, out _));
+            Assert.Equal(3.5, d1.Rating);
+
+            d1.Title = "FLAC Title";
+            d1.Album = "FLAC Album";
+            Assert.True(MusicLibrary.TryWriteFullDetails(flacPath, d1, out string? err), err);
+            Assert.True(MusicLibrary.TryReadFullDetails(flacPath, out var d2, out _));
+            Assert.Equal("FLAC Title", d2.Title);
+            Assert.Equal("FLAC Album", d2.Album);
+            Assert.Equal(3.5, d2.Rating);
+
+            string legacyPath = Path.Combine(tmpDir, "legacy.flac");
+            WriteMinimalFlac(legacyPath);
+            using (var tf = TagLib.File.Create(legacyPath))
+            {
+                var id3 = (TagLib.Id3v2.Tag)tf.GetTag(TagLib.TagTypes.Id3v2, true);
+                TagLib.Id3v2.PopularimeterFrame.Get(id3, "Windows Media Player 9 Series", true).Rating = 196;
+                tf.Save();
+            }
+
+            Assert.True(MusicLibrary.TryReadFullDetails(legacyPath, out var legacyDetails, out _));
+            Assert.Equal(4.0, legacyDetails.Rating);
+
+            legacyDetails.Title = "Migrated FLAC";
+            Assert.True(MusicLibrary.TryWriteFullDetails(legacyPath, legacyDetails, out err), err);
+            Assert.True(MusicLibrary.TryReadFullDetails(legacyPath, out var migrated, out _));
+            Assert.Equal("Migrated FLAC", migrated.Title);
+            Assert.Equal(4.0, migrated.Rating);
+            using (var tf = TagLib.File.Create(legacyPath))
+            {
+                Assert.Equal(TagLib.TagTypes.None, tf.TagTypes & (TagLib.TagTypes.Id3v2 | TagLib.TagTypes.Id3v1));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        }
+    }
+
+    private static void WriteMinimalMp3(string path)
+    {
+        // Two MPEG-1 Layer III 128 kbps 44.1 kHz frames (417 bytes each)
+        var bytes = new byte[417 * 2];
+        for (int frame = 0; frame < 2; frame++)
+        {
+            int o = frame * 417;
+            bytes[o] = 0xFF;
+            bytes[o + 1] = 0xFB;
+            bytes[o + 2] = 0x90;
+            bytes[o + 3] = 0x00;
+        }
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static void WriteMinimalFlac(string path)
+    {
+        var bytes = new byte[4 + 4 + 34];
+        bytes[0] = (byte)'f';
+        bytes[1] = (byte)'L';
+        bytes[2] = (byte)'a';
+        bytes[3] = (byte)'C';
+        bytes[4] = 0x80; // Last metadata block, type 0 (STREAMINFO)
+        bytes[5] = 0x00;
+        bytes[6] = 0x00;
+        bytes[7] = 0x22; // Length 34
+        int s = 8;
+        bytes[s] = 0x10; bytes[s + 1] = 0x00; // min block 4096
+        bytes[s + 2] = 0x10; bytes[s + 3] = 0x00; // max block 4096
+        bytes[s + 10] = 0x0A; // 44100 Hz, 2ch, 16-bit
+        bytes[s + 11] = 0xC4;
+        bytes[s + 12] = 0x42;
+        bytes[s + 13] = 0xF0;
+        bytes[s + 17] = 0x01; // 1 sample
+        File.WriteAllBytes(path, bytes);
+    }
+
     private sealed class BoundedSampleProvider : ISampleProvider
     {
         private readonly ISampleProvider _inner;

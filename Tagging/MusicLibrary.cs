@@ -30,6 +30,29 @@ public static class MusicLibrary
         return false;
     }
 
+    public static bool SupportsRatingTag(string path)
+    {
+        string ext = Path.GetExtension(path);
+        return ext.Equals(".mp3", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".flac", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".ogg", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".opus", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".m4a", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".aac", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".wma", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static double? ResolveEffectiveRating(
+        bool hasPendingWrite,
+        double? pendingRating,
+        double? diskRating,
+        double? cachedRating)
+    {
+        if (hasPendingWrite) return pendingRating;
+        return diskRating ?? cachedRating;
+    }
+
     public static double? StarsFromPopularimeter(byte value)
     {
         if (value == 0) return null;
@@ -185,33 +208,52 @@ public static class MusicLibrary
 
     public static TrackDetails ReadFullDetails(string path)
     {
-        var d = new TrackDetails();
-        try
+        TryReadFullDetails(path, out var details, out _);
+        return details;
+    }
+
+    public static bool TryReadFullDetails(string path, out TrackDetails details, out string? error)
+    {
+        details = new TrackDetails();
+        error = null;
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            using var file = TagLib.File.Create(path);
-            var tag = file.Tag;
-            d.Title = tag.Title ?? string.Empty;
-            d.Artist = tag.JoinedPerformers ?? string.Empty;
-            d.Album = tag.Album ?? string.Empty;
-            d.AlbumArtist = tag.JoinedAlbumArtists ?? string.Empty;
-            d.Genre = tag.JoinedGenres ?? string.Empty;
-            d.Year = (int)tag.Year;
-            d.TrackNumber = (int)tag.Track;
-            d.DiscNumber = (int)tag.Disc;
-            d.Lyrics = tag.Lyrics ?? string.Empty;
-            d.Rating = ReadStarsFromTagLib(file, path);
-            if (tag.Pictures is { Length: > 0 } && tag.Pictures[0].Data?.Data is { Length: > 0 } picBytes)
+            var d = new TrackDetails();
+            try
             {
-                d.ArtBytes = picBytes;
-                d.ArtMimeType = string.IsNullOrWhiteSpace(tag.Pictures[0].MimeType) ? "image/jpeg" : tag.Pictures[0].MimeType;
+                using var file = TagLib.File.Create(path);
+                var tag = file.Tag;
+                d.Title = tag.Title ?? string.Empty;
+                d.Artist = tag.JoinedPerformers ?? string.Empty;
+                d.Album = tag.Album ?? string.Empty;
+                d.AlbumArtist = tag.JoinedAlbumArtists ?? string.Empty;
+                d.Genre = tag.JoinedGenres ?? string.Empty;
+                d.Year = (int)tag.Year;
+                d.TrackNumber = (int)tag.Track;
+                d.DiscNumber = (int)tag.Disc;
+                d.Lyrics = tag.Lyrics ?? string.Empty;
+                d.Rating = ReadStarsFromTagLib(file, path);
+                if (tag.Pictures is { Length: > 0 } && tag.Pictures[0].Data?.Data is { Length: > 0 } picBytes)
+                {
+                    d.ArtBytes = picBytes;
+                    d.ArtMimeType = string.IsNullOrWhiteSpace(tag.Pictures[0].MimeType) ? "image/jpeg" : tag.Pictures[0].MimeType;
+                }
+                details = d;
+                error = null;
+                return true;
             }
-            else
+            catch (IOException ex) when (attempt < 2)
             {
-                d.ArtBytes = ReadEmbeddedArtBytes(path);
+                error = ex.Message;
+                System.Threading.Thread.Sleep(60);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
             }
         }
-        catch { }
-        return d;
+        return false;
     }
 
     public static bool TryWriteFullDetails(string path, TrackDetails d) =>
@@ -256,11 +298,12 @@ public static class MusicLibrary
                             tag.Pictures = Array.Empty<TagLib.IPicture>();
                         }
                     }
+
+                    ApplyStarsToTagLib(file, path, d.Rating);
                     file.Save();
                 }
 
                 try { File.SetLastWriteTimeUtc(path, originalWriteUtc); } catch { }
-                TryWriteStars(path, d.Rating);
                 return true;
             }
             catch (IOException ex) when (attempt < 2)
@@ -277,95 +320,154 @@ public static class MusicLibrary
         return false;
     }
 
-    public static bool TryWriteStars(string path, double? stars)
+    public static bool TryWriteStars(string path, double? stars) =>
+        TryWriteStars(path, stars, out _);
+
+    public static bool TryWriteStars(string path, double? stars, out string? error)
     {
-        try
+        error = null;
+        if (!SupportsRatingTag(path)) return false;
+
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            DateTime originalWriteUtc = File.GetLastWriteTimeUtc(path);
-            bool saved = false;
-            using (var file = TagLib.File.Create(path))
+            try
             {
-                string ext = Path.GetExtension(path).ToLowerInvariant();
-                if (ext == ".mp3")
+                DateTime originalWriteUtc = File.GetLastWriteTimeUtc(path);
+                bool modified;
+                using (var file = TagLib.File.Create(path))
                 {
-                    var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2, true);
-                    byte value = stars is double s && s > 0 ? PopularimeterFromStars(s) : (byte)0;
-                    TagLib.Id3v2.PopularimeterFrame.Get(id3, "Windows Media Player 9 Series", true).Rating = value;
-                    // A file rated by another tagger carries that tagger's own rating frame. Every frame gets
-                    // the new value: left behind, the old one is what the file reads back as on the next scan.
-                    foreach (var other in id3.GetFrames<TagLib.Id3v2.PopularimeterFrame>())
-                        other.Rating = value;
-                    file.Save();
-                    saved = true;
-                }
-                else if (ext is ".flac" or ".ogg" or ".opus")
-                {
-                    if (ext == ".flac")
-                        StripLegacyFlacId3Tags(file, path);
-                    var xiph = (TagLib.Ogg.XiphComment)file.GetTag(TagLib.TagTypes.Xiph, true);
-                    if (stars is double s && s > 0)
-                    {
-                        int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
-                        xiph.SetField("RATING", val100.ToString(CultureInfo.InvariantCulture));
-                    }
-                    else
-                    {
-                        xiph.RemoveField("RATING");
-                        xiph.RemoveField("FMPS_RATING");
-                    }
-                    file.Save();
-                    saved = true;
-                }
-                else if (ext is ".m4a" or ".mp4" or ".aac")
-                {
-                    if (file.GetTag(TagLib.TagTypes.Apple, true) is TagLib.Mpeg4.AppleTag apple)
-                    {
-                        if (stars is double s && s > 0)
-                        {
-                            int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
-                            apple.SetDashBox("com.apple.iTunes", "RATING", val100.ToString(CultureInfo.InvariantCulture));
-                        }
-                        else
-                        {
-                            apple.SetDashBox("com.apple.iTunes", "RATING", string.Empty);
-                        }
+                    modified = ApplyStarsToTagLib(file, path, stars);
+                    if (modified)
                         file.Save();
-                        saved = true;
-                    }
                 }
-                else if (ext == ".wma")
+                if (modified)
                 {
-                    if (file.GetTag(TagLib.TagTypes.Asf, true) is TagLib.Asf.Tag asf)
-                    {
-                        if (stars is double s && s > 0)
-                        {
-                            uint val99 = (uint)Math.Clamp(Math.Round((s - 0.5) / 4.5 * 98.0 + 1.0), 1, 99);
-                            if (s >= 4.9) val99 = 99;
-                            asf.SetDescriptorString(val99.ToString(CultureInfo.InvariantCulture), "WM/SharedUserRating");
-                        }
-                        else
-                        {
-                            asf.RemoveDescriptors("WM/SharedUserRating");
-                        }
-                        file.Save();
-                        saved = true;
-                    }
+                    try { File.SetLastWriteTimeUtc(path, originalWriteUtc); } catch { }
                 }
+                error = null;
+                return true;
             }
-            if (saved)
+            catch (IOException ex) when (attempt < 2)
             {
-                try { File.SetLastWriteTimeUtc(path, originalWriteUtc); } catch { }
+                error = ex.Message;
+                System.Threading.Thread.Sleep(60);
             }
-            return saved;
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
         }
-        catch { }
         return false;
     }
 
-    private static void StripLegacyFlacId3Tags(TagLib.File file, string path)
+    private static bool ApplyStarsToTagLib(TagLib.File file, string path, double? stars)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext == ".mp3")
+        {
+            if (stars is double s && s > 0)
+            {
+                var id3 = (TagLib.Id3v2.Tag)file.GetTag(TagLib.TagTypes.Id3v2, true);
+                byte value = PopularimeterFromStars(s);
+                TagLib.Id3v2.PopularimeterFrame.Get(id3, "Windows Media Player 9 Series", true).Rating = value;
+                // A file rated by another tagger carries that tagger's own rating frame. Every frame gets
+                // the new value: left behind, the old one is what the file reads back as on the next scan.
+                foreach (var other in id3.GetFrames<TagLib.Id3v2.PopularimeterFrame>())
+                    other.Rating = value;
+                return true;
+            }
+
+            if (file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag existingId3)
+            {
+                bool anyChanged = false;
+                foreach (var other in existingId3.GetFrames<TagLib.Id3v2.PopularimeterFrame>())
+                {
+                    if (other.Rating != 0)
+                    {
+                        other.Rating = 0;
+                        anyChanged = true;
+                    }
+                }
+                return anyChanged;
+            }
+            return false;
+        }
+
+        if (ext is ".flac" or ".ogg" or ".opus")
+        {
+            bool stripped = ext == ".flac" && StripLegacyFlacId3Tags(file, path);
+            if (stars is double s && s > 0)
+            {
+                var xiph = (TagLib.Ogg.XiphComment)file.GetTag(TagLib.TagTypes.Xiph, true);
+                int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
+                xiph.SetField("RATING", val100.ToString(CultureInfo.InvariantCulture));
+                if (xiph.GetField("FMPS_RATING").Length > 0)
+                {
+                    double clamped = Math.Clamp(Math.Round(s * 2.0) / 2.0, 0.5, 5.0);
+                    xiph.SetField("FMPS_RATING", (clamped / 5.0).ToString("0.##", CultureInfo.InvariantCulture));
+                }
+                return true;
+            }
+
+            if (file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment existingXiph &&
+                (existingXiph.GetField("RATING").Length > 0 || existingXiph.GetField("FMPS_RATING").Length > 0))
+            {
+                existingXiph.RemoveField("RATING");
+                existingXiph.RemoveField("FMPS_RATING");
+                return true;
+            }
+            return stripped;
+        }
+
+        if (ext is ".m4a" or ".mp4" or ".aac")
+        {
+            if (stars is double s && s > 0)
+            {
+                if (file.GetTag(TagLib.TagTypes.Apple, true) is TagLib.Mpeg4.AppleTag apple)
+                {
+                    int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
+                    apple.SetDashBox("com.apple.iTunes", "RATING", val100.ToString(CultureInfo.InvariantCulture));
+                    return true;
+                }
+            }
+            else if (file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag existingApple &&
+                     !string.IsNullOrEmpty(existingApple.GetDashBox("com.apple.iTunes", "RATING")))
+            {
+                existingApple.SetDashBox("com.apple.iTunes", "RATING", string.Empty);
+                return true;
+            }
+            return false;
+        }
+
+        if (ext == ".wma")
+        {
+            if (stars is double s && s > 0)
+            {
+                if (file.GetTag(TagLib.TagTypes.Asf, true) is TagLib.Asf.Tag asf)
+                {
+                    uint val99 = (uint)Math.Clamp(Math.Round((s - 0.5) / 4.5 * 98.0 + 1.0), 1, 99);
+                    if (s >= 4.9) val99 = 99;
+                    asf.SetDescriptorString(val99.ToString(CultureInfo.InvariantCulture), "WM/SharedUserRating");
+                    return true;
+                }
+            }
+            else if (file.GetTag(TagLib.TagTypes.Asf, false) is TagLib.Asf.Tag existingAsf &&
+                     existingAsf.GetDescriptors("WM/SharedUserRating").Any())
+            {
+                existingAsf.RemoveDescriptors("WM/SharedUserRating");
+                return true;
+            }
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool StripLegacyFlacId3Tags(TagLib.File file, string path)
     {
         const TagLib.TagTypes legacy = TagLib.TagTypes.Id3v2 | TagLib.TagTypes.Id3v1;
-        if ((file.TagTypes & legacy) == 0) return;
+        if ((file.TagTypes & legacy) == 0) return false;
 
         // Snapshot combined tag values (including rating/art from legacy ID3v2) before stripping ID3 wrapper,
         // otherwise TagLibSharp embeds cover art inside the prepended ID3v2 block and breaks Media Foundation FLAC sniffing.
@@ -404,6 +506,7 @@ public static class MusicLibrary
             int val100 = (int)Math.Clamp(Math.Round(s * 20), 10, 100);
             xc.SetField("RATING", val100.ToString(CultureInfo.InvariantCulture));
         }
+        return true;
     }
 
     private static double? ReadStarsFromTagLib(TagLib.File file, string path)
@@ -416,12 +519,22 @@ public static class MusicLibrary
                 if (StarsFromPopularimeter(frame.Rating) is double s) return s;
             }
         }
-        else if (ext is ".flac" or ".ogg" or ".opus" && file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
+        else if (ext is ".flac" or ".ogg" or ".opus")
         {
-            foreach (string key in new[] { "RATING", "FMPS_RATING" })
+            if (file.GetTag(TagLib.TagTypes.Xiph, false) is TagLib.Ogg.XiphComment xiph)
             {
-                string[] vals = xiph.GetField(key);
-                if (vals.Length > 0 && StarsFromVorbis(key, vals[0]) is double s) return s;
+                foreach (string key in new[] { "RATING", "FMPS_RATING" })
+                {
+                    string[] vals = xiph.GetField(key);
+                    if (vals.Length > 0 && StarsFromVorbis(key, vals[0]) is double s) return s;
+                }
+            }
+            if (ext == ".flac" && file.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag flacId3)
+            {
+                foreach (var frame in flacId3.GetFrames<TagLib.Id3v2.PopularimeterFrame>())
+                {
+                    if (StarsFromPopularimeter(frame.Rating) is double s) return s;
+                }
             }
         }
         else if (ext is ".m4a" or ".mp4" or ".aac" && file.GetTag(TagLib.TagTypes.Apple, false) is TagLib.Mpeg4.AppleTag apple)

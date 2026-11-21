@@ -753,7 +753,14 @@ public sealed partial class MainWindow
         }
 
         var track = tracks[0];
-        var details = await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path));
+        var (readOk, details, readErr) = await ReadTrackDetailsSafelyAsync(track.Path);
+        if (!readOk)
+        {
+            await ShowErrorDialogAsync(
+                "Could not read track properties",
+                $"Failed to read tags from \"{track.FileName}\":\n\n{readErr ?? "The file may be unavailable or in use."}");
+            return;
+        }
         string origDir = Path.GetDirectoryName(track.Path) ?? string.Empty;
         string origExt = Path.GetExtension(track.Path);
         string origNameNoExt = Path.GetFileNameWithoutExtension(track.Path);
@@ -873,7 +880,7 @@ public sealed partial class MainWindow
         heroSummary.Children.Add(specStrip);
         heroSummary.Children.Add(heroFolderText);
 
-        double? selectedRating = details.Rating;
+        double? selectedRating = ResolveTrackRating(track, details.Rating);
         var ratingCell = new StarRatingCell { Value = selectedRating, HorizontalAlignment = HorizontalAlignment.Right };
         ToolTipService.SetToolTip(ratingCell, "Click stars (left half = .5, right half = .0; click same rating again to clear)");
         ratingCell.RatingSelected += (_, val) =>
@@ -1577,11 +1584,35 @@ public sealed partial class MainWindow
 
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
 
+        bool applyRating = chkRating.IsChecked == true && ratingCombo.SelectedItem is ComboBoxItem;
+        bool anyField = chkArtist.IsChecked == true
+            || chkAlbum.IsChecked == true
+            || chkAlbumArtist.IsChecked == true
+            || chkGenre.IsChecked == true
+            || chkYear.IsChecked == true
+            || applyRating
+            || chkArt.IsChecked == true;
+        if (!anyField) return;
+
         var snapshots = new List<(TrackItem Track, MusicLibrary.TrackDetails Before)>();
+        var skippedErrors = new List<string>();
         foreach (var t in tracks)
         {
-            var cur = await Task.Run(() => MusicLibrary.ReadFullDetails(t.Path));
-            snapshots.Add((t, new MusicLibrary.TrackDetails
+            if (t.IsCloudOnly)
+            {
+                skippedErrors.Add($"{t.FileName}: cloud-only file is not downloaded locally.");
+                continue;
+            }
+
+            var (readOk, cur, readErr) = await ReadTrackDetailsSafelyAsync(t.Path);
+            if (!readOk)
+            {
+                skippedErrors.Add($"{t.FileName}: {readErr ?? "could not read tags."}");
+                continue;
+            }
+
+            double? existingRating = ResolveTrackRating(t, cur.Rating);
+            var before = new MusicLibrary.TrackDetails
             {
                 Title = cur.Title,
                 Artist = cur.Artist,
@@ -1591,12 +1622,12 @@ public sealed partial class MainWindow
                 Year = cur.Year,
                 TrackNumber = cur.TrackNumber,
                 DiscNumber = cur.DiscNumber,
-                Rating = cur.Rating,
+                Rating = existingRating,
                 Lyrics = cur.Lyrics,
                 ArtBytes = cur.ArtBytes,
                 ArtMimeType = cur.ArtMimeType,
                 ArtChanged = chkArt.IsChecked == true
-            }));
+            };
 
             var updated = new MusicLibrary.TrackDetails
             {
@@ -1608,28 +1639,36 @@ public sealed partial class MainWindow
                 Year = chkYear.IsChecked == true ? (double.IsNaN(yearBox.Value) ? 0 : (int)yearBox.Value) : cur.Year,
                 TrackNumber = cur.TrackNumber,
                 DiscNumber = cur.DiscNumber,
-                Rating = chkRating.IsChecked == true
+                Rating = applyRating
                     ? ((ratingCombo.SelectedItem as ComboBoxItem)?.Tag is double rv && rv > 0 ? rv : null)
-                    : cur.Rating,
+                    : existingRating,
                 Lyrics = cur.Lyrics,
                 ArtBytes = chkArt.IsChecked == true ? batchArtBytes : cur.ArtBytes,
                 ArtMimeType = chkArt.IsChecked == true ? batchArtMime : cur.ArtMimeType,
                 ArtChanged = chkArt.IsChecked == true
             };
-            await SaveTrackDetailsAsync(t, updated, pushUndo: false);
+            if (await SaveTrackDetailsAsync(t, updated, pushUndo: false))
+                snapshots.Add((t, before));
         }
 
-        PushUndo(async () =>
+        if (snapshots.Count > 0)
         {
-            foreach (var (tr, before) in snapshots)
-                await SaveTrackDetailsAsync(tr, before, pushUndo: false);
-            RefreshVisibleTracks();
-            ShowHudPill($"Undone: Batch edit ({snapshots.Count} tracks)");
-        });
+            PushUndo(async () =>
+            {
+                foreach (var (tr, before) in snapshots)
+                    await SaveTrackDetailsAsync(tr, before, pushUndo: false);
+                RefreshVisibleTracks();
+                SaveLibraryCacheSnapshot();
+                ShowHudPill($"Undone: Batch edit ({snapshots.Count} tracks)");
+            });
 
-        RefreshVisibleTracks();
-        SaveLibraryCacheSnapshot();
-        ShowHudPill($"Updated {tracks.Count} tracks");
+            RefreshVisibleTracks();
+            SaveLibraryCacheSnapshot();
+            ShowHudPill($"Updated {snapshots.Count} track(s)");
+        }
+
+        if (skippedErrors.Count > 0)
+            await ShowErrorDialogAsync("Some tracks could not be updated", string.Join("\n", skippedErrors.Take(10)));
     }
 
     private async Task OpenBatchRenameDialogAsync(IReadOnlyList<TrackItem> tracks)
@@ -1767,7 +1806,19 @@ public sealed partial class MainWindow
         for (int trackIdx = 0; trackIdx < tracks.Count; trackIdx++)
         {
             var track = tracks[trackIdx];
-            var current = await Task.Run(() => MusicLibrary.ReadFullDetails(track.Path));
+            if (track.IsCloudOnly)
+            {
+                await ShowErrorDialogAsync("Cloud-only file", $"\"{track.FileName}\" is cloud-only in OneDrive. Download it before auto-tagging.");
+                continue;
+            }
+            var (readOk, current, readErr) = await ReadTrackDetailsSafelyAsync(track.Path);
+            if (!readOk)
+            {
+                await ShowErrorDialogAsync(
+                    "Could not read track properties",
+                    $"Failed to read tags from \"{track.FileName}\":\n\n{readErr ?? "The file may be unavailable or in use."}");
+                continue;
+            }
             var parsed = AutoTagger.ParseFromFilename(track.Path);
 
             // Same quiet field label as the Properties dialog.
@@ -2157,6 +2208,10 @@ public sealed partial class MainWindow
             if (dlgResult == ContentDialogResult.None) break;
             if (dlgResult == ContentDialogResult.Secondary) continue;
 
+            bool applyArt = chkArt.IsChecked == true && chosenArtBytes is { Length: > 0 };
+            string artMime = applyArt
+                ? (chosenArtBytes!.Length >= 4 && chosenArtBytes[0] == 0x89 && chosenArtBytes[1] == 0x50 ? "image/png" : "image/jpeg")
+                : current.ArtMimeType;
             var updated = new MusicLibrary.TrackDetails
             {
                 Title = chkTitle.IsChecked == true ? boxTitle.Text.Trim() : current.Title,
@@ -2167,11 +2222,11 @@ public sealed partial class MainWindow
                 Year = chkYear.IsChecked == true && int.TryParse(boxYear.Text.Trim(), out int yVal) ? yVal : current.Year,
                 TrackNumber = chkTrack.IsChecked == true && int.TryParse(boxTrack.Text.Trim(), out int tVal) ? tVal : current.TrackNumber,
                 DiscNumber = current.DiscNumber,
-                Rating = current.Rating,
+                Rating = ResolveTrackRating(track, current.Rating),
                 Lyrics = chkLyrics.IsChecked == true ? boxLyrics.Text.Replace("\r", Environment.NewLine) : current.Lyrics,
-                ArtBytes = chkArt.IsChecked == true ? chosenArtBytes : current.ArtBytes,
-                ArtMimeType = "image/jpeg",
-                ArtChanged = chkArt.IsChecked == true && chosenArtBytes is { Length: > 0 }
+                ArtBytes = applyArt ? chosenArtBytes : current.ArtBytes,
+                ArtMimeType = artMime,
+                ArtChanged = applyArt
             };
 
             if (await SaveTrackDetailsAsync(track, updated))

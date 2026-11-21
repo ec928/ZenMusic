@@ -156,7 +156,9 @@ public sealed class StarRatingCell : Grid
 
     private void StarRatingCell_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        double clicked = ComputeRatingAtX(e.GetCurrentPoint(this).Position.X);
+        var pt = e.GetCurrentPoint(this);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        double clicked = ComputeRatingAtX(pt.Position.X);
         double? next = Nullable.Equals(Value, clicked) ? null : clicked;
         _hoverValue = null;
         RatingSelected?.Invoke(this, next);
