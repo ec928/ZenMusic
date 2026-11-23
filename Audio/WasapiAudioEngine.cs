@@ -26,7 +26,7 @@ public sealed class WasapiAudioEngine : IDisposable
     private WaveStream? _reader;
     private SmoothGainSampleProvider? _replayGainProvider;
     private EqualizerSampleProvider? _equalizerProvider;
-    private VolumeSampleProvider? _volumeProvider;
+    private RampedVolumeSampleProvider? _volumeProvider;
     private SpeakerMatrixProvider? _matrixProvider;
 
     private string? _currentPath;
@@ -39,6 +39,15 @@ public sealed class WasapiAudioEngine : IDisposable
     private bool _isPlaying;
     private bool _suppressStoppedEvent;
     private bool _disposed;
+
+    // Audible position. The reader cursor leads the speakers by the device buffer, so the
+    // scrubber and a tag-write resume both follow the render clock instead of that cursor.
+    private TimeSpan _origin;
+    private long _clockAtOrigin;
+    private int _outputBytesPerSecond;
+    private bool _holding;
+    private TimeSpan _heldPosition;
+    private TimeSpan _heldDuration;
 
     // SMTC (Windows media keys & lock-screen overlay) via a silent dummy MediaPlayer
     private MediaPlayer? _smtcHost;
@@ -54,7 +63,7 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         get
         {
-            lock (_lock) return _reader?.CurrentTime ?? TimeSpan.Zero;
+            lock (_lock) return HeardLocked();
         }
     }
 
@@ -62,7 +71,11 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         get
         {
-            lock (_lock) return _reader?.TotalTime ?? TimeSpan.Zero;
+            lock (_lock)
+            {
+                if (_reader != null) return _reader.TotalTime;
+                return _holding ? _heldDuration : TimeSpan.Zero;
+            }
         }
     }
 
@@ -279,7 +292,8 @@ public sealed class WasapiAudioEngine : IDisposable
             {
                 if (_currentPath == null || _reader == null) return;
                 wasPlaying = _isPlaying;
-                var pos = _reader.CurrentTime;
+                BeginHoldLocked();
+                var pos = _heldPosition;
                 string path = _currentPath;
                 StopInternal();
                 _currentPath = path;
@@ -296,8 +310,12 @@ public sealed class WasapiAudioEngine : IDisposable
     private void OpenAndStartGraph(string path, TimeSpan startAt, bool autoPlay)
     {
         _reader = CreateReader(path);
-        if (startAt > TimeSpan.Zero && startAt < _reader.TotalTime)
-            _reader.CurrentTime = startAt;
+        TimeSpan applied = PlaybackClock.SeekTarget(startAt, _reader.TotalTime);
+        if (applied > TimeSpan.Zero)
+            _reader.CurrentTime = applied;
+        _origin = applied;
+        _clockAtOrigin = 0;
+        _holding = false;
 
         var mixFormat = GetEndpointMixFormat(_deviceId);
         int endpointChannels = mixFormat?.Channels ?? 2;
@@ -313,7 +331,7 @@ public sealed class WasapiAudioEngine : IDisposable
             _replayGainProvider = new SmoothGainSampleProvider(p, _replayGainFactor);
             _equalizerProvider = new EqualizerSampleProvider(_replayGainProvider, _equalizerGains);
             var fftTap = new FftTapSampleProvider(_equalizerProvider, Fft);
-            _volumeProvider = new VolumeSampleProvider(fftTap) { Volume = _volume };
+            _volumeProvider = new RampedVolumeSampleProvider(fftTap, _volume);
             _matrixProvider = new SpeakerMatrixProvider(_volumeProvider, _speakerOptions, endpointChannels);
             return _matrixProvider;
         }
@@ -365,6 +383,7 @@ public sealed class WasapiAudioEngine : IDisposable
         }
 
         _output.PlaybackStopped += Output_PlaybackStopped;
+        _outputBytesPerSecond = Math.Max(1, _output.OutputWaveFormat.AverageBytesPerSecond);
 
         if (autoPlay) _output.Play();
     }
@@ -444,14 +463,18 @@ public sealed class WasapiAudioEngine : IDisposable
     private static WasapiOut CreateWasapiOut(string? deviceId, bool exclusive)
     {
         var shareMode = exclusive ? AudioClientShareMode.Exclusive : AudioClientShareMode.Shared;
-        int latency = exclusive ? 100 : 60;
+        // Shared mode is polled, with a deeper buffer than the old 60 ms event-sync stream.
+        // A hardware volume wheel steps the endpoint volume many times a second, and that
+        // event-sync stream underruns on each step.
+        int latency = exclusive ? 100 : 120;
+        bool eventSync = exclusive;
         if (!string.IsNullOrEmpty(deviceId))
         {
             using var enumerator = new MMDeviceEnumerator();
             var device = enumerator.GetDevice(deviceId);
-            return new WasapiOut(device, shareMode, useEventSync: true, latency: latency);
+            return new WasapiOut(device, shareMode, eventSync, latency: latency);
         }
-        return new WasapiOut(shareMode, useEventSync: true, latency: latency);
+        return new WasapiOut(shareMode, eventSync, latency: latency);
     }
 
     private void Output_PlaybackStopped(object? sender, StoppedEventArgs e)
@@ -507,8 +530,13 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         lock (_lock)
         {
+            _holding = false;
+            _heldPosition = TimeSpan.Zero;
+            _heldDuration = TimeSpan.Zero;
             StopInternal();
             _currentPath = null;
+            _origin = TimeSpan.Zero;
+            _clockAtOrigin = 0;
         }
         Fft.Clear();
         UpdatePlaybackState(false);
@@ -518,9 +546,11 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         lock (_lock)
         {
-            if (_reader == null || !_reader.CanSeek) return;
-            var clamped = TimeSpan.FromMilliseconds(Math.Clamp(position.TotalMilliseconds, 0, Math.Max(0, _reader.TotalTime.TotalMilliseconds - 50)));
-            _reader.CurrentTime = clamped;
+            if (_holding || _reader == null || !_reader.CanSeek) return;
+            var target = PlaybackClock.SeekTarget(position, _reader.TotalTime);
+            _reader.CurrentTime = target;
+            _origin = target;
+            _clockAtOrigin = ReadClockBytesLocked();
         }
     }
 
@@ -528,8 +558,12 @@ public sealed class WasapiAudioEngine : IDisposable
     /// Temporarily releases the audio file handle if <paramref name="path"/> is currently loaded,
     /// executes <paramref name="fileAction"/> so tags can be written without file-lock errors,
     /// and then restores playback at the previous position and play/pause state.
+    /// <paramref name="resumePath"/> is the file to reopen when the action renamed it.
     /// </summary>
-    public async Task<T> WithFileReleasedAsync<T>(string path, Func<Task<T>> fileAction)
+    public async Task<T> WithFileReleasedAsync<T>(
+        string path,
+        Func<Task<T>> fileAction,
+        Func<T, string?>? resumePath = null)
     {
         bool released = false;
         bool wasPlaying = false;
@@ -544,19 +578,39 @@ public sealed class WasapiAudioEngine : IDisposable
             {
                 released = true;
                 wasPlaying = _isPlaying;
-                pos = _reader.CurrentTime;
+                BeginHoldLocked();
+                pos = _heldPosition;
                 StopInternal();
             }
         }
 
+        T result = default!;
+        bool haveResult = false;
         try
         {
-            return await fileAction();
+            result = await fileAction();
+            haveResult = true;
+            return result;
         }
         finally
         {
             if (released && !_disposed)
             {
+                string reopen = path;
+                if (haveResult && resumePath != null)
+                {
+                    try
+                    {
+                        string? chosen = resumePath(result);
+                        if (!string.IsNullOrWhiteSpace(chosen))
+                            reopen = chosen;
+                    }
+                    catch
+                    {
+                        reopen = path;
+                    }
+                }
+
                 try
                 {
                     lock (_lock)
@@ -565,14 +619,15 @@ public sealed class WasapiAudioEngine : IDisposable
                             _currentPath != null &&
                             string.Equals(_currentPath, path, StringComparison.OrdinalIgnoreCase))
                         {
-                            OpenAndStartGraph(path, pos, wasPlaying);
+                            _currentPath = reopen;
+                            OpenAndStartGraph(reopen, pos, wasPlaying);
                         }
                     }
                     UpdatePlaybackState(wasPlaying);
                 }
                 catch (Exception ex)
                 {
-                    PlaybackError?.Invoke($"Cannot resume {Path.GetFileName(path)}: {ex.Message}");
+                    PlaybackError?.Invoke($"Cannot resume {Path.GetFileName(reopen)}: {ex.Message}");
                 }
             }
         }
@@ -593,7 +648,8 @@ public sealed class WasapiAudioEngine : IDisposable
             {
                 released = true;
                 wasPlaying = _isPlaying;
-                pos = _reader.CurrentTime;
+                BeginHoldLocked();
+                pos = _heldPosition;
                 StopInternal();
             }
         }
@@ -667,6 +723,42 @@ public sealed class WasapiAudioEngine : IDisposable
         lock (_lock)
         {
             if (_volumeProvider != null) _volumeProvider.Volume = _volume;
+        }
+    }
+
+    private TimeSpan HeardLocked()
+    {
+        if (_reader == null)
+            return _holding ? _heldPosition : _origin;
+
+        int bytesPerSecond = _outputBytesPerSecond;
+        long clock = _output == null ? _clockAtOrigin : ReadClockBytesLocked();
+        var duration = _reader.TotalTime;
+        return PlaybackClock.Heard(_origin, clock, _clockAtOrigin, bytesPerSecond, duration);
+    }
+
+    private void BeginHoldLocked()
+    {
+        _heldPosition = HeardLocked();
+        _heldDuration = _reader?.TotalTime ?? _heldDuration;
+        _holding = true;
+    }
+
+    private long ReadClockBytesLocked()
+    {
+        try
+        {
+            if (_output == null) return _clockAtOrigin;
+            long clock = Math.Max(0, _output.GetPosition());
+            // A stopped or not-yet-started client reports 0. Don't treat that as a rewind
+            // once the clock has already moved, or the scrubber snaps back to the seek point.
+            if (clock == 0 && _clockAtOrigin > 0)
+                return _clockAtOrigin;
+            return clock;
+        }
+        catch
+        {
+            return _clockAtOrigin;
         }
     }
 

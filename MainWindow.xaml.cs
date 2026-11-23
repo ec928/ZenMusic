@@ -41,6 +41,7 @@ public sealed partial class MainWindow : Window
     private readonly AppSettings _settings;
     private readonly WasapiAudioEngine _engine;
     private readonly DispatcherTimer _progressTimer;
+    private readonly DispatcherTimer _seekCoalesceTimer;
 
     private readonly List<TrackItem> _allTracks = new();
     private ObservableCollection<TrackItem> _visibleTracks = new();
@@ -315,9 +316,12 @@ public sealed partial class MainWindow : Window
 
         _progressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
         _progressTimer.Tick += ProgressTimer_Tick;
+        _seekCoalesceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+        _seekCoalesceTimer.Tick += (_, _) => FlushCoalescedSeek();
 
         SeekSlider.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(SeekSlider_PointerPressed), true);
         SeekSlider.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(SeekSlider_PointerReleased), true);
+        SeekSlider.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(SeekSlider_PointerReleased), true);
         foreach (var starBtn in new[] { StarBtn1, StarBtn2, StarBtn3, StarBtn4, StarBtn5 })
             starBtn.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(StarBtn_PointerPressed), true);
 
@@ -327,6 +331,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _progressTimer.Stop();
+            _seekCoalesceTimer.Stop();
             SeekRailCanvas.RemoveFromVisualTree();
             VolumeRailCanvas.RemoveFromVisualTree();
             _scanCts?.Cancel();
@@ -3138,10 +3143,6 @@ public sealed partial class MainWindow : Window
             }
             finally { _isUpdatingSeekSlider = false; }
         }
-        else
-        {
-            _seekProgressRatio = 0.0;
-        }
         SeekRailCanvas?.Invalidate();
     }
 
@@ -3250,13 +3251,17 @@ public sealed partial class MainWindow : Window
 
     private void SeekSlider_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        _seekCoalesceTimer.Stop();
         _isDraggingSeek = true;
+        SeekSlider.CapturePointer(e.Pointer);
         SeekRailCanvas?.Invalidate();
     }
 
     private void SeekSlider_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        _seekCoalesceTimer.Stop();
         _isDraggingSeek = false;
+        SeekSlider.ReleasePointerCapture(e.Pointer);
         if (_engine.Duration.TotalSeconds > 0)
         {
             var target = TimeSpan.FromSeconds(SeekSlider.Value);
@@ -3281,11 +3286,25 @@ public sealed partial class MainWindow : Window
             ElapsedTimeText.Text = FormatTime(TimeSpan.FromSeconds(e.NewValue));
             return;
         }
-        _engine.Seek(TimeSpan.FromSeconds(e.NewValue));
         ElapsedTimeText.Text = FormatTime(TimeSpan.FromSeconds(e.NewValue));
+        // A volume wheel or a free-spinning scroll can land on this slider and fire once per notch.
+        // Seeking on every notch repositions the decoder continuously, which is the stutter.
+        _seekCoalesceTimer.Stop();
+        _seekCoalesceTimer.Start();
     }
 
-    private void SeekSlider_KeyUp(object sender, KeyRoutedEventArgs e) => _engine.Seek(TimeSpan.FromSeconds(SeekSlider.Value));
+    private void FlushCoalescedSeek()
+    {
+        _seekCoalesceTimer.Stop();
+        if (_isDraggingSeek || _isUpdatingSeekSlider || _engine.Duration.TotalSeconds <= 0) return;
+        _engine.Seek(TimeSpan.FromSeconds(SeekSlider.Value));
+    }
+
+    private void SeekSlider_KeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        _seekCoalesceTimer.Stop();
+        _engine.Seek(TimeSpan.FromSeconds(SeekSlider.Value));
+    }
 
     private void SeekSlider_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
@@ -4205,7 +4224,12 @@ public sealed partial class MainWindow : Window
             _tagWriteGate.Release();
         }
         if (!renamed) return (false, renameErr);
+        RememberRenamedTrack(track, oldPath, newPath);
+        return (true, null);
+    }
 
+    private void RememberRenamedTrack(TrackItem track, string oldPath, string newPath)
+    {
         lock (_pendingRatingsLock)
         {
             if (_pendingRatingWrites.Remove(oldPath, out var pending))
@@ -4233,7 +4257,6 @@ public sealed partial class MainWindow : Window
         _settings.Save();
         if (GetPrimarySelectedTrack() == track)
             UpdateSelectedTrackLabels(track);
-        return (true, null);
     }
 
     private async Task ShowErrorDialogAsync(string title, string message)
@@ -4609,7 +4632,12 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    private async Task<bool> SaveTrackDetailsAsync(TrackItem track, MusicLibrary.TrackDetails updated, bool pushUndo = true)
+    private async Task<PropertiesFileCommitResult> SaveTrackDetailsAsync(
+        TrackItem track,
+        MusicLibrary.TrackDetails updated,
+        bool pushUndo = true,
+        DateTime? dateAddedUtc = null,
+        string? renameTo = null)
     {
         MusicLibrary.TrackDetails? snapshotBefore = null;
         if (pushUndo)
@@ -4620,16 +4648,16 @@ public sealed partial class MainWindow : Window
                 await ShowErrorDialogAsync(
                     "Could not save tags",
                     $"Failed to read current tags from \"{track.FileName}\":\n\n{snapErr ?? "The file may be read-only or in use by another program."}");
-                return false;
+                return new PropertiesFileCommitResult(false, snapErr, false, null, false, null, track.Path);
             }
             snap.Rating = ResolveTrackRating(track, snap.Rating);
             snapshotBefore = snap;
         }
 
         bool hadPending = TryGetPendingRating(track.Path, out _, out long pendingVersionBeforeSave);
+        string pathBeforeRename = track.Path;
 
-        bool saved;
-        string? error;
+        PropertiesFileCommitResult commit;
         await _tagWriteGate.WaitAsync();
         try
         {
@@ -4637,13 +4665,18 @@ public sealed partial class MainWindow : Window
             Interlocked.Increment(ref _releasingFileForTagWrite);
             try
             {
-                (saved, error) = await _engine.WithFileReleasedAsync(
+                commit = await _engine.WithFileReleasedAsync(
                     track.Path,
-                    () => Task.Run(() =>
-                    {
-                        bool ok = MusicLibrary.TryWriteFullDetails(track.Path, updated, out string? err);
-                        return (ok, err);
-                    }));
+                    () => Task.Run(() => PropertiesFileCommit.Apply(
+                        track.Path,
+                        () =>
+                        {
+                            bool ok = MusicLibrary.TryWriteFullDetails(track.Path, updated, out string? err);
+                            return (ok, err);
+                        },
+                        dateAddedUtc,
+                        renameTo)),
+                    result => result.ResumePath);
             }
             finally
             {
@@ -4656,12 +4689,12 @@ public sealed partial class MainWindow : Window
             _tagWriteGate.Release();
         }
 
-        if (!saved)
+        if (!commit.TagsSaved)
         {
             await ShowErrorDialogAsync(
                 "Could not save tags",
-                $"Failed to write tags to \"{track.FileName}\":\n\n{error ?? "The file may be read-only or in use by another program."}");
-            return false;
+                $"Failed to write tags to \"{track.FileName}\":\n\n{commit.TagError ?? "The file may be read-only or in use by another program."}");
+            return commit;
         }
 
         if (hadPending)
@@ -4685,11 +4718,12 @@ public sealed partial class MainWindow : Window
             });
         }
 
+        string writtenPath = commit.ResumePath;
         var (fileSize, fileWriteUtcTicks) = await Task.Run(() =>
         {
             try
             {
-                var info = new FileInfo(track.Path);
+                var info = new FileInfo(writtenPath);
                 return info.Exists ? (info.Length, info.LastWriteTimeUtc.Ticks) : (0L, 0L);
             }
             catch
@@ -4721,6 +4755,8 @@ public sealed partial class MainWindow : Window
             peer.TrackNumber = updated.TrackNumber;
             peer.DiscNumber = updated.DiscNumber;
             peer.Rating = updated.Rating;
+            if (commit.DateWritten && dateAddedUtc.HasValue)
+                peer.DateAddedUtc = dateAddedUtc.Value;
             if (fileSize > 0)
             {
                 peer.FileSize = fileSize;
@@ -4733,6 +4769,9 @@ public sealed partial class MainWindow : Window
                 peer.CoverThumbnail = newThumb;
             }
         }
+
+        if (commit.Renamed)
+            RememberRenamedTrack(track, pathBeforeRename, commit.ResumePath);
 
         if ((GetPrimarySelectedTrack() ?? _inspectorTrack) is { } shown &&
             string.Equals(shown.Path, track.Path, StringComparison.OrdinalIgnoreCase))
@@ -4760,7 +4799,7 @@ public sealed partial class MainWindow : Window
         }
 
         UpdateSidebarCounts();
-        return true;
+        return commit;
     }
 
     private void PushUndo(Func<Task> undoAction)

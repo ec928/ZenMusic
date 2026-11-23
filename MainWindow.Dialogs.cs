@@ -1160,11 +1160,7 @@ public sealed partial class MainWindow
             ArtChanged = artChanged
         };
 
-        bool tagsSaved = await SaveTrackDetailsAsync(track, updated);
-        if (!tagsSaved) return;
-        RefreshVisibleTracks();
-        SaveLibraryCacheSnapshot();
-
+        DateTime? dateAddedUtc = null;
         string rawDate = dateTextBox.Text.Trim();
         if (!string.IsNullOrEmpty(rawDate) &&
             (DateTime.TryParseExact(rawDate, new[] { "dd/MM/yyyy HH:mm", "dd/MM/yyyy H:mm", "dd/MM/yyyy", "yyyy-MM-dd HH:mm", "yyyy-MM-dd" }, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var newLocal) ||
@@ -1173,51 +1169,59 @@ public sealed partial class MainWindow
             var newMinuteLocal = new DateTime(newLocal.Year, newLocal.Month, newLocal.Day, newLocal.Hour, newLocal.Minute, 0, DateTimeKind.Local);
             var origMinuteLocal = new DateTime(origLocalDate.Year, origLocalDate.Month, origLocalDate.Day, origLocalDate.Hour, origLocalDate.Minute, 0, DateTimeKind.Local);
             if (newMinuteLocal != origMinuteLocal)
-            {
-                DateTime newUtc = newMinuteLocal.ToUniversalTime();
-                var (dateOk, dateErr) = await _engine.WithFileReleasedAsync(track.Path, () => Task.Run(() =>
-                {
-                    try
-                    {
-                        File.SetLastWriteTimeUtc(track.Path, newUtc);
-                        return (true, (string?)null);
-                    }
-                    catch (Exception ex) { return (false, ex.Message); }
-                }));
-                if (dateOk)
-                {
-                    track.DateAddedUtc = newUtc;
-                    track.FileWriteUtcTicks = newUtc.Ticks;
-                    RefreshVisibleTracks();
-                }
-                else
-                {
-                    await ShowErrorDialogAsync("Could not update Date Added", dateErr ?? "Unknown error.");
-                }
-            }
+                dateAddedUtc = newMinuteLocal.ToUniversalTime();
         }
 
+        string? renameTo = null;
+        string? renameRejectTitle = null;
+        string? renameReject = null;
         string desiredName = fileNameBox.Text.Trim();
+        string oldPath = track.Path;
         if (!string.IsNullOrEmpty(desiredName) && !string.Equals(desiredName, origNameNoExt, StringComparison.Ordinal))
         {
             if (desiredName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             {
-                await ShowErrorDialogAsync("Invalid file name", "The file name contains invalid characters (e.g. \\ / : * ? \" < > |).");
-                return;
+                renameRejectTitle = "Invalid file name";
+                renameReject = "The file name contains invalid characters (e.g. \\ / : * ? \" < > |).";
             }
-            string newPath = Path.Combine(origDir, desiredName + origExt);
-            if (File.Exists(newPath))
+            else
             {
-                await ShowErrorDialogAsync("File already exists", $"A file named \"{desiredName + origExt}\" already exists in this folder.");
-                return;
+                string candidate = Path.Combine(origDir, desiredName + origExt);
+                if (File.Exists(candidate))
+                {
+                    renameRejectTitle = "File already exists";
+                    renameReject = $"A file named \"{desiredName + origExt}\" already exists in this folder.";
+                }
+                else
+                {
+                    renameTo = candidate;
+                }
             }
-            string oldPath = track.Path;
-            var (renamed, renameErr) = await RenameTrackPathAsync(track, oldPath, newPath);
-            if (!renamed)
+        }
+
+        var commit = await SaveTrackDetailsAsync(track, updated, dateAddedUtc: dateAddedUtc, renameTo: renameTo);
+        if (!commit.TagsSaved) return;
+        RefreshVisibleTracks();
+
+        if (dateAddedUtc.HasValue && !commit.DateWritten)
+            await ShowErrorDialogAsync("Could not update Date Added", commit.DateError ?? "Unknown error.");
+
+        if (renameReject != null)
+        {
+            SaveLibraryCacheSnapshot();
+            await ShowErrorDialogAsync(renameRejectTitle ?? "Could not rename file", renameReject);
+            return;
+        }
+
+        if (renameTo != null)
+        {
+            if (!commit.Renamed)
             {
-                await ShowErrorDialogAsync("Could not rename file", renameErr ?? "Unknown error.");
+                SaveLibraryCacheSnapshot();
+                await ShowErrorDialogAsync("Could not rename file", commit.RenameError ?? "Unknown error.");
                 return;
             }
+            string newPath = renameTo;
             PushUndo(async () =>
             {
                 await RenameTrackPathAsync(track, newPath, oldPath);
@@ -1647,7 +1651,7 @@ public sealed partial class MainWindow
                 ArtMimeType = chkArt.IsChecked == true ? batchArtMime : cur.ArtMimeType,
                 ArtChanged = chkArt.IsChecked == true
             };
-            if (await SaveTrackDetailsAsync(t, updated, pushUndo: false))
+            if ((await SaveTrackDetailsAsync(t, updated, pushUndo: false)).TagsSaved)
                 snapshots.Add((t, before));
         }
 
@@ -2229,7 +2233,7 @@ public sealed partial class MainWindow
                 ArtChanged = applyArt
             };
 
-            if (await SaveTrackDetailsAsync(track, updated))
+            if ((await SaveTrackDetailsAsync(track, updated)).TagsSaved)
                 RefreshVisibleTracks();
         }
         SaveLibraryCacheSnapshot();

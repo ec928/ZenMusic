@@ -772,6 +772,159 @@ public sealed class AudioAndLibraryTests
         }
     }
 
+    [Fact]
+    public void PlaybackClock_HeardFollowsRenderClockFromTheSeekOrigin()
+    {
+        var origin = TimeSpan.FromSeconds(90);
+        int bytesPerSecond = 176400;
+        var heard = PlaybackClock.Heard(origin, clockBytes: bytesPerSecond * 2, clockBytesAtOrigin: 0, bytesPerSecond, TimeSpan.FromMinutes(4));
+        Assert.Equal(92, heard.TotalSeconds, 3);
+    }
+
+    [Fact]
+    public void PlaybackClock_HeardIgnoresAClockThatRunsBackwards()
+    {
+        var origin = TimeSpan.FromSeconds(40);
+        var heard = PlaybackClock.Heard(origin, clockBytes: 100, clockBytesAtOrigin: 5000, bytesPerSecond: 176400, TimeSpan.FromMinutes(3));
+        Assert.Equal(40, heard.TotalSeconds, 3);
+    }
+
+    [Fact]
+    public void PlaybackClock_HeardClampsAtTheEndOfTheSong()
+    {
+        var heard = PlaybackClock.Heard(TimeSpan.FromSeconds(10), clockBytes: 176400 * 100, clockBytesAtOrigin: 0, 176400, TimeSpan.FromSeconds(30));
+        Assert.Equal(30, heard.TotalSeconds, 3);
+    }
+
+    [Fact]
+    public void PlaybackClock_SeekTargetStillSeeksWhenDurationIsUnknown()
+    {
+        var requested = TimeSpan.FromSeconds(75);
+        Assert.Equal(requested, PlaybackClock.SeekTarget(requested, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void PlaybackClock_SeekTargetClampsInsideAShorterReopenedFile()
+    {
+        var target = PlaybackClock.SeekTarget(TimeSpan.FromSeconds(100), TimeSpan.FromSeconds(30));
+        Assert.InRange(target.TotalSeconds, 29.9, 29.96);
+    }
+
+    [Fact]
+    public void RampedVolume_FullScaleChangeDoesNotStepHarderThanTheRamp()
+    {
+        var src = new ConstantSampleProvider(1000, 1f);
+        var volume = new RampedVolumeSampleProvider(src, 0f);
+        volume.Volume = 1f;
+
+        var buf = new float[200];
+        int read = volume.Read(buf, 0, buf.Length);
+        Assert.Equal(200, read);
+
+        float maxStep = 1f / (1000 / 20);
+        for (int i = 1; i < buf.Length; i++)
+            Assert.True(buf[i] - buf[i - 1] <= maxStep + 1e-4, $"step {buf[i] - buf[i - 1]} at {i}");
+        Assert.Equal(1f, buf[^1], 3);
+        Assert.True(buf[0] < 0.1f);
+    }
+
+    [Fact]
+    public void PropertiesFileCommit_WritesTagsThenDateThenRename()
+    {
+        string tmpDir = Path.Combine(Path.GetTempPath(), $"zen_props_once_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            string path = Path.Combine(tmpDir, "song.mp3");
+            WriteMinimalMp3(path);
+            var original = new DateTime(2019, 1, 2, 3, 4, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(path, original);
+            var wanted = new DateTime(2021, 6, 7, 8, 9, 0, DateTimeKind.Utc);
+            string renamed = Path.Combine(tmpDir, "renamed.mp3");
+
+            var result = PropertiesFileCommit.Apply(
+                path,
+                () =>
+                {
+                    bool ok = MusicLibrary.TryWriteFullDetails(path, new MusicLibrary.TrackDetails { Title = "Once" }, out string? err);
+                    // The tag writer puts the pre-edit write time back. The new Date Added has to follow that.
+                    File.SetLastWriteTimeUtc(path, original);
+                    return (ok, err);
+                },
+                wanted,
+                renamed);
+
+            Assert.True(result.TagsSaved, result.TagError);
+            Assert.True(result.DateWritten, result.DateError);
+            Assert.True(result.Renamed, result.RenameError);
+            Assert.Equal(renamed, result.ResumePath);
+            Assert.False(File.Exists(path));
+            Assert.True(File.Exists(renamed));
+            Assert.Equal(wanted, File.GetLastWriteTimeUtc(renamed));
+            Assert.True(MusicLibrary.TryReadFullDetails(renamed, out var details, out _));
+            Assert.Equal("Once", details.Title);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PropertiesFileCommit_FailedTagsLeaveTheFileAlone_FailedRenameKeepsTheNewDate()
+    {
+        string tmpDir = Path.Combine(Path.GetTempPath(), $"zen_props_fail_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            string path = Path.Combine(tmpDir, "song.mp3");
+            WriteMinimalMp3(path);
+            var original = new DateTime(2018, 3, 4, 5, 6, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(path, original);
+            string renamed = Path.Combine(tmpDir, "renamed.mp3");
+
+            var rejected = PropertiesFileCommit.Apply(
+                path,
+                () => (false, "locked"),
+                new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                renamed);
+
+            Assert.False(rejected.TagsSaved);
+            Assert.Equal("locked", rejected.TagError);
+            Assert.False(rejected.DateWritten);
+            Assert.False(rejected.Renamed);
+            Assert.Equal(path, rejected.ResumePath);
+            Assert.True(File.Exists(path));
+            Assert.False(File.Exists(renamed));
+            Assert.Equal(original, File.GetLastWriteTimeUtc(path));
+
+            var wanted = new DateTime(2020, 5, 6, 7, 8, 0, DateTimeKind.Utc);
+            string missing = Path.Combine(tmpDir, "missing-dir", "x.mp3");
+            var kept = PropertiesFileCommit.Apply(
+                path,
+                () =>
+                {
+                    bool ok = MusicLibrary.TryWriteFullDetails(path, new MusicLibrary.TrackDetails { Title = "Stayed" }, out string? err);
+                    File.SetLastWriteTimeUtc(path, original);
+                    return (ok, err);
+                },
+                wanted,
+                missing);
+
+            Assert.True(kept.TagsSaved, kept.TagError);
+            Assert.True(kept.DateWritten, kept.DateError);
+            Assert.False(kept.Renamed);
+            Assert.False(string.IsNullOrEmpty(kept.RenameError));
+            Assert.Equal(path, kept.ResumePath);
+            Assert.Equal(wanted, File.GetLastWriteTimeUtc(path));
+            Assert.False(File.Exists(missing));
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        }
+    }
+
     private static void WriteMinimalMp3(string path)
     {
         // Two MPEG-1 Layer III 128 kbps 44.1 kHz frames (417 bytes each)

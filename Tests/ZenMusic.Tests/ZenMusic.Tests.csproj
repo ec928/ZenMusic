@@ -26,10 +26,13 @@
     <Compile Include="..\..\Audio\ReplayGainAnalyzer.cs" Link="ReplayGainAnalyzer.cs" />
     <Compile Include="..\..\Audio\EqualizerSampleProvider.cs" Link="EqualizerSampleProvider.cs" />
     <Compile Include="..\..\Audio\FftAnalyzer.cs" Link="FftAnalyzer.cs" />
+    <Compile Include="..\..\Audio\PlaybackClock.cs" Link="PlaybackClock.cs" />
+    <Compile Include="..\..\Audio\RampedVolumeSampleProvider.cs" Link="RampedVolumeSampleProvider.cs" />
     <Compile Include="..\..\Library\TrackItem.cs" Link="TrackItem.cs" />
     <Compile Include="..\..\Library\LibraryCache.cs" Link="LibraryCache.cs" />
     <Compile Include="..\..\Library\SmartPlaylistGenerator.cs" Link="SmartPlaylistGenerator.cs" />
     <Compile Include="..\..\Tagging\MusicLibrary.cs" Link="MusicLibrary.cs" />
+    <Compile Include="..\..\Tagging\PropertiesFileCommit.cs" Link="PropertiesFileCommit.cs" />
     <Compile Include="..\..\Tagging\AutoTagger.cs" Link="AutoTagger.cs" />
     <Compile Include="..\..\Tagging\LrcParser.cs" Link="LrcParser.cs" />
   </ItemGroup>
