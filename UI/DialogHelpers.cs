@@ -21,6 +21,17 @@ public sealed class ResizeGripBorder : Grid
 }
 
 /// <summary>
+/// Column splitter handle that displays a horizontal West-East resize cursor on hover.
+/// </summary>
+public sealed class ColumnResizeGripBorder : Grid
+{
+    public ColumnResizeGripBorder()
+    {
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+    }
+}
+
+/// <summary>
 /// Places the primary action button on the bottom-right with secondary/cancel buttons to its left,
 /// matching Windows &amp; ModernImageViewer desktop conventions.
 /// </summary>

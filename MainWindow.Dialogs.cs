@@ -64,6 +64,71 @@ public sealed partial class MainWindow
         var favs = _settings.FavouriteFolders;
         var favSet = new HashSet<string>(favs.Select(f => f.TrimEnd('\\', '/')), StringComparer.OrdinalIgnoreCase);
 
+        var openRowContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        openRowContent.Children.Add(new FontIcon
+        {
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            Glyph = "\uE838",
+            FontSize = 13,
+            Opacity = 0.85
+        });
+        openRowContent.Children.Add(new TextBlock
+        {
+            Text = "Open music folder...  (Ctrl+O)",
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold
+        });
+        var openBtn = new Button
+        {
+            Style = (Style)RootGrid.Resources["FolderMenuRowButtonStyle"],
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(10, 7, 10, 7),
+            Content = openRowContent
+        };
+        openBtn.Click += (_, e) =>
+        {
+            RecentFoldersMenu.Hide();
+            OpenFolderBtn_Click(openBtn, e);
+        };
+        panel.Children.Add(openBtn);
+
+        if (!string.IsNullOrWhiteSpace(_settings.MusicFolder) && Directory.Exists(_settings.MusicFolder))
+        {
+            var rescanRowContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            rescanRowContent.Children.Add(new FontIcon
+            {
+                FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                Glyph = "\uE72C",
+                FontSize = 13,
+                Opacity = 0.85
+            });
+            rescanRowContent.Children.Add(new TextBlock
+            {
+                Text = "Rescan current folder",
+                FontSize = 13
+            });
+            var rescanBtn = new Button
+            {
+                Style = (Style)RootGrid.Resources["FolderMenuRowButtonStyle"],
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(10, 6, 10, 6),
+                Content = rescanRowContent
+            };
+            rescanBtn.Click += (_, e) =>
+            {
+                RecentFoldersMenu.Hide();
+                RescanBtn_Click(rescanBtn, e);
+            };
+            panel.Children.Add(rescanBtn);
+        }
+
+        panel.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Style = (Style)RootGrid.Resources["FolderMenuDividerStyle"]
+        });
+
         var favHeader = new TextBlock
         {
             Text = favs.Count > 0 ? $"Favourites ({favs.Count} of {MaxFavouriteFolders})" : "Favourites",
@@ -711,6 +776,7 @@ public sealed partial class MainWindow
             }
             AppWindow.Resize(new Windows.Graphics.SizeInt32(_settings.WindowWidth, _settings.WindowHeight));
             _rightPaneOpen = _settings.RightPaneOpen;
+            _rightPaneWidth = _settings.RightPaneWidth;
             ApplyPaneWidths();
             SelectedInspectorScroll.MaxHeight = _settings.InspectorHeight;
             _inspectorArtMode = _settings.InspectorArtMode;

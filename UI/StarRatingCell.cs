@@ -41,11 +41,13 @@ public sealed class StarRatingCell : Grid
         }
     }
 
-    private static readonly SolidColorBrush DarkQuietBrush = new(Color.FromArgb(255, 150, 126, 66));
-    private static readonly SolidColorBrush LightQuietBrush = new(Color.FromArgb(255, 205, 160, 104));
+    private static readonly SolidColorBrush DarkQuietBrush = new(Color.FromArgb(228, 250, 198, 62));
+    private static readonly SolidColorBrush LightQuietBrush = new(Color.FromArgb(232, 217, 119, 6));
     private bool _quiet;
+    private bool _hideUnratedWhenIdle;
+    private bool _isRowHovered;
 
-    /// <summary>Muted fill for dense lists; full colour returns while the pointer is over the cell.</summary>
+    /// <summary>Slightly softened fill for dense lists; full colour returns while the pointer is over the cell.</summary>
     public bool Quiet
     {
         get => _quiet;
@@ -53,6 +55,29 @@ public sealed class StarRatingCell : Grid
         {
             if (_quiet == value) return;
             _quiet = value;
+            UpdateVisuals();
+        }
+    }
+
+    /// <summary>Hides empty background star slots when idle so unrated rows stay clean and rated counts pop.</summary>
+    public bool HideUnratedWhenIdle
+    {
+        get => _hideUnratedWhenIdle;
+        set
+        {
+            if (_hideUnratedWhenIdle == value) return;
+            _hideUnratedWhenIdle = value;
+            UpdateVisuals();
+        }
+    }
+
+    public bool IsRowHovered
+    {
+        get => _isRowHovered;
+        set
+        {
+            if (_isRowHovered == value) return;
+            _isRowHovered = value;
             UpdateVisuals();
         }
     }
@@ -181,11 +206,12 @@ public sealed class StarRatingCell : Grid
 
         double r = _hoverValue ?? Value ?? 0;
         var brush = _hoverValue.HasValue ? hover
-            : _quiet ? (useDark ? DarkQuietBrush : LightQuietBrush)
+            : (_quiet && !_isRowHovered) ? (useDark ? DarkQuietBrush : LightQuietBrush)
             : active;
         for (int i = 0; i < 5; i++)
         {
             _bgs[i].Foreground = dim;
+            _bgs[i].Visibility = Visibility.Visible;
             _fills[i].Foreground = brush;
             double threshold = i + 1;
             if (r >= threshold)

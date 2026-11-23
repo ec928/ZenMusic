@@ -86,6 +86,10 @@ public sealed partial class MainWindow : Window
     private RectInt32 _lastSearchPassthroughRect;
     private string? _selectedLyricsTrackPath;
     private int _inspectorArtMode = 2;
+    private double _rightPaneWidth = 242;
+    private bool _isDraggingColSplitter;
+    private double _colSplitterStartX;
+    private double _colSplitterStartWidth;
     private bool _isDraggingSplitter;
     private double _splitterStartY;
     private double _splitterStartHeight;
@@ -107,6 +111,10 @@ public sealed partial class MainWindow : Window
     private static readonly SolidColorBrush PlaybarMutedIconBrush = new(Color.FromArgb(166, 255, 255, 255));
     private static readonly SolidColorBrush PlaybarLightAmberBrush = new(Color.FromArgb(255, 217, 119, 6));
     private static readonly SolidColorBrush PlaybarLightMutedIconBrush = new(Color.FromArgb(150, 26, 26, 26));
+    private static readonly SolidColorBrush SortHeaderActiveDarkBrush = new(Color.FromArgb(255, 255, 255, 255));
+    private static readonly SolidColorBrush SortHeaderInactiveDarkBrush = new(Color.FromArgb(175, 255, 255, 255));
+    private static readonly SolidColorBrush SortHeaderActiveLightBrush = new(Color.FromArgb(255, 20, 20, 20));
+    private static readonly SolidColorBrush SortHeaderInactiveLightBrush = new(Color.FromArgb(168, 32, 32, 32));
     private static readonly LinearGradientBrush InspectorOverlayBrush = new()
     {
         StartPoint = new Point(0.5, 0),
@@ -191,11 +199,13 @@ public sealed partial class MainWindow : Window
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
         foreach (var t in _editingPlaylistTracks)
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
+        if (_initialized)
+            RefreshInspectorPlayingContext();
     }
 
-    private static double _titleStar = 2.2;
-    private static double _artistStar = 1.15;
-    private static double _albumStar = 1.35;
+    private static double _titleStar = 2.15;
+    private static double _artistStar = 0.98;
+    private static double _albumStar = 1.57;
 
     private static bool IsColVisible(string name) => _columnVisible.TryGetValue(name, out bool v) && v;
     public static GridLength ColTitleWidth() => new(_titleStar, GridUnitType.Star);
@@ -206,7 +216,7 @@ public sealed partial class MainWindow : Window
     public static GridLength ColRatingWidth() => IsColVisible("Rating") ? new GridLength(78) : new GridLength(0);
     public static GridLength ColLengthWidth() => IsColVisible("Length") ? new GridLength(56) : new GridLength(0);
     public static GridLength ColDateAddedWidth() => IsColVisible("DateAdded") ? new GridLength(64) : new GridLength(0);
-    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(58) : new GridLength(0);
+    public static GridLength ColBitrateWidth() => IsColVisible("Bitrate") ? new GridLength(64) : new GridLength(0);
     public static Visibility ColRatingVis() => IsColVisible("Rating") ? Visibility.Visible : Visibility.Collapsed;
 
     private SavedPlaylist? _editingPlaylist;
@@ -256,6 +266,7 @@ public sealed partial class MainWindow : Window
             _columnVisible[kv.Key] = kv.Value;
 
         _rightPaneOpen = _settings.RightPaneOpen;
+        _rightPaneWidth = Math.Clamp(_settings.RightPaneWidth > 0 ? _settings.RightPaneWidth : 242, 226, 360);
         _inspectorArtMode = Math.Clamp(_settings.InspectorArtMode, 0, 2);
         SelectedInspectorScroll.MaxHeight = Math.Clamp(_settings.InspectorHeight, 130, 460);
 
@@ -300,6 +311,7 @@ public sealed partial class MainWindow : Window
         foreach (var pl in _settings.Playlists) _playlists.Add(pl);
         SyncRightPanelList();
         UpdateSortHeaders();
+        UpdateStatusFooter();
 
         _progressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
         _progressTimer.Tick += ProgressTimer_Tick;
@@ -477,6 +489,7 @@ public sealed partial class MainWindow : Window
     private void SaveSessionState()
     {
         _settings.RightPaneOpen = _rightPaneOpen;
+        _settings.RightPaneWidth = _rightPaneWidth;
         _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
         _settings.InspectorArtMode = _inspectorArtMode;
         _settings.SavedQueuePaths = _queueTracks.Select(t => t.Path).ToList();
@@ -514,11 +527,13 @@ public sealed partial class MainWindow : Window
             var appWin = this.AppWindow;
             var display = DisplayArea.GetFromWindowId(appWin.Id, DisplayAreaFallback.Primary);
             var work = display.WorkArea;
-            int w = Math.Clamp(_settings.WindowWidth, Math.Min(1080, work.Width), work.Width);
-            int h = Math.Clamp(_settings.WindowHeight, Math.Min(640, work.Height), work.Height);
+            int w = Math.Clamp(_settings.WindowWidth, Math.Min(960, work.Width), work.Width);
+            int h = Math.Clamp(_settings.WindowHeight, Math.Min(620, work.Height), work.Height);
             if (_settings.WindowX is int x && _settings.WindowY is int y)
             {
-                appWin.MoveAndResize(new RectInt32(x, y, w, h));
+                int clampedX = Math.Clamp(x, work.X, Math.Max(work.X, work.X + work.Width - w));
+                int clampedY = Math.Clamp(y, work.Y, Math.Max(work.Y, work.Y + work.Height - h));
+                appWin.MoveAndResize(new RectInt32(clampedX, clampedY, w, h));
             }
             else
             {
@@ -629,6 +644,9 @@ public sealed partial class MainWindow : Window
         UpdateShuffleButtonVisual();
         UpdateRepeatButtonVisual();
         UpdateRightPaneButtonVisual();
+        SyncVisualizerStageVisibility();
+        if (TableHeaderGrid != null)
+            UpdateSortHeaders();
         SeekRailCanvas?.Invalidate();
         VolumeRailCanvas?.Invalidate();
         // The wash is lighter in the light theme, so re-apply it at the new strength.
@@ -658,10 +676,12 @@ public sealed partial class MainWindow : Window
     private void ApplyPaneWidths()
     {
         bool wasOpen = RightSidebar.Visibility == Visibility.Visible && RightPaneCol.Width.Value > 0;
-        RightPaneCol.Width = _rightPaneOpen ? new GridLength(316) : new GridLength(0);
+        RightPaneCol.Width = _rightPaneOpen ? new GridLength(_rightPaneWidth) : new GridLength(0);
         RightSidebar.Visibility = _rightPaneOpen ? Visibility.Visible : Visibility.Collapsed;
         UpdateRightPaneButtonVisual();
         ApplyColumnWidths();
+        if (SelectedArtBorder != null)
+            ApplyInspectorArtMode();
 
         // Opening slides the pane in from the right; closing is immediate so the list reclaims the space at once.
         if (_rightPaneOpen && !wasOpen && _initialized)
@@ -689,17 +709,17 @@ public sealed partial class MainWindow : Window
         bool tiles = IsTileMode;
         if (_rightPaneOpen)
         {
-            _titleStar = 2.2;
-            _artistStar = 1.15;
-            _albumStar = 1.35;
+            _titleStar = 2.15;
+            _artistStar = 0.98;
+            _albumStar = 1.57;
         }
         else
         {
-            // When the 316 px dock is hidden, spread the gained space toward Album and Artist
+            // When the right dock is hidden, spread the gained space toward Album and Artist
             // instead of letting Title absorb over half of it.
             _titleStar = 1.95;
-            _artistStar = 1.2;
-            _albumStar = 1.55;
+            _artistStar = 1.05;
+            _albumStar = 1.70;
         }
 
         GridLength Fit(GridLength table) => tiles && table.Value > 0 ? GridLength.Auto : table;
@@ -896,10 +916,11 @@ public sealed partial class MainWindow : Window
     private void UpdateFocusStageButtonVisual(bool focusVisible, bool largeOn, bool vizActive)
     {
         if (FocusStageToggleIcon == null || FocusStageActiveDot == null) return;
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
         FocusStageActiveDot.Visibility = (vizActive && (focusVisible || largeOn)) ? Visibility.Visible : Visibility.Collapsed;
         FocusStageToggleIcon.Foreground = focusVisible
-            ? (Brush)Application.Current.Resources["FavouriteStarBrush"]
-            : (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+            ? (isLight ? PlaybarLightAmberBrush : PlaybarGoldBrush)
+            : (isLight ? PlaybarLightMutedIconBrush : PlaybarMutedIconBrush);
     }
 
     // The library backdrop visualizer sits behind the track list (Column 0).
@@ -1290,7 +1311,7 @@ public sealed partial class MainWindow : Window
                               _activePlaylist != null || _activeCustomFilter != null || _activeFacet != "all";
 
         if (hasScopeFilter)
-            ScopeClearText.Text = CurrentScopeLabel();
+            ScopeClearText.Text = $"{CurrentScopeLabel()} · {_visibleTracks.Count:N0}";
         ScopeClearBtn.Visibility = hasScopeFilter ? Visibility.Visible : Visibility.Collapsed;
         UpdateSidebarCounts();
         UpdateStatusFooter();
@@ -1364,6 +1385,8 @@ public sealed partial class MainWindow : Window
         else if (!args.InRecycleQueue && ReferenceEquals(sender, TracksListView))
         {
             ApplyRowTextColumnWidths(args.ItemContainer);
+            if ((args.ItemContainer?.ContentTemplateRoot as Grid)?.FindName("RowStarCell") is StarRatingCell starCell)
+                starCell.IsRowHovered = false;
         }
         if (args.InRecycleQueue || args.Item is not TrackItem track) return;
         if (track.CoverThumbnail != null || track.ArtLoadAttempted) return;
@@ -1465,7 +1488,35 @@ public sealed partial class MainWindow : Window
         SyncRightPanelList();
     }
 
-    private void UpdateStatusFooter() { }
+    private void UpdateStatusFooter()
+    {
+        if (FolderPillText == null || FoldersMenuBtn == null) return;
+        string? folder = _settings.MusicFolder;
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            FolderPillText.Text = _allTracks.Count > 0 ? $"Tracks · {_allTracks.Count:N0}" : "Open folder";
+            ToolTipService.SetToolTip(FoldersMenuBtn, "Open music folder (Ctrl+O) · Favourites & recent folders");
+            return;
+        }
+
+        string leaf = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(leaf)) leaf = folder;
+
+        if (_allTracks.Count == 0)
+        {
+            FolderPillText.Text = leaf;
+        }
+        else if (_visibleTracks.Count < _allTracks.Count)
+        {
+            FolderPillText.Text = $"{leaf} · {_visibleTracks.Count:N0} / {_allTracks.Count:N0}";
+        }
+        else
+        {
+            FolderPillText.Text = $"{leaf} · {_allTracks.Count:N0}";
+        }
+
+        ToolTipService.SetToolTip(FoldersMenuBtn, $"{folder}\n{_allTracks.Count:N0} tracks · Click to switch or open folder");
+    }
 
     private static string FormatLongDuration(TimeSpan t)
     {
@@ -1741,8 +1792,39 @@ public sealed partial class MainWindow : Window
         menu.ShowAt(TableHeaderGrid, e.GetPosition(TableHeaderGrid));
     }
 
+    private void TrackRow_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Grid row && row.FindName("RowStarCell") is StarRatingCell starCell)
+            starCell.IsRowHovered = true;
+    }
+
+    private void TrackRow_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Grid row && row.FindName("RowStarCell") is StarRatingCell starCell)
+            starCell.IsRowHovered = false;
+    }
+
+    private void HeaderDetailBtn_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (HeaderDetailChevron != null)
+            HeaderDetailChevron.Opacity = 0.72;
+    }
+
+    private void HeaderDetailBtn_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (HeaderDetailChevron != null)
+            HeaderDetailChevron.Opacity = 0;
+    }
+
     private void UpdateSortHeaders()
     {
+        bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
+        Brush activeBrush = _highContrast
+            ? PlaybarGoldBrush
+            : (isLight ? SortHeaderActiveLightBrush : SortHeaderActiveDarkBrush);
+        Brush inactiveBrush = isLight ? SortHeaderInactiveLightBrush : SortHeaderInactiveDarkBrush;
+        string sortArrow = _settings.SortAscending ? "\u2191" : "\u2193";
+
         foreach (var child in TableHeaderGrid.Children.OfType<Button>())
         {
             string tag = child.Tag?.ToString() ?? string.Empty;
@@ -1751,13 +1833,14 @@ public sealed partial class MainWindow : Window
                 string activeField = TrackItem.ActiveDetailField;
                 string activeDisplay = GetDetailDisplayMenuLabel(activeField);
                 string activeHeader = GetDetailDisplayHeaderLabel(activeField);
+                bool detailSorted = false;
 
                 if (IsTileMode)
                 {
                     if (TryGetDetailSortMeta(_settings.SortColumn, out string sortMenuLabel, out string sortHeaderLabel))
                     {
-                        string arrow = _settings.SortAscending ? "\u25B4" : "\u25BE";
-                        HeaderDetailLabel.Text = $"{sortHeaderLabel} {arrow}";
+                        detailSorted = true;
+                        HeaderDetailLabel.Text = $"{sortHeaderLabel} {sortArrow}";
                         ToolTipService.SetToolTip(child, $"Sorted by: {sortMenuLabel} ({(_settings.SortAscending ? "Ascending" : "Descending")})\nClick to choose sort");
                     }
                     else
@@ -1768,13 +1851,14 @@ public sealed partial class MainWindow : Window
                 }
                 else if (string.Equals(_settings.SortColumn, activeField, StringComparison.Ordinal))
                 {
-                    string arrow = _settings.SortAscending ? "\u25B4" : "\u25BE";
-                    HeaderDetailLabel.Text = $"{activeHeader} {arrow}";
+                    detailSorted = true;
+                    HeaderDetailLabel.Text = $"{activeHeader} {sortArrow}";
                     ToolTipService.SetToolTip(child, $"Showing & sorted by: {activeDisplay} ({(_settings.SortAscending ? "Ascending" : "Descending")})\nClick to change field or sort");
                 }
                 else if (TryGetDetailSortMeta(_settings.SortColumn, out string sortMenuLabel, out _))
                 {
-                    HeaderDetailLabel.Text = activeHeader;
+                    detailSorted = true;
+                    HeaderDetailLabel.Text = $"{activeHeader} {sortArrow}";
                     ToolTipService.SetToolTip(child, $"Showing: {activeDisplay} · Sorted by: {sortMenuLabel}\nClick to change field or sort");
                 }
                 else
@@ -1782,6 +1866,8 @@ public sealed partial class MainWindow : Window
                     HeaderDetailLabel.Text = activeHeader;
                     ToolTipService.SetToolTip(child, $"Showing: {activeDisplay}\nClick to change field or sort");
                 }
+                child.Foreground = detailSorted ? activeBrush : inactiveBrush;
+                HeaderDetailLabel.Foreground = detailSorted ? activeBrush : inactiveBrush;
                 continue;
             }
 
@@ -1792,9 +1878,9 @@ public sealed partial class MainWindow : Window
                 "DateAdded" => IsTileMode ? "Date Added" : "Added",
                 _ => tag
             };
-            child.Content = string.Equals(tag, _settings.SortColumn, StringComparison.Ordinal)
-                ? $"{label} {(_settings.SortAscending ? "\u25B4" : "\u25BE")}"
-                : label;
+            bool isSorted = string.Equals(tag, _settings.SortColumn, StringComparison.Ordinal);
+            child.Foreground = isSorted ? activeBrush : inactiveBrush;
+            child.Content = isSorted ? $"{label} {sortArrow}" : label;
         }
     }
 
@@ -1865,6 +1951,18 @@ public sealed partial class MainWindow : Window
         _ = Task.Run(() => _settings.Save());
     }
 
+    private void FacetPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item || item.Tag is not string key) return;
+        _activePlaylist = null;
+        _activeCustomFilter = null;
+        _activeArtistFilter = null;
+        _activeAlbumFilter = null;
+        _activeHygiene = null;
+        _activeFacet = key;
+        RefreshVisibleTracks();
+    }
+
     private void HygienePreset_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem item || item.Tag is not string key) return;
@@ -1872,6 +1970,7 @@ public sealed partial class MainWindow : Window
         _activeCustomFilter = null;
         _activeArtistFilter = null;
         _activeAlbumFilter = null;
+        _activeFacet = "all";
         _activeHygiene = key;
         RefreshVisibleTracks();
     }
@@ -1892,7 +1991,7 @@ public sealed partial class MainWindow : Window
         try
         {
             RightListModeCombo.Items.Clear();
-            string qLabel = _queueTracks.Count > 0 ? $"Play Queue ({_queueTracks.Count:N0})" : "Play Queue";
+            string qLabel = _queueTracks.Count > 0 ? $"Queue ({_queueTracks.Count:N0})" : "Queue";
             var qItem = new ComboBoxItem { Content = qLabel, Tag = "queue" };
             RightListModeCombo.Items.Add(qItem);
 
@@ -2645,6 +2744,37 @@ public sealed partial class MainWindow : Window
 
     private void UpdateQueueHeader() => SyncRightPanelList();
 
+    private void RightColSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _isDraggingColSplitter = true;
+        _colSplitterStartX = e.GetCurrentPoint(MainWorkspaceGrid).Position.X;
+        _colSplitterStartWidth = _rightPaneWidth;
+        RightColSplitter.CapturePointer(e.Pointer);
+    }
+
+    private void RightColSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDraggingColSplitter) return;
+        double currentX = e.GetCurrentPoint(MainWorkspaceGrid).Position.X;
+        double delta = _colSplitterStartX - currentX;
+        double nextWidth = Math.Clamp(_colSplitterStartWidth + delta, 226, 360);
+        if (Math.Abs(nextWidth - _rightPaneWidth) < 0.5) return;
+        _rightPaneWidth = nextWidth;
+        RightPaneCol.Width = new GridLength(_rightPaneWidth);
+        ApplyInspectorArtMode();
+        if (IsTileMode) FitTilesToWidth();
+    }
+
+    private void RightColSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDraggingColSplitter) return;
+        _isDraggingColSplitter = false;
+        RightColSplitter.ReleasePointerCapture(e.Pointer);
+        _settings.RightPaneWidth = _rightPaneWidth;
+        _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
+        _settings.Save();
+    }
+
     private void RightPaneSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         _isDraggingSplitter = true;
@@ -2658,7 +2788,7 @@ public sealed partial class MainWindow : Window
         if (!_isDraggingSplitter) return;
         double currentY = e.GetCurrentPoint(RightSidebar).Position.Y;
         double delta = _splitterStartY - currentY;
-        SelectedInspectorScroll.MaxHeight = Math.Clamp(_splitterStartHeight + delta, 130, 460);
+        SelectedInspectorScroll.MaxHeight = Math.Clamp(_splitterStartHeight + delta, 130, 560);
     }
 
     private void RightPaneSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
@@ -3940,6 +4070,7 @@ public sealed partial class MainWindow : Window
         {
             ApplySelectedInfoTheme();
             _selectedLyricsTrackPath = null;
+            SelectedRatingPanel.Visibility = Visibility.Visible;
             SelectedTitleText.Text = "No track selected";
             SelectedArtistText.Text = string.Empty;
             SelectedSpecsText.Text = string.Empty;
@@ -3953,6 +4084,7 @@ public sealed partial class MainWindow : Window
         }
         _selectedLyricsTrackPath = track.Path;
         SelectedInspectorScroll.ChangeView(null, 0, null, true);
+        SelectedRatingPanel.Visibility = Visibility.Visible;
         UpdateSelectedTrackLabels(track);
         SelectedPropertiesBtn.IsEnabled = true;
         UpdateSelectedRatingVisuals(track.Rating);
@@ -3961,6 +4093,12 @@ public sealed partial class MainWindow : Window
         SelectedArtImage.Opacity = 0;
         _ = LoadArtAsync(track.Path, SelectedArtImage);
         _ = LoadSelectedLyricsAsync(track.Path);
+    }
+
+    private void RefreshInspectorPlayingContext()
+    {
+        if (_inspectorTrack != null)
+            UpdateSelectedTrackLabels(_inspectorTrack);
     }
 
     private void UpdateSelectedTrackLabels(TrackItem track)
@@ -4011,6 +4149,7 @@ public sealed partial class MainWindow : Window
         _inspectorArtMode = (_inspectorArtMode + 1) % 3;
         _settings.InspectorArtMode = _inspectorArtMode;
         ApplyInspectorArtMode();
+        _settings.Save();
     }
 
     private void SelectedInfoOverlay_Tapped(object sender, TappedRoutedEventArgs e)
@@ -4020,6 +4159,7 @@ public sealed partial class MainWindow : Window
         _inspectorArtMode = 0;
         _settings.InspectorArtMode = _inspectorArtMode;
         ApplyInspectorArtMode();
+        _settings.Save();
         e.Handled = true;
     }
 
@@ -4035,22 +4175,21 @@ public sealed partial class MainWindow : Window
 
     private void ApplyInspectorArtMode()
     {
-        // Generated-cover initial: small in the compact card, lifted clear of the text overlay in mode 2.
-        SelectedArtInitial.FontSize = _inspectorArtMode == 0 ? 44 : _inspectorArtMode == 1 ? 80 : 60;
+        SelectedArtInitial.FontSize = _inspectorArtMode == 0 ? 40 : _inspectorArtMode == 1 ? 80 : 60;
         SelectedArtInitial.Margin = new Thickness(0, 0, 0, _inspectorArtMode == 2 ? 100 : 0);
         SelectedDiscPlaceholder.Margin = SelectedArtInitial.Margin;
-        // The compact card is square, so filling it does not crop a cover. The wide card is shorter
-        // than it is wide, and filling it cut the bottom off. Fit the whole picture there instead.
-        bool wideArt = _inspectorArtMode != 0;
-        SelectedArtImage.Stretch = wideArt ? Stretch.Uniform : Stretch.UniformToFill;
+        // At the default 238 px pane width (218 x 212 card), UniformToFill fills 100% edge-to-edge with zero side bars;
+        // if the user drags the column wide (> 268 px), Uniform keeps the full cover visible without growing vertically.
+        bool useUniform = _inspectorArtMode != 0 && _rightPaneWidth > 268;
+        SelectedArtImage.Stretch = useUniform ? Stretch.Uniform : Stretch.UniformToFill;
 
         if (_inspectorArtMode == 0)
         {
-            SelectedArtCol.Width = new GridLength(112);
-            SelectedHeroGrid.ColumnSpacing = 12;
+            SelectedArtCol.Width = new GridLength(96);
+            SelectedHeroGrid.ColumnSpacing = 10;
             Grid.SetColumnSpan(SelectedArtBorder, 1);
-            SelectedArtBorder.Width = 112;
-            SelectedArtBorder.Height = 112;
+            SelectedArtBorder.Width = 96;
+            SelectedArtBorder.Height = 96;
             SelectedArtBorder.HorizontalAlignment = HorizontalAlignment.Left;
 
             SelectedInfoOverlay.Visibility = Visibility.Visible;
@@ -4068,7 +4207,7 @@ public sealed partial class MainWindow : Window
             SelectedHeroGrid.ColumnSpacing = 0;
             Grid.SetColumnSpan(SelectedArtBorder, 2);
             SelectedArtBorder.Width = double.NaN;
-            SelectedArtBorder.Height = 208;
+            SelectedArtBorder.Height = 212;
             SelectedArtBorder.HorizontalAlignment = HorizontalAlignment.Stretch;
 
             SelectedInfoOverlay.Visibility = Visibility.Collapsed;
@@ -4079,14 +4218,13 @@ public sealed partial class MainWindow : Window
             SelectedHeroGrid.ColumnSpacing = 0;
             Grid.SetColumnSpan(SelectedArtBorder, 2);
             SelectedArtBorder.Width = double.NaN;
-            SelectedArtBorder.Height = 208;
+            SelectedArtBorder.Height = 212;
             SelectedArtBorder.HorizontalAlignment = HorizontalAlignment.Stretch;
 
             SelectedInfoOverlay.Visibility = Visibility.Visible;
             Grid.SetColumn(SelectedInfoOverlay, 0);
             Grid.SetColumnSpan(SelectedInfoOverlay, 2);
             SelectedInfoOverlay.VerticalAlignment = VerticalAlignment.Bottom;
-            // The top padding is where the fade under the text builds up, clear of the first line.
             SelectedInfoOverlay.Padding = new Thickness(8, 26, 8, 6);
             SelectedInfoOverlay.CornerRadius = new CornerRadius(0, 0, 8, 8);
             ApplySelectedInfoTheme();
@@ -4108,7 +4246,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // One dark shadow for every cover. A bright lower half used to switch on a near-solid white plate.
         SelectedInfoOverlay.RequestedTheme = ElementTheme.Dark;
         SelectedInfoOverlay.Background = InspectorOverlayBrush;
         SelectedTitleText.Foreground = DarkOverlayPrimaryBrush;
@@ -4352,6 +4489,8 @@ public sealed partial class MainWindow : Window
     {
         var fills = new[] { StarFillHost1, StarFillHost2, StarFillHost3, StarFillHost4, StarFillHost5 };
         double r = rating ?? 0;
+        if (SelectedClearRatingBtn != null)
+            SelectedClearRatingBtn.Visibility = r > 0 ? Visibility.Visible : Visibility.Collapsed;
         for (int i = 0; i < fills.Length; i++)
         {
             double threshold = i + 1;

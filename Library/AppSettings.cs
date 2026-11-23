@@ -65,10 +65,11 @@ public sealed class AppSettings
     public int RepeatMode { get; set; } = 1; // 0 = Off, 1 = All, 2 = One
 
     // Persistent workspace layout & view mode
-    public int LayoutSchemaVersion { get; set; } = 3;
+    public int LayoutSchemaVersion { get; set; } = 6;
     public bool LeftPaneOpen { get; set; } = false;
     public bool RightPaneOpen { get; set; } = true;
-    public double InspectorHeight { get; set; } = 208;
+    public double RightPaneWidth { get; set; } = 242;
+    public double InspectorHeight { get; set; } = 212;
     public int InspectorArtMode { get; set; } = 2;
     public string ViewMode { get; set; } = "Table"; // Table | Grid
 
@@ -78,7 +79,7 @@ public sealed class AppSettings
     public string DetailColumnField { get; set; } = "Bitrate";
 
     // Persistent window geometry
-    public int WindowWidth { get; set; } = 1480;
+    public int WindowWidth { get; set; } = 1368;
     public int WindowHeight { get; set; } = 900;
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }
@@ -118,11 +119,12 @@ public sealed class AppSettings
         CoverTint = 100;
         LeftPaneOpen = false;
         RightPaneOpen = true;
-        InspectorHeight = 208;
+        RightPaneWidth = 242;
+        InspectorHeight = 212;
         InspectorArtMode = 2;
         ViewMode = "Table";
         DetailColumnField = "Bitrate";
-        WindowWidth = 1480;
+        WindowWidth = 1368;
         WindowHeight = 900;
         WindowX = null;
         WindowY = null;
@@ -157,6 +159,22 @@ public sealed class AppSettings
                     settings.SpeakerLayout = WasapiAudioEngine.GetRecommendedDirectLayout(settings.OutputDeviceId);
                 }
                 settings.LayoutSchemaVersion = 3;
+                migrated = true;
+            }
+            if (settings.LayoutSchemaVersion < 5)
+            {
+                settings.RightPaneWidth = 238;
+                settings.InspectorHeight = 212;
+                settings.LayoutSchemaVersion = 5;
+                migrated = true;
+            }
+            if (settings.LayoutSchemaVersion < 6)
+            {
+                settings.RightPaneWidth = 242;
+                settings.InspectorHeight = 212;
+                if (settings.WindowWidth > 1368)
+                    settings.WindowWidth = Math.Max(1120, settings.WindowWidth - 112);
+                settings.LayoutSchemaVersion = 6;
                 migrated = true;
             }
             if (string.Equals(settings.SortColumn, "Index", StringComparison.OrdinalIgnoreCase))
