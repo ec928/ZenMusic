@@ -107,6 +107,28 @@ public sealed partial class MainWindow : Window
     private static readonly SolidColorBrush PlaybarMutedIconBrush = new(Color.FromArgb(166, 255, 255, 255));
     private static readonly SolidColorBrush PlaybarLightAmberBrush = new(Color.FromArgb(255, 217, 119, 6));
     private static readonly SolidColorBrush PlaybarLightMutedIconBrush = new(Color.FromArgb(150, 26, 26, 26));
+    private static readonly LinearGradientBrush InspectorOverlayBrush = new()
+    {
+        StartPoint = new Point(0.5, 0),
+        EndPoint = new Point(0.5, 1),
+        GradientStops =
+        {
+            new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.0 },
+            new GradientStop { Color = Color.FromArgb(170, 10, 10, 10), Offset = 0.30 },
+            new GradientStop { Color = Color.FromArgb(238, 8, 8, 8), Offset = 1.0 }
+        }
+    };
+    private static readonly LinearGradientBrush InspectorLightOverlayBrush = new()
+    {
+        StartPoint = new Point(0.5, 0),
+        EndPoint = new Point(0.5, 1),
+        GradientStops =
+        {
+            new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 0.0 },
+            new GradientStop { Color = Color.FromArgb(175, 255, 255, 255), Offset = 0.32 },
+            new GradientStop { Color = Color.FromArgb(236, 248, 248, 248), Offset = 1.0 }
+        }
+    };
     private static readonly SolidColorBrush DarkOverlayPrimaryBrush = new(Color.FromArgb(255, 245, 245, 245));
     private static readonly SolidColorBrush DarkOverlaySecondaryBrush = new(Color.FromArgb(255, 212, 212, 212));
     private static readonly SolidColorBrush DarkOverlayAccentBrush = new(Color.FromArgb(255, 255, 204, 72));
@@ -4079,6 +4101,7 @@ public sealed partial class MainWindow : Window
             Grid.SetColumn(SelectedInfoOverlay, 0);
             Grid.SetColumnSpan(SelectedInfoOverlay, 2);
             SelectedInfoOverlay.VerticalAlignment = VerticalAlignment.Bottom;
+            // The top padding is where the fade under the text builds up, clear of the first line.
             SelectedInfoOverlay.Padding = new Thickness(8, 26, 8, 6);
             SelectedInfoOverlay.CornerRadius = new CornerRadius(0, 0, 8, 8);
             ApplySelectedInfoTheme();
@@ -4100,12 +4123,10 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Text sits straight on the cover with no shade behind it. The contrast detector
-        // (_selectedArtIsLight, from the cover's bottom) picks dark text on light covers.
-        SelectedInfoOverlay.Background = TransparentRowBrush;
         if (_selectedArtIsLight)
         {
             SelectedInfoOverlay.RequestedTheme = ElementTheme.Light;
+            SelectedInfoOverlay.Background = InspectorLightOverlayBrush;
             SelectedTitleText.Foreground = LightOverlayPrimaryBrush;
             SelectedArtistText.Foreground = LightOverlayAccentBrush;
             SelectedSpecsText.Foreground = LightOverlaySecondaryBrush;
@@ -4117,6 +4138,7 @@ public sealed partial class MainWindow : Window
         else
         {
             SelectedInfoOverlay.RequestedTheme = ElementTheme.Dark;
+            SelectedInfoOverlay.Background = InspectorOverlayBrush;
             SelectedTitleText.Foreground = DarkOverlayPrimaryBrush;
             SelectedArtistText.Foreground = DarkOverlayAccentBrush;
             SelectedSpecsText.Foreground = DarkOverlaySecondaryBrush;
