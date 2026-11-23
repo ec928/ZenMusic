@@ -94,7 +94,7 @@ public sealed partial class MainWindow : Window
     private bool _isHoveringVolume;
     private double _seekProgressRatio;
     private double _preMuteVolume = 70;
-    private bool _selectedArtIsLight;
+
     private int _activeFocusLrcIndex = -1;
     private int _activeSelectedLrcIndex = -1;
     private string? _activePlayingPathForLyrics;
@@ -114,29 +114,15 @@ public sealed partial class MainWindow : Window
         GradientStops =
         {
             new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(170, 10, 10, 10), Offset = 0.30 },
-            new GradientStop { Color = Color.FromArgb(238, 8, 8, 8), Offset = 1.0 }
-        }
-    };
-    private static readonly LinearGradientBrush InspectorLightOverlayBrush = new()
-    {
-        StartPoint = new Point(0.5, 0),
-        EndPoint = new Point(0.5, 1),
-        GradientStops =
-        {
-            new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(175, 255, 255, 255), Offset = 0.32 },
-            new GradientStop { Color = Color.FromArgb(236, 248, 248, 248), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.20 },
+            new GradientStop { Color = Color.FromArgb(130, 8, 8, 8), Offset = 0.40 },
+            new GradientStop { Color = Color.FromArgb(168, 8, 8, 8), Offset = 1.0 }
         }
     };
     private static readonly SolidColorBrush DarkOverlayPrimaryBrush = new(Color.FromArgb(255, 245, 245, 245));
     private static readonly SolidColorBrush DarkOverlaySecondaryBrush = new(Color.FromArgb(255, 212, 212, 212));
     private static readonly SolidColorBrush DarkOverlayAccentBrush = new(Color.FromArgb(255, 255, 204, 72));
     private static readonly SolidColorBrush DarkOverlayStarBgBrush = new(Color.FromArgb(95, 255, 255, 255));
-    private static readonly SolidColorBrush LightOverlayPrimaryBrush = new(Color.FromArgb(255, 20, 20, 20));
-    private static readonly SolidColorBrush LightOverlaySecondaryBrush = new(Color.FromArgb(255, 58, 58, 58));
-    private static readonly SolidColorBrush LightOverlayAccentBrush = new(Color.FromArgb(255, 148, 88, 0));
-    private static readonly SolidColorBrush LightOverlayStarBgBrush = new(Color.FromArgb(85, 0, 0, 0));
 
     public static Visibility NowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility NotNowPlayingVis(bool isNowPlaying) => isNowPlaying ? Visibility.Collapsed : Visibility.Visible;
@@ -650,10 +636,7 @@ public sealed partial class MainWindow : Window
         else PlayingRowTint.Color = PlayingRowColor(null, !dark, 1, _highContrast);
         ApplyWorkspaceScrim();
         if (_inspectorTrack == null && SelectedTitleText != null)
-        {
-            _selectedArtIsLight = !dark;
             ApplySelectedInfoTheme();
-        }
 
         try
         {
@@ -3955,8 +3938,6 @@ public sealed partial class MainWindow : Window
         SelectedEmptyBg.Visibility = track == null ? Visibility.Visible : Visibility.Collapsed;
         if (track == null)
         {
-            // Empty card follows the app theme instead of sitting dark in a light window.
-            _selectedArtIsLight = RootGrid.RequestedTheme == ElementTheme.Light;
             ApplySelectedInfoTheme();
             _selectedLyricsTrackPath = null;
             SelectedTitleText.Text = "No track selected";
@@ -4058,6 +4039,10 @@ public sealed partial class MainWindow : Window
         SelectedArtInitial.FontSize = _inspectorArtMode == 0 ? 44 : _inspectorArtMode == 1 ? 80 : 60;
         SelectedArtInitial.Margin = new Thickness(0, 0, 0, _inspectorArtMode == 2 ? 100 : 0);
         SelectedDiscPlaceholder.Margin = SelectedArtInitial.Margin;
+        // The compact card is square, so filling it does not crop a cover. The wide card is shorter
+        // than it is wide, and filling it cut the bottom off. Fit the whole picture there instead.
+        bool wideArt = _inspectorArtMode != 0;
+        SelectedArtImage.Stretch = wideArt ? Stretch.Uniform : Stretch.UniformToFill;
 
         if (_inspectorArtMode == 0)
         {
@@ -4123,30 +4108,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (_selectedArtIsLight)
-        {
-            SelectedInfoOverlay.RequestedTheme = ElementTheme.Light;
-            SelectedInfoOverlay.Background = InspectorLightOverlayBrush;
-            SelectedTitleText.Foreground = LightOverlayPrimaryBrush;
-            SelectedArtistText.Foreground = LightOverlayAccentBrush;
-            SelectedSpecsText.Foreground = LightOverlaySecondaryBrush;
-            SelectedPropertiesIcon.Foreground = LightOverlayPrimaryBrush;
-            SelectedClearRatingIcon.Foreground = LightOverlaySecondaryBrush;
-            foreach (var bg in new[] { StarBg1, StarBg2, StarBg3, StarBg4, StarBg5 })
-                bg.Foreground = LightOverlayStarBgBrush;
-        }
-        else
-        {
-            SelectedInfoOverlay.RequestedTheme = ElementTheme.Dark;
-            SelectedInfoOverlay.Background = InspectorOverlayBrush;
-            SelectedTitleText.Foreground = DarkOverlayPrimaryBrush;
-            SelectedArtistText.Foreground = DarkOverlayAccentBrush;
-            SelectedSpecsText.Foreground = DarkOverlaySecondaryBrush;
-            SelectedPropertiesIcon.Foreground = DarkOverlayPrimaryBrush;
-            SelectedClearRatingIcon.Foreground = DarkOverlaySecondaryBrush;
-            foreach (var bg in new[] { StarBg1, StarBg2, StarBg3, StarBg4, StarBg5 })
-                bg.Foreground = DarkOverlayStarBgBrush;
-        }
+        // One dark shadow for every cover. A bright lower half used to switch on a near-solid white plate.
+        SelectedInfoOverlay.RequestedTheme = ElementTheme.Dark;
+        SelectedInfoOverlay.Background = InspectorOverlayBrush;
+        SelectedTitleText.Foreground = DarkOverlayPrimaryBrush;
+        SelectedArtistText.Foreground = DarkOverlayAccentBrush;
+        SelectedSpecsText.Foreground = DarkOverlaySecondaryBrush;
+        SelectedPropertiesIcon.Foreground = DarkOverlayPrimaryBrush;
+        SelectedClearRatingIcon.Foreground = DarkOverlaySecondaryBrush;
+        foreach (var bg in new[] { StarBg1, StarBg2, StarBg3, StarBg4, StarBg5 })
+            bg.Foreground = DarkOverlayStarBgBrush;
     }
 
     private async Task LoadSelectedLyricsAsync(string path)
@@ -4256,11 +4227,6 @@ public sealed partial class MainWindow : Window
             return;
         await SetImageFromBytesAsync(bytes, targets);
         foreach (var img in targets) img.Opacity = 1;
-        if (targets.Contains(SelectedArtImage))
-        {
-            _selectedArtIsLight = await ComputeBottomLuminanceIsLightAsync(bytes);
-            ApplySelectedInfoTheme();
-        }
     }
 
     private static async Task<Color> ComputeDominantAccentColorAsync(byte[]? bytes)
@@ -4306,50 +4272,6 @@ public sealed partial class MainWindow : Window
                 (byte)Math.Clamp(bSum / weightSum, 30, 240));
         }
         catch { return fallback; }
-    }
-
-    private static async Task<bool> ComputeBottomLuminanceIsLightAsync(byte[]? bytes)
-    {
-        if (bytes == null || bytes.Length == 0) return false;
-        try
-        {
-            using var stream = new InMemoryRandomAccessStream();
-            using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
-            {
-                writer.WriteBytes(bytes);
-                await writer.StoreAsync();
-                writer.DetachStream();
-            }
-            stream.Seek(0);
-            var decoder = await BitmapDecoder.CreateAsync(stream);
-            const uint sampleW = 24;
-            const uint sampleH = 24;
-            var transform = new BitmapTransform { ScaledWidth = sampleW, ScaledHeight = sampleH, InterpolationMode = BitmapInterpolationMode.Linear };
-            var pixelData = await decoder.GetPixelDataAsync(
-                BitmapPixelFormat.Bgra8,
-                BitmapAlphaMode.Premultiplied,
-                transform,
-                ExifOrientationMode.IgnoreExifOrientation,
-                ColorManagementMode.DoNotColorManage);
-            byte[] pixels = pixelData.DetachPixelData();
-
-            double lumSum = 0;
-            int count = 0;
-            for (int y = 11; y < sampleH; y++)
-            {
-                for (int x = 0; x < sampleW; x++)
-                {
-                    int idx = (y * (int)sampleW + x) * 4;
-                    double b = pixels[idx] / 255.0;
-                    double g = pixels[idx + 1] / 255.0;
-                    double r = pixels[idx + 2] / 255.0;
-                    lumSum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
-                    count++;
-                }
-            }
-            return count > 0 && (lumSum / count) > 0.50;
-        }
-        catch { return false; }
     }
 
     private static async Task<BitmapImage?> CreateBitmapFromBytesAsync(byte[]? bytes, int decodePixelWidth = 0)
