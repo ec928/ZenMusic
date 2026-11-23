@@ -56,6 +56,7 @@ public sealed class AppSettings
     public double[] EqualizerGains { get; set; } = new double[10];
     public string VisualizerMode { get; set; } = "Spectrum"; // Spectrum | Waveform | Off
     public bool VisualizerEnabled { get; set; } = true;
+    public bool WindowVisualizerEnabled { get; set; } = true;
     public string Theme { get; set; } = "Dark"; // Dark | Light | System
     public int CoverTint { get; set; } = 100; // strength of the cover-colour wash, percent: 0 = off, 100 = standard, 200 = vivid
     public double Volume { get; set; } = 70;
@@ -112,6 +113,7 @@ public sealed class AppSettings
         EqualizerGains = new double[10];
         VisualizerMode = "Spectrum";
         VisualizerEnabled = true;
+        WindowVisualizerEnabled = true;
         Theme = "Dark";
         CoverTint = 100;
         LeftPaneOpen = false;

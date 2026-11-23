@@ -79,13 +79,19 @@
                 <Setter Property="Margin" Value="-4,4,-4,4"/>
                 <Setter Property="Fill" Value="{ThemeResource DividerStrokeColorDefaultBrush}"/>
             </Style>
-            <MenuFlyout x:Key="VisualizerContextFlyout">
-                <MenuFlyoutItem Text="Spectrum" Tag="Spectrum" Click="VisualizerContextMenuItem_Click"/>
-                <MenuFlyoutItem Text="Silk Waveform" Tag="Waveform" Click="VisualizerContextMenuItem_Click"/>
-                <MenuFlyoutItem Text="Bars + Wave" Tag="BarsAndWaveform" Click="VisualizerContextMenuItem_Click"/>
-                <MenuFlyoutItem Text="Off" Tag="Off" Click="VisualizerContextMenuItem_Click"/>
+            <MenuFlyout x:Key="VisualizerContextFlyout" Opening="VisualizerContextFlyout_Opening">
+                <ToggleMenuFlyoutItem Text="Spectrum" Tag="Spectrum" Click="VisualizerContextMenuItem_Click"/>
+                <ToggleMenuFlyoutItem Text="Silk Waveform" Tag="Waveform" Click="VisualizerContextMenuItem_Click"/>
+                <ToggleMenuFlyoutItem Text="Bars + Wave" Tag="BarsAndWaveform" Click="VisualizerContextMenuItem_Click"/>
+                <ToggleMenuFlyoutItem Text="Off" Tag="Off" Click="VisualizerContextMenuItem_Click"/>
                 <MenuFlyoutSeparator/>
-                <MenuFlyoutItem Text="Open Focus Stage (F11)" Click="VisualizerContextFocusStage_Click"/>
+                <ToggleMenuFlyoutItem Text="Show behind track list" Tag="WindowBackdrop" Click="VisualizerContextBackdrop_Click"/>
+                <MenuFlyoutSeparator/>
+                <MenuFlyoutItem Text="Focus Stage (F11)" Tag="FocusStage" Click="VisualizerContextFocusStage_Click">
+                    <MenuFlyoutItem.Icon>
+                        <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE9D9;"/>
+                    </MenuFlyoutItem.Icon>
+                </MenuFlyoutItem>
             </MenuFlyout>
         </Grid.Resources>
 
@@ -219,6 +225,9 @@
                 <ColumnDefinition x:Name="RightPaneCol" Width="316"/>
             </Grid.ColumnDefinitions>
 
+            <!-- Calm ambient visualizer behind the track list only (Column 0) so the right sidebar card never clips treble bars -->
+            <ui:VisualizerControl x:Name="WindowVisualizer" Grid.Column="0" IsHitTestVisible="False" Backdrop="True"/>
+
             <!-- Center Canvas: Track Table / Album Grid -->
             <Grid x:Name="CenterWorkspaceGrid" Grid.Column="0" Background="{ThemeResource AppCanvasBrush}">
                 <Grid.RowDefinitions>
@@ -270,7 +279,7 @@
                 </Grid>
 
                 <!-- Virtualized Track List -->
-                <ListView x:Name="TracksListView" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
+                <ListView x:Name="TracksListView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
                           Padding="0,0,0,4"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
                           IsDoubleTapEnabled="True" DoubleTapped="TracksListView_DoubleTapped"
@@ -358,7 +367,7 @@
                 </ListView>
 
                 <!-- Tile View (Shared Sort Order & Selection with Track Table) -->
-                <GridView x:Name="AlbumsGridView" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed" SizeChanged="AlbumsGridView_SizeChanged"
+                <GridView x:Name="AlbumsGridView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed" SizeChanged="AlbumsGridView_SizeChanged"
                           Padding="14,12,14,12"
                           SelectionMode="Extended"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
@@ -503,7 +512,7 @@
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE712;" FontSize="12"/>
                         </Button>
                     </Grid>
-                    <ListView x:Name="QueueListView" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
+                    <ListView x:Name="QueueListView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
                               CanReorderItems="True" AllowDrop="True" CanDragItems="True"
                               DragOver="QueueListView_DragOver" Drop="QueueListView_Drop" DragItemsCompleted="QueueListView_DragItemsCompleted"
                               SelectionChanged="QueueListView_SelectionChanged"
@@ -671,7 +680,9 @@
 
             <!-- Full-Canvas Listening Room / Focus Visualizer Stage (F11 or click Playbar Visualizer) -->
             <Grid x:Name="FocusVisualizerOverlay" Grid.Column="0" Grid.ColumnSpan="2" RequestedTheme="Dark"
-                  Background="#FF0A0A0A" Visibility="Collapsed" Canvas.ZIndex="50">
+                  Background="#FF0A0A0A" Visibility="Collapsed" Canvas.ZIndex="50"
+                  ContextFlyout="{StaticResource VisualizerContextFlyout}"
+                  PointerMoved="FocusVisualizerOverlay_PointerMoved">
                 <Grid.OpacityTransition>
                     <ScalarTransition Duration="0:0:0.22"/>
                 </Grid.OpacityTransition>
@@ -696,21 +707,33 @@
                     </Border.Background>
                 </Border>
 
-                <Grid Padding="48,28,48,28">
+                <Grid Padding="48,24,48,16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                        <Button x:Name="FocusVizModeBtn" Style="{StaticResource TitleButtonStyle}" Click="FocusVizModeBtn_Click" ToolTipService.ToolTip="Cycle visualizer mode (Spectrum / Waveform / Bars + Wave / Off)">
+                    <StackPanel x:Name="FocusTopBar" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                        <StackPanel.OpacityTransition>
+                            <ScalarTransition Duration="0:0:0.25"/>
+                        </StackPanel.OpacityTransition>
+                        <Button x:Name="FocusVizModeBtn" Style="{StaticResource TitleButtonStyle}" Click="FocusVizModeBtn_Click"
+                                ContextFlyout="{StaticResource VisualizerContextFlyout}"
+                                ToolTipService.ToolTip="Cycle visualizer mode (Spectrum / Waveform / Bars + Wave / Off) · Right-click for menu">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE9D9;" FontSize="12"/>
                                 <TextBlock x:Name="FocusVizModeText" Text="Spectrum" FontSize="12"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="CloseFocusBtn" Style="{StaticResource TitleButtonStyle}" Click="CloseFocusBtn_Click" ToolTipService.ToolTip="Close Focus Visualizer (Esc / F11)">
+                        <Button x:Name="FocusFullScreenBtn" Style="{StaticResource TitleButtonStyle}" Click="FocusFullScreenBtn_Click"
+                                ToolTipService.ToolTip="Toggle Full Screen">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon x:Name="FocusFullScreenIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE740;" FontSize="12"/>
+                                <TextBlock x:Name="FocusFullScreenText" Text="Full screen" FontSize="12"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="CloseFocusBtn" Style="{StaticResource TitleButtonStyle}" Click="CloseFocusBtn_Click" ToolTipService.ToolTip="Exit Focus Stage (Esc / F11)">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="12"/>
                                 <TextBlock Text="Close (F11)" FontSize="12"/>
@@ -774,7 +797,7 @@
                         </Border>
                     </Grid>
 
-                    <ui:VisualizerControl x:Name="FocusVisualizer" Grid.Row="2"/>
+                    <ui:VisualizerControl x:Name="FocusVisualizer" Grid.Row="2" IsFocusStage="True"/>
                 </Grid>
             </Grid>
         </Grid>
@@ -928,6 +951,14 @@
                     </Grid>
                     <Button x:Name="RightPaneToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Hide Queue &amp; Track Panel (Ctrl+B)" Click="RightPaneToggleBtn_Click">
                         <FontIcon x:Name="RightPaneToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE90D;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Button>
+                    <Button x:Name="FocusStageToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}"
+                            ContextFlyout="{StaticResource VisualizerContextFlyout}"
+                            ToolTipService.ToolTip="Focus Stage (F11) · Right-click for visualizer options" Click="VisualizerContextFocusStage_Click">
+                        <Grid Width="28" Height="28">
+                            <FontIcon x:Name="FocusStageToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE9D9;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Ellipse x:Name="FocusStageActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2" Visibility="Collapsed"/>
+                        </Grid>
                     </Button>
                     <Button x:Name="MiniPlayerToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
                         <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

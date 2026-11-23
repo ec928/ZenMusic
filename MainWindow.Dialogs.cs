@@ -582,6 +582,17 @@ public sealed partial class MainWindow
             ApplyVisualizerFromSettings();
         };
 
+        var largeVizToggle = new ToggleSwitch { IsOn = _settings.WindowVisualizerEnabled, MinWidth = 0 };
+        largeVizToggle.Toggled += (_, _) =>
+        {
+            if (loading) return;
+            _settings.WindowVisualizerEnabled = largeVizToggle.IsOn;
+            _settings.Save();
+            SyncVisualizerStageVisibility();
+        };
+        var (largeVizRow, _, _) = SettingsCard.Row("\uE9D9", "Library backdrop visualizer",
+            "Calm ambient visualizer behind the track list.", largeVizToggle);
+
         var themeBox = new ComboBox { MinWidth = 140 };
         themeBox.Items.Add(new ComboBoxItem { Content = "Dark", Tag = "Dark" });
         themeBox.Items.Add(new ComboBoxItem { Content = "Light", Tag = "Light" });
@@ -722,6 +733,7 @@ public sealed partial class MainWindow
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
+            largeVizRow,
             SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row,
             tintRow));
         panel.Children.Add(SettingsCard.Section("Library and application"));

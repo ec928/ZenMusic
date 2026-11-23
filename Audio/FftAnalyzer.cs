@@ -163,13 +163,26 @@ public sealed class FftAnalyzer
             {
                 double f0 = Math.Pow(10.0, logMin + (logMax - logMin) * b / bCount);
                 double f1 = Math.Pow(10.0, logMin + (logMax - logMin) * (b + 1) / bCount);
-                int bin0 = Math.Clamp((int)Math.Floor(f0 / binHz), 1, half - 1);
-                int bin1 = Math.Clamp((int)Math.Ceiling(f1 / binHz), bin0, half - 1);
+                float exactBin0 = (float)Math.Clamp(f0 / binHz, 1.0, half - 1.001);
+                float exactBin1 = (float)Math.Clamp(f1 / binHz, exactBin0, half - 1.001);
 
-                float peakMag = 0f;
-                for (int k = bin0; k <= bin1; k++)
+                float peakMag;
+                if (exactBin1 - exactBin0 < 1.35f)
                 {
-                    if (_magnitudes[k] > peakMag) peakMag = _magnitudes[k];
+                    // Sub-bass and bass bands are narrower than a single FFT bin (~21.5 Hz).
+                    // Interpolate smoothly at the band center so adjacent low bars don't move as identical blocks.
+                    float centerBin = 0.5f * (exactBin0 + exactBin1);
+                    peakMag = SampleMagnitudeSmooth(centerBin, half);
+                }
+                else
+                {
+                    peakMag = MathF.Max(SampleMagnitudeSmooth(exactBin0, half), SampleMagnitudeSmooth(exactBin1, half));
+                    int bin0 = Math.Clamp((int)Math.Ceiling(exactBin0), 1, half - 1);
+                    int bin1 = Math.Clamp((int)Math.Floor(exactBin1), bin0, half - 1);
+                    for (int k = bin0; k <= bin1; k++)
+                    {
+                        if (_magnitudes[k] > peakMag) peakMag = _magnitudes[k];
+                    }
                 }
 
                 // Convert to perceptual dB scale (-54 dB .. 0 dB -> 0 .. 1) with gentle auto-gain
@@ -194,6 +207,29 @@ public sealed class FftAnalyzer
 
             BassEnergy = Math.Clamp((_bands[0] + _bands[1] + _bands[2] + _bands[3] + _bands[4]) / 5f, 0f, 1f);
         }
+    }
+
+    private float SampleMagnitudeSmooth(float binPos, int half)
+    {
+        int i1 = Math.Clamp((int)MathF.Floor(binPos), 1, half - 1);
+        int i0 = Math.Max(1, i1 - 1);
+        int i2 = Math.Min(half - 1, i1 + 1);
+        int i3 = Math.Min(half - 1, i1 + 2);
+        float t = Math.Clamp(binPos - i1, 0f, 1f);
+
+        float m0 = _magnitudes[i0];
+        float m1 = _magnitudes[i1];
+        float m2 = _magnitudes[i2];
+        float m3 = _magnitudes[i3];
+
+        float t2 = t * t;
+        float t3 = t2 * t;
+        float cubic = 0.5f * (
+            (2f * m1) +
+            (-m0 + m2) * t +
+            (2f * m0 - 5f * m1 + 4f * m2 - m3) * t2 +
+            (-m0 + 3f * m1 - 3f * m2 + m3) * t3);
+        return MathF.Max(0f, cubic);
     }
 
     public static void FftInPlace(float[] real, float[] imag)

@@ -292,6 +292,7 @@ public sealed partial class MainWindow : Window
 
         PlaybarVisualizerLeft.AttachAnalyzer(_engine.Fft);
         PlaybarVisualizer.AttachAnalyzer(_engine.Fft);
+        WindowVisualizer.AttachAnalyzer(_engine.Fft);
         FocusVisualizer.AttachAnalyzer(_engine.Fft);
         ApplyVisualizerFromSettings();
         SyncVisualizerStageVisibility();
@@ -638,6 +639,7 @@ public sealed partial class MainWindow : Window
 
         if (PlaybarVisualizerLeft != null) PlaybarVisualizerLeft.UseLightTheme = !dark;
         if (PlaybarVisualizer != null) PlaybarVisualizer.UseLightTheme = !dark;
+        if (WindowVisualizer != null) WindowVisualizer.UseLightTheme = !dark;
         UpdateShuffleButtonVisual();
         UpdateRepeatButtonVisual();
         UpdateRightPaneButtonVisual();
@@ -646,6 +648,7 @@ public sealed partial class MainWindow : Window
         // The wash is lighter in the light theme, so re-apply it at the new strength.
         if (_lastCoverTint.HasValue && PlaybarTintLayer != null) ApplyCoverTint(_lastCoverTint);
         else PlayingRowTint.Color = PlayingRowColor(null, !dark, 1, _highContrast);
+        ApplyWorkspaceScrim();
         if (_inspectorTrack == null && SelectedTitleText != null)
         {
             _selectedArtIsLight = !dark;
@@ -847,23 +850,87 @@ public sealed partial class MainWindow : Window
 
         PlaybarVisualizerLeft.Mode = mode;
         PlaybarVisualizer.Mode = mode;
+        WindowVisualizer.Mode = mode;
         PlaybarVisualizerLeftHost.Visibility = Visibility.Visible;
         PlaybarVisualizerRightHost.Visibility = Visibility.Visible;
         FocusVisualizer.Mode = mode;
         PlaybarVisualizerLeft.IsAudioPlaying = _engine.IsPlaying;
         PlaybarVisualizer.IsAudioPlaying = _engine.IsPlaying;
+        WindowVisualizer.IsAudioPlaying = _engine.IsPlaying;
         FocusVisualizer.IsAudioPlaying = _engine.IsPlaying;
         UpdateFocusVizLabel();
         SyncVisualizerStageVisibility();
+    }
+
+    private bool LargeVisualizerWanted()
+    {
+        if (_settings == null) return false;
+        bool focusVisible = FocusVisualizerOverlay.Visibility == Visibility.Visible;
+        bool library = !focusVisible && !_isMiniPlayer;
+        return library && _settings.WindowVisualizerEnabled && _settings.VisualizerEnabled
+            && !string.Equals(_settings.VisualizerMode, "Off", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SyncVisualizerStageVisibility()
     {
         bool focusVisible = FocusVisualizerOverlay.Visibility == Visibility.Visible;
         bool barVisible = !focusVisible;
+        bool largeOn = LargeVisualizerWanted();
+        bool vizActive = _settings != null && _settings.VisualizerEnabled
+            && !string.Equals(_settings.VisualizerMode, "Off", StringComparison.OrdinalIgnoreCase);
         PlaybarVisualizerLeft.IsStageVisible = barVisible;
         PlaybarVisualizer.IsStageVisible = barVisible;
+        WindowVisualizer.IsStageVisible = largeOn;
         FocusVisualizer.IsStageVisible = focusVisible;
+        UpdateFocusStageButtonVisual(focusVisible, largeOn, vizActive);
+        ApplyWorkspaceScrim();
+    }
+
+    private void UpdateFocusStageButtonVisual(bool focusVisible, bool largeOn, bool vizActive)
+    {
+        if (FocusStageToggleIcon == null || FocusStageActiveDot == null) return;
+        FocusStageActiveDot.Visibility = (vizActive && (focusVisible || largeOn)) ? Visibility.Visible : Visibility.Collapsed;
+        FocusStageToggleIcon.Foreground = focusVisible
+            ? (Brush)Application.Current.Resources["FavouriteStarBrush"]
+            : (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+    }
+
+    // The library backdrop visualizer sits behind the track list (Column 0).
+    // While it is on, the center panel eases open slightly toward the bottom while keeping text legible.
+    private void ApplyWorkspaceScrim()
+    {
+        bool light = RootGrid.RequestedTheme == ElementTheme.Light;
+        if (!LargeVisualizerWanted() || _highContrast)
+        {
+            CenterWorkspaceGrid.Background = new SolidColorBrush(_highContrast
+                ? Color.FromArgb(255, 0, 0, 0)
+                : light ? Color.FromArgb(0xC0, 0xF7, 0xF7, 0xF7) : Color.FromArgb(0xB3, 0x12, 0x12, 0x12));
+            RightSidebar.Background = new SolidColorBrush(_highContrast
+                ? Color.FromArgb(255, 0, 0, 0)
+                : light ? Color.FromArgb(0x99, 0xF3, 0xF3, 0xF3) : Color.FromArgb(0x99, 0x1C, 0x1C, 0x1C));
+            return;
+        }
+
+        CenterWorkspaceGrid.Background = WorkspaceScrim(
+            light ? Color.FromArgb(255, 247, 247, 247) : Color.FromArgb(255, 18, 18, 18),
+            light ? (byte)0xF4 : (byte)0xF0,
+            light ? (byte)0xD8 : (byte)0xCE,
+            light ? (byte)0xA8 : (byte)0x9E);
+        RightSidebar.Background = new SolidColorBrush(
+            light ? Color.FromArgb(0x99, 0xF3, 0xF3, 0xF3) : Color.FromArgb(0x99, 0x1C, 0x1C, 0x1C));
+    }
+
+    private static LinearGradientBrush WorkspaceScrim(Color rgb, byte top, byte mid, byte low)
+    {
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new Windows.Foundation.Point(0, 0),
+            EndPoint = new Windows.Foundation.Point(0, 1)
+        };
+        brush.GradientStops.Add(new GradientStop { Color = Color.FromArgb(top, rgb.R, rgb.G, rgb.B), Offset = 0 });
+        brush.GradientStops.Add(new GradientStop { Color = Color.FromArgb(mid, rgb.R, rgb.G, rgb.B), Offset = 0.48 });
+        brush.GradientStops.Add(new GradientStop { Color = Color.FromArgb(low, rgb.R, rgb.G, rgb.B), Offset = 1 });
+        return brush;
     }
 
     private void UpdateFocusVizLabel()
@@ -2924,6 +2991,11 @@ public sealed partial class MainWindow : Window
         PlayingRowTint.Color = PlayingRowColor(cover.HasValue ? c : null, light, k, _highContrast);
         CanvasTintStop.Color = Color.FromArgb(canvasNear, c.R, c.G, c.B);
         CanvasTintEndStop.Color = Color.FromArgb(canvasFar, c.R, c.G, c.B);
+        Color? vizAccent = cover.HasValue && k > 0 ? c : null;
+        if (WindowVisualizer != null) WindowVisualizer.Accent = vizAccent;
+        if (FocusVisualizer != null) FocusVisualizer.Accent = vizAccent;
+        if (PlaybarVisualizerLeft != null) PlaybarVisualizerLeft.Accent = vizAccent;
+        if (PlaybarVisualizer != null) PlaybarVisualizer.Accent = vizAccent;
         PlaybarTintLayer.Opacity = 1;
         PaneTintLayer.Opacity = 1;
         CanvasTintLayer.Opacity = 1;
@@ -3013,6 +3085,7 @@ public sealed partial class MainWindow : Window
         PlayPauseIcon.Glyph = playing ? "\uE769" : "\uE768";
         PlaybarVisualizerLeft.IsAudioPlaying = playing;
         PlaybarVisualizer.IsAudioPlaying = playing;
+        WindowVisualizer.IsAudioPlaying = playing;
         FocusVisualizer.IsAudioPlaying = playing;
 
         if (playing) _progressTimer.Start();
@@ -3157,6 +3230,11 @@ public sealed partial class MainWindow : Window
         {
             FocusAmbientGlow.Opacity = 0.28 + _engine.Fft.BassEnergy * 0.42;
             UpdateActiveLyricHighlight(_focusLrcLines, FocusSyncedLyricsList, ref _activeFocusLrcIndex, pos);
+            if (_engine.IsPlaying && _focusLastPointerMoveTick > 0 &&
+                Environment.TickCount64 - _focusLastPointerMoveTick > 2800)
+            {
+                if (FocusTopBar.Opacity > 0.1) FocusTopBar.Opacity = 0.0;
+            }
         }
 
         if (_selectedLrcLines.Count > 0 &&
@@ -3512,6 +3590,27 @@ public sealed partial class MainWindow : Window
         SetVisualizerModeAndSave(next);
     }
 
+    private void VisualizerContextFlyout_Opening(object sender, object e)
+    {
+        if (sender is not MenuFlyout flyout) return;
+        string activeTag = !_settings.VisualizerEnabled ? "Off" : _settings.VisualizerMode;
+        bool focusOpen = FocusVisualizerOverlay.Visibility == Visibility.Visible;
+        foreach (var item in flyout.Items)
+        {
+            if (item is ToggleMenuFlyoutItem toggle && toggle.Tag is string tag)
+            {
+                if (tag == "WindowBackdrop")
+                    toggle.IsChecked = _settings.WindowVisualizerEnabled;
+                else
+                    toggle.IsChecked = string.Equals(tag, activeTag, StringComparison.OrdinalIgnoreCase);
+            }
+            else if (item is MenuFlyoutItem action && action.Tag as string == "FocusStage")
+            {
+                action.Text = focusOpen ? "Exit Focus Stage (F11)" : "Focus Stage (F11)";
+            }
+        }
+    }
+
     private void VisualizerContextMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuFlyoutItem { Tag: string tag } && Enum.TryParse<VisualizerMode>(tag, out var mode))
@@ -3520,12 +3619,72 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void VisualizerContextBackdrop_Click(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null) return;
+        _settings.WindowVisualizerEnabled = !_settings.WindowVisualizerEnabled;
+        _settings.Save();
+        SyncVisualizerStageVisibility();
+    }
+
     private void VisualizerContextFocusStage_Click(object sender, RoutedEventArgs e) => ToggleFocusVisualizer();
 
     private void PlaybarVisualizerHost_Tapped(object sender, TappedRoutedEventArgs e) => ToggleFocusVisualizer();
 
-    private void CloseFocusBtn_Click(object sender, RoutedEventArgs e)
+    private void CloseFocusBtn_Click(object sender, RoutedEventArgs e) => CloseFocusStage();
+
+    private bool _isFocusFullScreen;
+    private long _focusLastPointerMoveTick;
+
+    private void FocusVisualizerOverlay_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        _focusLastPointerMoveTick = Environment.TickCount64;
+        if (FocusTopBar.Opacity < 1.0)
+            FocusTopBar.Opacity = 1.0;
+    }
+
+    private void FocusFullScreenBtn_Click(object sender, RoutedEventArgs e)
+    {
+        SetFocusFullScreen(!_isFocusFullScreen);
+    }
+
+    private void SetFocusFullScreen(bool enable)
+    {
+        if (_isFocusFullScreen == enable) return;
+        _isFocusFullScreen = enable;
+        try
+        {
+            if (enable)
+            {
+                AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                TopBarRowDef.Height = new GridLength(0);
+                MainTitleBar.Visibility = Visibility.Collapsed;
+                FocusFullScreenIcon.Glyph = "\uE73F";
+                FocusFullScreenText.Text = "Windowed";
+            }
+            else
+            {
+                AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+                if (!_isMiniPlayer)
+                {
+                    TopBarRowDef.Height = new GridLength(44);
+                    MainTitleBar.Visibility = Visibility.Visible;
+                    SetTitleBar(TitleBarDragRegion);
+                    _lastSearchPassthroughRect = default;
+                    DispatcherQueue.TryEnqueue(UpdateTitleBarPassthrough);
+                }
+                FocusFullScreenIcon.Glyph = "\uE740";
+                FocusFullScreenText.Text = "Full screen";
+            }
+        }
+        catch { }
+    }
+
+    private void CloseFocusStage()
+    {
+        if (_isFocusFullScreen)
+            SetFocusFullScreen(false);
+        FocusTopBar.Opacity = 1.0;
         FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
         SyncVisualizerStageVisibility();
     }
@@ -3586,7 +3745,7 @@ public sealed partial class MainWindow : Window
             MainWorkspaceGrid.Visibility = Visibility.Collapsed;
 
             if (FocusVisualizerOverlay.Visibility == Visibility.Visible)
-                FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
+                CloseFocusStage();
 
             SyncVisualizerStageVisibility();
 
@@ -3650,6 +3809,8 @@ public sealed partial class MainWindow : Window
         bool opening = FocusVisualizerOverlay.Visibility != Visibility.Visible;
         if (opening)
         {
+            _focusLastPointerMoveTick = Environment.TickCount64;
+            FocusTopBar.Opacity = 1.0;
             // Start transparent without animating, then fade in.
             var fade = FocusVisualizerOverlay.OpacityTransition;
             FocusVisualizerOverlay.OpacityTransition = null;
@@ -3657,12 +3818,12 @@ public sealed partial class MainWindow : Window
             FocusVisualizerOverlay.OpacityTransition = fade;
             FocusVisualizerOverlay.Visibility = Visibility.Visible;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => FocusVisualizerOverlay.Opacity = 1);
+            SyncVisualizerStageVisibility();
         }
         else
         {
-            FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
+            CloseFocusStage();
         }
-        SyncVisualizerStageVisibility();
     }
 
     private void TracksListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -5342,8 +5503,7 @@ public sealed partial class MainWindow : Window
         {
             if (e.Key == VirtualKey.Escape && FocusVisualizerOverlay.Visibility == Visibility.Visible)
             {
-                FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
-                SyncVisualizerStageVisibility();
+                CloseFocusStage();
                 e.Handled = true;
             }
             return;
@@ -5372,8 +5532,7 @@ public sealed partial class MainWindow : Window
         }
         else if (e.Key == VirtualKey.Escape && FocusVisualizerOverlay.Visibility == Visibility.Visible)
         {
-            FocusVisualizerOverlay.Visibility = Visibility.Collapsed;
-            SyncVisualizerStageVisibility();
+            CloseFocusStage();
             e.Handled = true;
         }
         else if (e.Key == VirtualKey.F1)
