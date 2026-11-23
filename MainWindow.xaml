@@ -114,10 +114,10 @@
                     <Image x:Name="TitleBarLogoImage" Width="22" Height="22" VerticalAlignment="Center"/>
                     <TextBlock Text="ZenMusic" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
-                <Button x:Name="OpenFolderBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Open music folder (Ctrl+O)" Click="OpenFolderBtn_Click">
+                <Button x:Name="OpenFolderBtn" AutomationProperties.Name="Open music folder" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Open music folder (Ctrl+O)" Click="OpenFolderBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE838;" FontSize="14"/>
                 </Button>
-                <Button x:Name="FoldersMenuBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Favourites and recent folders">
+                <Button x:Name="FoldersMenuBtn" AutomationProperties.Name="Favourite and recent folders" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Favourites and recent folders">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8F1;" FontSize="13.5"/>
                     <Button.Flyout>
                         <Flyout x:Name="RecentFoldersMenu" Placement="BottomEdgeAlignedLeft" Opening="RecentFoldersMenu_Opening">
@@ -145,7 +145,7 @@
                         </MenuFlyout>
                     </Button.ContextFlyout>
                 </Button>
-                <Button x:Name="HygieneBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Browse albums, artists &amp; library filters">
+                <Button x:Name="HygieneBtn" AutomationProperties.Name="Browse albums, artists and filters" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Browse albums, artists &amp; library filters">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE71C;" FontSize="13.5"/>
                     <Button.Flyout>
                         <MenuFlyout>
@@ -161,7 +161,7 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
-                <Button x:Name="ScopeClearBtn" Height="26" MinWidth="0" MinHeight="0" Padding="10,0" CornerRadius="13" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" VerticalAlignment="Center" Margin="4,0,0,0" ToolTipService.ToolTip="Clear active filter" Click="ScopeClearBtn_Click">
+                <Button x:Name="ScopeClearBtn" AutomationProperties.Name="Clear filter" Height="26" MinWidth="0" MinHeight="0" Padding="10,0" CornerRadius="13" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" VerticalAlignment="Center" Margin="4,0,0,0" ToolTipService.ToolTip="Clear active filter" Click="ScopeClearBtn_Click">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <TextBlock x:Name="ScopeClearText" Text="" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center"/>
                         <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="9"/>
@@ -185,20 +185,20 @@
                         </TextBox.Resources>
                     </TextBox>
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE721;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0" IsHitTestVisible="False"/>
-                    <Button x:Name="ClearSearchBtn" Width="24" Height="24" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="4" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" ToolTipService.ToolTip="Clear search" Click="ClearSearchBtn_Click">
+                    <Button x:Name="ClearSearchBtn" AutomationProperties.Name="Clear search" Width="24" Height="24" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="4" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" ToolTipService.ToolTip="Clear search" Click="ClearSearchBtn_Click">
                         <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="10"/>
                     </Button>
                 </Grid>
             </Grid>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <Button x:Name="ViewToggleBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Switch Track Table / Tile View" Click="ViewToggleBtn_Click">
+                <Button x:Name="ViewToggleBtn" AutomationProperties.Name="Switch between table and tiles" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Switch Track Table / Tile View" Click="ViewToggleBtn_Click">
                     <FontIcon x:Name="ViewToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE80A;" FontSize="14"/>
                 </Button>
-                <Button x:Name="SettingsBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Settings (Audio, Visualizer, Theme, Rescan)" Click="SettingsBtn_Click">
+                <Button x:Name="SettingsBtn" AutomationProperties.Name="Settings" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Settings (Audio, Visualizer, Theme, Rescan)" Click="SettingsBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE713;" FontSize="14"/>
                 </Button>
-                <Button x:Name="InfoBtn" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Help &amp; About">
+                <Button x:Name="InfoBtn" AutomationProperties.Name="Help and About" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Help &amp; About">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE946;" FontSize="14"/>
                     <Button.Flyout>
                         <MenuFlyout>
@@ -270,7 +270,7 @@
                     <Button Grid.Column="5" Tag="Rating" Content="Rating" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="6" Tag="Duration" Content="Length" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Right" Margin="-4,0,4,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="7" Tag="DateAdded" Content="Added" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Center" Margin="0" Click="SortHeader_Click" ToolTipService.ToolTip="Date added"/>
-                    <Button x:Name="HeaderDetailBtn" Grid.Column="8" Tag="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Center" Padding="2,0" Margin="0" Click="HeaderDetailBtn_Click" ToolTipService.ToolTip="Click to choose field or sort">
+                    <Button x:Name="HeaderDetailBtn" AutomationProperties.Name="Detail column" Grid.Column="8" Tag="Bitrate" Style="{StaticResource ColumnHeaderBtnStyle}" HorizontalContentAlignment="Center" Padding="2,0" Margin="0" Click="HeaderDetailBtn_Click" ToolTipService.ToolTip="Click to choose field or sort">
                         <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                             <TextBlock x:Name="HeaderDetailLabel" Text="Bitrate" VerticalAlignment="Center"/>
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE70D;" FontSize="8" Opacity="0.6" VerticalAlignment="Center" Margin="0,1,0,0"/>
@@ -418,7 +418,7 @@
                                         <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,6,0,0" CornerRadius="4" Padding="6,2" Background="#D9181818" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}">
                                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="11" Foreground="{ThemeResource FavouriteStarBrush}"/>
                                         </Border>
-                                        <Button x:Name="TilePlayBtn" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18"
+                                        <Button x:Name="TilePlayBtn" AutomationProperties.Name="Play" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18"
                                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,8"
                                                 Background="#E6181818" BorderBrush="#40FFFFFF" BorderThickness="1" Opacity="0"
                                                 Tag="{x:Bind}" Click="TilePlayBtn_Click" ToolTipService.ToolTip="Play track">
@@ -501,14 +501,14 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <ComboBox x:Name="RightListModeCombo" Grid.Column="0" HorizontalAlignment="Stretch" Height="30" FontSize="12" Padding="10,4,6,4" SelectionChanged="RightListModeCombo_SelectionChanged" ToolTipService.ToolTip="Switch between Play Queue and Saved Playlists"/>
-                        <Button x:Name="RightListPlayBtn" Grid.Column="1" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Play this list" Click="RightListPlayBtn_Click">
+                        <ComboBox x:Name="RightListModeCombo" AutomationProperties.Name="Queue or playlist" Grid.Column="0" HorizontalAlignment="Stretch" Height="30" FontSize="12" Padding="10,4,6,4" SelectionChanged="RightListModeCombo_SelectionChanged" ToolTipService.ToolTip="Switch between Play Queue and Saved Playlists"/>
+                        <Button x:Name="RightListPlayBtn" AutomationProperties.Name="Play this list" Grid.Column="1" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Play this list" Click="RightListPlayBtn_Click">
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="11"/>
                         </Button>
-                        <Button x:Name="QuickMixBtn" Grid.Column="2" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Instant Smart Mixes &amp; custom rules" Click="QuickMixBtn_Click">
+                        <Button x:Name="QuickMixBtn" AutomationProperties.Name="Smart mixes" Grid.Column="2" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Instant Smart Mixes &amp; custom rules" Click="QuickMixBtn_Click">
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE945;" FontSize="12"/>
                         </Button>
-                        <Button x:Name="RightListMenuBtn" Grid.Column="3" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Playlist &amp; Queue actions" Click="RightListMenuBtn_Click">
+                        <Button x:Name="RightListMenuBtn" AutomationProperties.Name="Playlist and queue actions" Grid.Column="3" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="6" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Playlist &amp; Queue actions" Click="RightListMenuBtn_Click">
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE712;" FontSize="12"/>
                         </Button>
                     </Grid>
@@ -595,14 +595,14 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock x:Name="SelectedTitleText" Grid.Column="0" Text="No track selected" FontSize="13" LineHeight="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                                            <Button x:Name="SelectedPropertiesBtn" Grid.Column="1" Width="24" Height="24" Padding="0" MinWidth="0" MinHeight="0" CornerRadius="4" VerticalAlignment="Top" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Song Properties &amp; Lyrics (F2)" Click="SelectedPropertiesBtn_Click" IsEnabled="False">
+                                            <Button x:Name="SelectedPropertiesBtn" AutomationProperties.Name="Song properties and lyrics" Grid.Column="1" Width="24" Height="24" Padding="0" MinWidth="0" MinHeight="0" CornerRadius="4" VerticalAlignment="Top" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Song Properties &amp; Lyrics (F2)" Click="SelectedPropertiesBtn_Click" IsEnabled="False">
                                                 <FontIcon x:Name="SelectedPropertiesIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE70F;" FontSize="11"/>
                                             </Button>
                                         </Grid>
 
                                         <!-- Interactive Half-Star Rating Strip -->
                                         <StackPanel Orientation="Horizontal" Spacing="0" Margin="-2,0,0,0">
-                                            <Button x:Name="StarBtn1" Tag="1" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 0.5★, right half for 1.0★ (click again to clear)">
+                                            <Button x:Name="StarBtn1" AutomationProperties.Name="Rate 1 star" Tag="1" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 0.5★, right half for 1.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg1" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <Grid x:Name="StarFillHost1" Visibility="Collapsed">
@@ -610,7 +610,7 @@
                                                     </Grid>
                                                 </Grid>
                                             </Button>
-                                            <Button x:Name="StarBtn2" Tag="2" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 1.5★, right half for 2.0★ (click again to clear)">
+                                            <Button x:Name="StarBtn2" AutomationProperties.Name="Rate 2 stars" Tag="2" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 1.5★, right half for 2.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg2" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <Grid x:Name="StarFillHost2" Visibility="Collapsed">
@@ -618,7 +618,7 @@
                                                     </Grid>
                                                 </Grid>
                                             </Button>
-                                            <Button x:Name="StarBtn3" Tag="3" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 2.5★, right half for 3.0★ (click again to clear)">
+                                            <Button x:Name="StarBtn3" AutomationProperties.Name="Rate 3 stars" Tag="3" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 2.5★, right half for 3.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg3" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <Grid x:Name="StarFillHost3" Visibility="Collapsed">
@@ -626,7 +626,7 @@
                                                     </Grid>
                                                 </Grid>
                                             </Button>
-                                            <Button x:Name="StarBtn4" Tag="4" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 3.5★, right half for 4.0★ (click again to clear)">
+                                            <Button x:Name="StarBtn4" AutomationProperties.Name="Rate 4 stars" Tag="4" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 3.5★, right half for 4.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg4" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <Grid x:Name="StarFillHost4" Visibility="Collapsed">
@@ -634,7 +634,7 @@
                                                     </Grid>
                                                 </Grid>
                                             </Button>
-                                            <Button x:Name="StarBtn5" Tag="5" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 4.5★, right half for 5.0★ (click again to clear)">
+                                            <Button x:Name="StarBtn5" AutomationProperties.Name="Rate 5 stars" Tag="5" Width="18" Height="18" Padding="0" MinWidth="0" MinHeight="0" Click="RateStarBtn_Click" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Click left half for 4.5★, right half for 5.0★ (click again to clear)">
                                                 <Grid Width="14" Height="16">
                                                     <TextBlock x:Name="StarBg5" Text="★" FontSize="13" Foreground="#44FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <Grid x:Name="StarFillHost5" Visibility="Collapsed">
@@ -718,7 +718,7 @@
                         <StackPanel.OpacityTransition>
                             <ScalarTransition Duration="0:0:0.25"/>
                         </StackPanel.OpacityTransition>
-                        <Button x:Name="FocusVizModeBtn" Style="{StaticResource TitleButtonStyle}" Click="FocusVizModeBtn_Click"
+                        <Button x:Name="FocusVizModeBtn" AutomationProperties.Name="Visualizer style" Style="{StaticResource TitleButtonStyle}" Click="FocusVizModeBtn_Click"
                                 ContextFlyout="{StaticResource VisualizerContextFlyout}"
                                 ToolTipService.ToolTip="Cycle visualizer mode (Spectrum / Waveform / Bars + Wave / Off) · Right-click for menu">
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -726,14 +726,14 @@
                                 <TextBlock x:Name="FocusVizModeText" Text="Spectrum" FontSize="12"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="FocusFullScreenBtn" Style="{StaticResource TitleButtonStyle}" Click="FocusFullScreenBtn_Click"
+                        <Button x:Name="FocusFullScreenBtn" AutomationProperties.Name="Full screen" Style="{StaticResource TitleButtonStyle}" Click="FocusFullScreenBtn_Click"
                                 ToolTipService.ToolTip="Toggle Full Screen">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon x:Name="FocusFullScreenIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE740;" FontSize="12"/>
                                 <TextBlock x:Name="FocusFullScreenText" Text="Full screen" FontSize="12"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="CloseFocusBtn" Style="{StaticResource TitleButtonStyle}" Click="CloseFocusBtn_Click" ToolTipService.ToolTip="Exit Focus Stage (Esc / F11)">
+                        <Button x:Name="CloseFocusBtn" AutomationProperties.Name="Exit focus stage" Style="{StaticResource TitleButtonStyle}" Click="CloseFocusBtn_Click" ToolTipService.ToolTip="Exit Focus Stage (Esc / F11)">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="12"/>
                                 <TextBlock Text="Close (F11)" FontSize="12"/>
@@ -882,7 +882,7 @@
                         </Border>
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Button x:Name="ShuffleToggle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Shuffle off" Click="ShuffleToggle_Click">
+                            <Button x:Name="ShuffleToggle" AutomationProperties.Name="Shuffle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Shuffle off" Click="ShuffleToggle_Click">
                                 <Grid Width="30" Height="30">
                                     <FontIcon x:Name="ShuffleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8B1;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <Ellipse x:Name="ShuffleActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5" Visibility="Collapsed"/>
@@ -891,7 +891,7 @@
                             <Button x:Name="PrevBtn" AutomationProperties.Name="Previous" Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Previous" Click="PrevBtn_Click">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE892;" FontSize="13.5" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             </Button>
-                            <Button x:Name="PlayPauseBtn" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18" BorderThickness="0" ToolTipService.ToolTip="Play / Pause (Space)" Click="PlayPauseBtn_Click">
+                            <Button x:Name="PlayPauseBtn" AutomationProperties.Name="Play or pause" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18" BorderThickness="0" ToolTipService.ToolTip="Play / Pause (Space)" Click="PlayPauseBtn_Click">
                                 <Button.Resources>
                                     <ResourceDictionary>
                                         <ResourceDictionary.ThemeDictionaries>
@@ -919,7 +919,7 @@
                             <Button x:Name="NextBtn" AutomationProperties.Name="Next" Width="30" Height="30" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Next" Click="NextBtn_Click">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE893;" FontSize="13.5" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             </Button>
-                            <Button x:Name="RepeatToggle" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Repeat all (Click to cycle: Off / All / One)" Click="RepeatToggle_Click">
+                            <Button x:Name="RepeatToggle" AutomationProperties.Name="Repeat" Width="30" Height="30" Padding="0" CornerRadius="15" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Repeat all (Click to cycle: Off / All / One)" Click="RepeatToggle_Click">
                                 <Grid Width="30" Height="30">
                                     <FontIcon x:Name="RepeatIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8EE;" FontSize="13" Foreground="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <Ellipse x:Name="RepeatActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2.5"/>
@@ -941,18 +941,18 @@
                     <Button x:Name="SpeakerBadgeBtn" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Style="{StaticResource SubtleButtonStyle}" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
                         <TextBlock x:Name="SpeakerBadgeText" Text="2.0 ch" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
-                    <Button x:Name="MuteBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Mute / Unmute" Click="MuteBtn_Click">
+                    <Button x:Name="MuteBtn" AutomationProperties.Name="Mute" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Mute / Unmute" Click="MuteBtn_Click">
                         <FontIcon x:Name="VolumeIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
                     <Grid Width="72" Height="22" VerticalAlignment="Center">
                         <canvas:CanvasControl x:Name="VolumeRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="VolumeRailCanvas_Draw"/>
-                        <Slider x:Name="VolumeSlider" Width="72" Opacity="0" Minimum="0" Maximum="100" Value="70" MinHeight="20" Height="22" Padding="0" VerticalAlignment="Center"
+                        <Slider x:Name="VolumeSlider" AutomationProperties.Name="Volume" Width="72" Opacity="0" Minimum="0" Maximum="100" Value="70" MinHeight="20" Height="22" Padding="0" VerticalAlignment="Center"
                                 ValueChanged="VolumeSlider_ValueChanged" PointerEntered="VolumeSlider_PointerEntered" PointerExited="VolumeSlider_PointerExited"/>
                     </Grid>
-                    <Button x:Name="RightPaneToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Hide Queue &amp; Track Panel (Ctrl+B)" Click="RightPaneToggleBtn_Click">
+                    <Button x:Name="RightPaneToggleBtn" AutomationProperties.Name="Show or hide side panel" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Hide Queue &amp; Track Panel (Ctrl+B)" Click="RightPaneToggleBtn_Click">
                         <FontIcon x:Name="RightPaneToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE90D;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
-                    <Button x:Name="FocusStageToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}"
+                    <Button x:Name="FocusStageToggleBtn" AutomationProperties.Name="Focus stage" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}"
                             ContextFlyout="{StaticResource VisualizerContextFlyout}"
                             ToolTipService.ToolTip="Focus Stage (F11) · Right-click for visualizer options" Click="VisualizerContextFocusStage_Click">
                         <Grid Width="28" Height="28">
@@ -960,7 +960,7 @@
                             <Ellipse x:Name="FocusStageActiveDot" Width="3.5" Height="3.5" Fill="{ThemeResource FavouriteStarBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,2" Visibility="Collapsed"/>
                         </Grid>
                     </Button>
-                    <Button x:Name="MiniPlayerToggleBtn" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
+                    <Button x:Name="MiniPlayerToggleBtn" AutomationProperties.Name="Mini player" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
                         <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
                 </StackPanel>
@@ -969,15 +969,16 @@
             <!-- Full-width seek rail straddling the playbar's top edge (replaces the divider line) -->
             <Grid x:Name="SeekRailHost" Height="16" VerticalAlignment="Top" Margin="-16,-10,-16,0">
                 <canvas:CanvasControl x:Name="SeekRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="SeekRailCanvas_Draw"/>
-                <Slider x:Name="SeekSlider" Opacity="0" Minimum="0" Maximum="100" Value="0" MinHeight="16" Height="16" Padding="0" VerticalAlignment="Center"
+                <Slider x:Name="SeekSlider" AutomationProperties.Name="Position in track" Opacity="0" Minimum="0" Maximum="100" Value="0" MinHeight="16" Height="16" Padding="0" VerticalAlignment="Center"
                         ValueChanged="SeekSlider_ValueChanged" PointerMoved="SeekSlider_PointerMoved" KeyUp="SeekSlider_KeyUp"
                         PointerEntered="SeekSlider_PointerEntered" PointerExited="SeekSlider_PointerExited"/>
             </Grid>
             </Grid>
         </Border>
 
-        <!-- Settings panel: slides in over the right of the window; changes apply as they are made -->
-        <Grid x:Name="SettingsOverlay" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed" Canvas.ZIndex="60">
+        <!-- Settings panel: slides in over the right of the window; changes apply as they are made.
+             It stops above the playbar so volume and transport stay in reach while audio settings change. -->
+        <Grid x:Name="SettingsOverlay" Grid.Row="1" Visibility="Collapsed" Canvas.ZIndex="60">
             <Grid.OpacityTransition>
                 <ScalarTransition Duration="0:0:0.16"/>
             </Grid.OpacityTransition>

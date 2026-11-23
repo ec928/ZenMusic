@@ -113,9 +113,11 @@ public sealed partial class MainWindow : Window
         EndPoint = new Point(0.5, 1),
         GradientStops =
         {
+            // Dense under the artist and specs lines so lettering on the cover cannot show through them.
             new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(170, 10, 10, 10), Offset = 0.30 },
-            new GradientStop { Color = Color.FromArgb(238, 8, 8, 8), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(200, 10, 10, 10), Offset = 0.22 },
+            new GradientStop { Color = Color.FromArgb(236, 8, 8, 8), Offset = 0.5 },
+            new GradientStop { Color = Color.FromArgb(248, 8, 8, 8), Offset = 1.0 }
         }
     };
     private static readonly LinearGradientBrush InspectorLightOverlayBrush = new()
@@ -125,8 +127,9 @@ public sealed partial class MainWindow : Window
         GradientStops =
         {
             new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(175, 255, 255, 255), Offset = 0.32 },
-            new GradientStop { Color = Color.FromArgb(236, 248, 248, 248), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(205, 255, 255, 255), Offset = 0.22 },
+            new GradientStop { Color = Color.FromArgb(238, 248, 248, 248), Offset = 0.5 },
+            new GradientStop { Color = Color.FromArgb(248, 248, 248, 248), Offset = 1.0 }
         }
     };
     private static readonly SolidColorBrush DarkOverlayPrimaryBrush = new(Color.FromArgb(255, 245, 245, 245));
@@ -833,9 +836,33 @@ public sealed partial class MainWindow : Window
             SpeakerLayout.Surround51Direct => endpointCh >= 6 ? "5.1 ch" : "5.1* ch",
             _ => "2.0 ch"
         };
-        ToolTipService.SetToolTip(SpeakerBadgeBtn, endpointCh >= 6 || _settings.SpeakerLayout == SpeakerLayout.Stereo20
-            ? $"Output: {endpointCh}ch WASAPI (Click to switch)"
-            : $"Windows audio device reports {endpointCh}ch; using spatial stereo fold-down (Click to switch)");
+        UpdateSpeakerBadgeTooltip();
+    }
+
+    /// <summary>The playbar's channel badge also says how much loudness leveling is doing to the playing track.</summary>
+    private void UpdateSpeakerBadgeTooltip()
+    {
+        int endpointCh = WasapiAudioEngine.GetEndpointChannelCount(_settings.OutputDeviceId);
+        string output = endpointCh >= 6 || _settings.SpeakerLayout == SpeakerLayout.Stereo20
+            ? $"{endpointCh}-channel output"
+            : $"{endpointCh}-channel output, layout folded down to stereo";
+
+        string leveling;
+        TrackItem? playing = _queueIndex >= 0 && _queueIndex < _queueTracks.Count ? _queueTracks[_queueIndex] : null;
+        if (string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase))
+            leveling = "Loudness leveling: off";
+        else if (playing == null)
+            leveling = "Loudness leveling: on";
+        else if (!playing.ReplayGainTrackDb.HasValue)
+            leveling = playing.IsCloudOnly ? "Loudness leveling: not measured (file is online only)" : "Loudness leveling: measuring this track...";
+        else
+        {
+            double db = 20.0 * Math.Log10(Math.Max(1e-6, GetTrackReplayGainFactor(playing)));
+            leveling = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "Loudness leveling: {0:+0.0;-0.0;0.0} dB on this track", db);
+        }
+
+        ToolTipService.SetToolTip(SpeakerBadgeBtn, $"{output}\n{leveling}\nClick to change device or speaker layout");
     }
 
     private void ApplyVisualizerFromSettings()
@@ -1127,6 +1154,14 @@ public sealed partial class MainWindow : Window
         RestoreSessionQueue();
         UpdateEmptyState();
         _ = Task.Run(() => LibraryCache.Save(AppPaths.LibraryCachePath, reconciled));
+
+        // Gains measured by the pre-0.7.15 meter are replaced quietly in the background.
+        if (_rgScanCts == null &&
+            !string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase) &&
+            _allTracks.Any(t => !t.IsCloudOnly && t.ReplayGainIsStale))
+        {
+            _ = RunLoudnessAnalysisAsync(staleOnly: true);
+        }
     }
 
     private string CurrentScopeLabel() => _activeAlbumFilter != null ? $"Album: {_activeAlbumFilter}"
@@ -2707,35 +2742,51 @@ public sealed partial class MainWindow : Window
         {
             var playing = _queueTracks[_queueIndex];
             _engine.SetReplayGainFactor(GetTrackReplayGainFactor(playing));
-            if (!playing.ReplayGainTrackDb.HasValue)
+            if (NeedsLoudnessMeasure(playing))
                 _ = EnsureTrackLoudnessMeasuredAsync(playing, applyLiveIfPlaying: true);
         }
         else
         {
             _engine.SetReplayGainFactor(1.0f);
         }
+        UpdateSpeakerBadgeTooltip();
+    }
+
+    private static bool NeedsLoudnessMeasure(TrackItem t) =>
+        !t.IsCloudOnly && (!t.ReplayGainTrackDb.HasValue || t.ReplayGainIsStale);
+
+    /// <summary>Stores a fresh measurement on every item for that file and re-levels it if it is playing.</summary>
+    private void ApplyLoudnessMeasurement(TrackItem track, ReplayGainAnalysis rg)
+    {
+        foreach (var peer in EnumerateMatchingTrackItems(track))
+        {
+            peer.ReplayGainTrackDb = rg.TrackGainDb;
+            peer.ReplayGainTrackPeak = rg.TrackPeak;
+            peer.ReplayGainFromTag = false;
+            peer.ReplayGainMeterVersion = ReplayGainAnalyzer.MeterVersion;
+            peer.NotifyDetailChanged();
+        }
+        if (string.Equals(_engine.CurrentPath, track.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            _engine.SetReplayGainFactor(GetTrackReplayGainFactor(track));
+            UpdateSpeakerBadgeTooltip();
+        }
     }
 
     private async Task EnsureTrackLoudnessMeasuredAsync(TrackItem track, bool applyLiveIfPlaying)
     {
-        if (track.ReplayGainTrackDb.HasValue || track.IsCloudOnly) return;
+        if (!NeedsLoudnessMeasure(track)) return;
         if (string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase)) return;
 
         await _replayGainScanLock.WaitAsync();
-        ReplayGainAnalysis? measured = null;
         try
         {
-            if (!track.ReplayGainTrackDb.HasValue && !track.IsCloudOnly && File.Exists(track.Path))
+            if (NeedsLoudnessMeasure(track) && File.Exists(track.Path))
             {
-                measured = await Task.Run(() => ReplayGainAnalyzer.AnalyzeFile(track.Path));
+                var measured = await Task.Run(() => ReplayGainAnalyzer.AnalyzeFile(track.Path));
                 if (measured is ReplayGainAnalysis rg)
                 {
-                    foreach (var peer in EnumerateMatchingTrackItems(track))
-                    {
-                        peer.ReplayGainTrackDb = rg.TrackGainDb;
-                        peer.ReplayGainTrackPeak = rg.TrackPeak;
-                        peer.NotifyDetailChanged();
-                    }
+                    ApplyLoudnessMeasurement(track, rg);
                     SaveLibraryCacheSnapshot();
                 }
             }
@@ -2749,6 +2800,56 @@ public sealed partial class MainWindow : Window
             string.Equals(_engine.CurrentPath, track.Path, StringComparison.OrdinalIgnoreCase))
         {
             _engine.SetReplayGainFactor(GetTrackReplayGainFactor(track));
+            UpdateSpeakerBadgeTooltip();
+        }
+    }
+
+    private int _rgScanDone;
+    private int _rgScanTotal;
+    /// <summary>Set by the open Settings panel to refresh its Analyze row while a pass runs.</summary>
+    private Action? _rgScanProgressChanged;
+
+    /// <summary>
+    /// Measures every local track that has no gain (or, with <paramref name="staleOnly"/>, only
+    /// gains from an older meter). Files are only read. Cancel with <see cref="_rgScanCts"/>.
+    /// </summary>
+    private async Task RunLoudnessAnalysisAsync(bool staleOnly)
+    {
+        if (_rgScanCts != null) return;
+        var pending = _allTracks
+            .Where(t => staleOnly ? !t.IsCloudOnly && t.ReplayGainIsStale : NeedsLoudnessMeasure(t))
+            .GroupBy(t => t.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+        if (pending.Count == 0) return;
+
+        var cts = new CancellationTokenSource();
+        _rgScanCts = cts;
+        _rgScanDone = 0;
+        _rgScanTotal = pending.Count;
+        _rgScanProgressChanged?.Invoke();
+        try
+        {
+            await Parallel.ForEachAsync(pending, new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (t, ct) =>
+            {
+                if (ct.IsCancellationRequested || !File.Exists(t.Path)) return;
+                var res = await Task.Run(() => ReplayGainAnalyzer.AnalyzeFile(t.Path), ct);
+                int curDone = Interlocked.Increment(ref _rgScanDone);
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (res is ReplayGainAnalysis rg) ApplyLoudnessMeasurement(t, rg);
+                    _rgScanProgressChanged?.Invoke();
+                    if (curDone % 25 == 0) SaveLibraryCacheSnapshot();
+                });
+            });
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _rgScanCts = null;
+            cts.Dispose();
+            SaveLibraryCacheSnapshot();
+            _rgScanProgressChanged?.Invoke();
         }
     }
 
@@ -2762,6 +2863,7 @@ public sealed partial class MainWindow : Window
         bool started = _engine.PlayFile(track.Path, GetTrackReplayGainFactor(track));
         _ = FlushPendingRatingWritesAsync();
         SetNowPlayingTrack(track.Path);
+        UpdateSpeakerBadgeTooltip();
         if (started)
         {
             track.PlayCount++;
@@ -2771,7 +2873,7 @@ public sealed partial class MainWindow : Window
         if (!string.Equals(_settings.ReplayGainMode, "Off", StringComparison.OrdinalIgnoreCase))
         {
             _ = EnsureTrackLoudnessMeasuredAsync(track, applyLiveIfPlaying: true);
-            if (index + 1 < _queueTracks.Count && !_queueTracks[index + 1].ReplayGainTrackDb.HasValue)
+            if (index + 1 < _queueTracks.Count && NeedsLoudnessMeasure(_queueTracks[index + 1]))
                 _ = EnsureTrackLoudnessMeasuredAsync(_queueTracks[index + 1], applyLiveIfPlaying: false);
         }
 

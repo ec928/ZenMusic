@@ -100,7 +100,7 @@
                     <StackPanel Grid.Row="2" Grid.Column="1">
                         <TextBlock Text="Sound for the speakers you have" Style="{StaticResource AboutItemTitle}"/>
                         <TextBlock Style="{StaticResource AboutItemBody}"
-                                   Text="Stereo, 2.1 or 5.1, with on-the-fly loudness leveling, a 10-band equalizer, and optional WASAPI Exclusive mode."/>
+                                   Text="Stereo, 2.1 or 5.1, with on-the-fly loudness leveling, a 10-band equalizer, and an optional exclusive audio mode."/>
                     </StackPanel>
 
                     <FontIcon Grid.Row="3" Glyph="&#xE8F1;" Style="{StaticResource AboutGlyph}"/>

@@ -17,9 +17,9 @@ ZenMusic plays the music files in a folder on your PC. Point it at the folder an
 
 ## Sound for the speakers you have
 
-- **WASAPI playback** of `.mp3`, `.flac`, `.m4a`, `.aac`, `.wav`, `.wma`, `.ogg` and `.opus`, on the output device you choose, with automatic recovery when the device changes and an optional **WASAPI Exclusive** mode.
-- **2.0, 2.1 or 5.1.** Pick **2.0 Stereo**, **2.1 + LFE** (a subwoofer crossover below 80 Hz), **5.1 Smart Upmix** (stereo spread across a surround system, with adjustable centre vocal fill, LFE gain and rear ambience) or **5.1 Direct** (multichannel files played as they are).
-- **On-the-fly loudness leveling & 10-band EQ.** Non-destructive ReplayGain volume matching (reads embedded tags or measures tracks in the background without touching your files) plus a 10-band equalizer with presets and custom curves.
+- **WASAPI playback** of `.mp3`, `.flac`, `.m4a`, `.aac`, `.wav`, `.wma`, `.ogg` and `.opus`, on the output device you choose, with automatic recovery when the device changes and an optional **exclusive audio** mode (WASAPI Exclusive).
+- **2.0, 2.1 or 5.1.** Pick **2.0 Stereo**, **2.1 Stereo + subwoofer** (a crossover below 80 Hz), **5.1 Surround: spread stereo to every speaker** (with adjustable centre, subwoofer and rear levels) or **5.1 Surround: as recorded** (each channel played as it is).
+- **On-the-fly loudness leveling & 10-band EQ.** Non-destructive ReplayGain volume matching to about -14 LUFS, the level streaming services use. It reads embedded tags, or measures tracks to EBU R128 in the background without touching your files. Plus a 10-band equalizer with presets and custom curves.
 - **Visualizers** drawn on the GPU: spectrum bars, a silk waveform, or both, in the playbar and on the Focus Stage.
 - **Mini Player (`Ctrl+M`)** and a **Sleep timer** (timed countdown or pause after current track).
 

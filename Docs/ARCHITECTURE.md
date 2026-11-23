@@ -82,7 +82,9 @@ Because a first-class **real-time visualizer** and **2.0 Stereo / 5.1 Surround s
 
 There is no database. Tracks live in `library-cache.json` (`LibraryCache`). Playlists, custom filters, the saved queue, and the other settings live in `settings.json` (`AppSettings`). Search, album and artist grouping, rating filters, and hygiene views run on the in-memory track list.
 
-A cached track stores path, file size, last-write time, title, artist, album, genre, year, track number, disc number, duration, bitrate, sample rate, channels, codec, date added, rating, whether embedded art is present, play count, last played, and ReplayGain (track and album gain and peak, plus whether the gain came from the tag).
+A cached track stores path, file size, last-write time, title, artist, album, genre, year, track number, disc number, duration, bitrate, sample rate, channels, codec, date added, rating, whether embedded art is present, play count, last played, and ReplayGain (track and album gain and peak, whether the gain came from the tag, and which meter measured it).
+
+Loudness leveling (`ReplayGainAnalyzer`): gains are stored ReplayGain 2.0 style, relative to -18 LUFS, so measured values and values read from other taggers' tags mean the same thing. Playback adds 4 dB so tracks level to -14 LUFS. Measurement is EBU R128 integrated loudness (K-weighting, 400 ms blocks every 100 ms, -70 LUFS absolute and -10 LU relative gates); it matched ffmpeg's `ebur128` filter to within 0.05 LU on MP3, FLAC, M4A and WMA. Up to 0.7.14 the meter was unweighted RMS of the loudest 50 ms windows (meter version 1); on load, gains from that meter are measured again in the background, and until then they play with the 4 dB offset applied.
 
 A playlist stores an id, a name, and the track paths. A custom filter stores an id, a name, an optional minimum rating, and an optional text match.
 

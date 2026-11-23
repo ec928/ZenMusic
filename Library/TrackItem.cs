@@ -144,6 +144,11 @@ public sealed class TrackItem : INotifyPropertyChanged
     public float? ReplayGainTrackPeak { get; set; }
     public float? ReplayGainAlbumPeak { get; set; }
     public bool ReplayGainFromTag { get; set; }
+    /// <summary>Which loudness meter produced a measured (not tag) gain; see ReplayGainAnalyzer.MeterVersion.</summary>
+    public int ReplayGainMeterVersion { get; set; }
+    /// <summary>True when the gain was measured by an older meter and should be measured again.</summary>
+    public bool ReplayGainIsStale => ReplayGainTrackDb.HasValue && !ReplayGainFromTag
+        && ReplayGainMeterVersion < ZenMusic.Audio.ReplayGainAnalyzer.MeterVersion;
     public DateTime DateAddedUtc
     {
         get => _dateAddedUtc;
@@ -415,6 +420,7 @@ public sealed class TrackItem : INotifyPropertyChanged
             ReplayGainTrackDb = other.ReplayGainTrackDb;
             ReplayGainTrackPeak = other.ReplayGainTrackPeak;
             ReplayGainFromTag = other.ReplayGainFromTag;
+            ReplayGainMeterVersion = other.ReplayGainMeterVersion;
         }
         if (other.ReplayGainAlbumDb.HasValue)
         {

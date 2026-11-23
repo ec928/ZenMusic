@@ -33,6 +33,7 @@ public sealed class CachedTrackEntry
     public float? ReplayGainTrackPeak { get; set; }
     public float? ReplayGainAlbumPeak { get; set; }
     public bool ReplayGainFromTag { get; set; }
+    public int ReplayGainMeterVersion { get; set; }
 }
 
 public static class LibraryCache
@@ -126,6 +127,7 @@ public static class LibraryCache
         ReplayGainTrackPeak = e.ReplayGainTrackPeak,
         ReplayGainAlbumPeak = e.ReplayGainAlbumPeak,
         ReplayGainFromTag = e.ReplayGainFromTag,
+        ReplayGainMeterVersion = e.ReplayGainMeterVersion,
         IsCloudOnly = isCloudOnly,
         FileSize = e.FileSize,
         FileWriteUtcTicks = e.LastWriteUtcTicks
@@ -158,6 +160,7 @@ public static class LibraryCache
         ReplayGainAlbumDb = t.ReplayGainAlbumDb,
         ReplayGainTrackPeak = t.ReplayGainTrackPeak,
         ReplayGainAlbumPeak = t.ReplayGainAlbumPeak,
-        ReplayGainFromTag = t.ReplayGainFromTag
+        ReplayGainFromTag = t.ReplayGainFromTag,
+        ReplayGainMeterVersion = t.ReplayGainMeterVersion
     };
 }

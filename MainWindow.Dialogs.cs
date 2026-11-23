@@ -218,22 +218,22 @@ public sealed partial class MainWindow
         layoutBox.Items.Clear();
         layoutBox.Items.Add(new ComboBoxItem
         {
-            Content = sixCh ? "2.0 Stereo" : "2.0 Stereo (Direct — Recommended)",
+            Content = sixCh ? "2.0 Stereo" : "2.0 Stereo (recommended)",
             Tag = SpeakerLayout.Stereo20
         });
         layoutBox.Items.Add(new ComboBoxItem
         {
-            Content = "2.1 Stereo + Subwoofer",
+            Content = "2.1 Stereo + subwoofer",
             Tag = SpeakerLayout.Stereo21
         });
         layoutBox.Items.Add(new ComboBoxItem
         {
-            Content = "5.1 Surround (Smart Stereo Upmix)",
+            Content = "5.1 Surround: spread stereo to every speaker",
             Tag = SpeakerLayout.Surround51Upmix
         });
         layoutBox.Items.Add(new ComboBoxItem
         {
-            Content = sixCh ? "5.1 Surround (Direct — Recommended)" : "5.1 Surround (Direct Multichannel)",
+            Content = sixCh ? "5.1 Surround: as recorded (recommended)" : "5.1 Surround: as recorded",
             Tag = SpeakerLayout.Surround51Direct
         });
         layoutBox.SelectedIndex = (int)selectedLayout;
@@ -245,14 +245,15 @@ public sealed partial class MainWindow
         {
             return layout switch
             {
-                SpeakerLayout.Surround51Direct => $"Endpoint active: {ch}ch native WASAPI (Direct — unadjusted signal).",
-                SpeakerLayout.Stereo20 => $"Endpoint is {ch}ch WASAPI — 5.1 Direct is recommended for native unadjusted output.",
-                _ => $"Endpoint active: {ch}ch WASAPI (DSP upmix active)."
+                SpeakerLayout.Surround51Direct => $"Your device has {ch} channels. Each plays as recorded, so stereo music comes from the front left and right speakers only.",
+                SpeakerLayout.Stereo20 => $"Your device has {ch} channels. Music plays from the front left and right speakers.",
+                SpeakerLayout.Stereo21 => $"Your device has {ch} channels. Music plays front left and right, with its bass also sent to the subwoofer.",
+                _ => $"Your device has {ch} channels. Stereo music is spread to the centre, subwoofer and rear speakers."
             };
         }
         return layout == SpeakerLayout.Stereo20
-            ? $"Endpoint active: {ch}ch native WASAPI (Direct — unadjusted signal)."
-            : $"Device reports {ch}ch; spatial stereo fold-down active (2.0 Direct recommended).";
+            ? $"Your device has {ch} channels. Music plays as recorded."
+            : $"Your device has only {ch} channels, so this layout is folded down to stereo with added width and bass. 2.0 Stereo plays music as recorded.";
     }
 
     private void SpeakerBadgeBtn_Click(object sender, RoutedEventArgs e)
@@ -365,6 +366,7 @@ public sealed partial class MainWindow
     {
         if (SettingsOverlay.Visibility != Visibility.Visible) return;
         FlushPendingAudioSettings();
+        _rgScanProgressChanged = null;
         SettingsOverlay.Visibility = Visibility.Collapsed;
         SettingsPanelHost.Content = null;
     }
@@ -408,11 +410,21 @@ public sealed partial class MainWindow
         var lfeSlider = new Slider { Minimum = 0, Maximum = 150, Value = _settings.LfeGain * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
         var rearSlider = new Slider { Minimum = 0, Maximum = 100, Value = _settings.RearLevel * 100, Width = 150, VerticalAlignment = VerticalAlignment.Center };
 
-        var (deviceRow, _, _) = SettingsCard.Row("", "Output device", "WASAPI audio endpoint", deviceBox, controlBelow: true);
-        var (layoutRow, _, layoutDetail) = SettingsCard.Row("", "Speaker layout", "Checking endpoint...", layoutBox, controlBelow: true);
-        var (centerRow, _, _) = SettingsCard.Row("", "5.1 Center vocal fill", "Center balance (%)", centerSlider);
-        var (lfeRow, _, _) = SettingsCard.Row("", "Subwoofer (LFE) boost", "<80 Hz crossover gain (%)", lfeSlider);
-        var (rearRow, _, _) = SettingsCard.Row("", "5.1 Rear surround stage", "Rear ambient fill (%)", rearSlider);
+        var (deviceRow, _, _) = SettingsCard.Row("", "Output device", "The speakers or headphones ZenMusic plays through", deviceBox, controlBelow: true);
+        var (layoutRow, _, layoutDetail) = SettingsCard.Row("", "Speaker layout", "Checking the device...", layoutBox, controlBelow: true);
+        var (centerRow, _, _) = SettingsCard.Row("", "Centre speaker", "How much of the music goes to the centre (%)", centerSlider);
+        var (lfeRow, _, _) = SettingsCard.Row("", "Subwoofer", "Bass under 80 Hz sent to the subwoofer (%)", lfeSlider);
+        var (rearRow, _, _) = SettingsCard.Row("", "Rear speakers", "Ambience sent to the rear speakers (%)", rearSlider);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(deviceBox, "Output device");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(layoutBox, "Speaker layout");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(centerSlider, "Centre speaker level");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(lfeSlider, "Subwoofer level");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rearSlider, "Rear speaker level");
+        // The speaker levels sit right under the layout they belong to, and only those the chosen
+        // layout uses are shown (2.1 uses the subwoofer; spread 5.1 uses all three).
+        var centerDivider = SettingsCard.Divider();
+        var lfeDivider = SettingsCard.Divider();
+        var rearDivider = SettingsCard.Divider();
 
         bool updatingSettingsAudio = false;
         void UpdateEndpointAndSliders(bool deviceChanged)
@@ -437,12 +449,11 @@ public sealed partial class MainWindow
 
                 bool usesLfe = selLayout is SpeakerLayout.Stereo21 or SpeakerLayout.Surround51Upmix;
                 bool usesSurround = selLayout == SpeakerLayout.Surround51Upmix;
-                lfeSlider.IsEnabled = usesLfe;
-                centerSlider.IsEnabled = usesSurround;
-                rearSlider.IsEnabled = usesSurround;
-                lfeRow.Opacity = usesLfe ? 1.0 : 0.45;
-                centerRow.Opacity = usesSurround ? 1.0 : 0.45;
-                rearRow.Opacity = usesSurround ? 1.0 : 0.45;
+                var lfeVis = usesLfe ? Visibility.Visible : Visibility.Collapsed;
+                var surroundVis = usesSurround ? Visibility.Visible : Visibility.Collapsed;
+                lfeRow.Visibility = lfeDivider.Visibility = lfeVis;
+                centerRow.Visibility = centerDivider.Visibility = surroundVis;
+                rearRow.Visibility = rearDivider.Visibility = surroundVis;
             }
             finally
             {
@@ -468,7 +479,8 @@ public sealed partial class MainWindow
         rearSlider.ValueChanged += (_, _) => CommitAudio();
         UpdateEndpointAndSliders(deviceChanged: false);
 
-        var replayGainBox = new ComboBox { MinWidth = 180, FontSize = 12 };
+        var replayGainBox = new ComboBox { MinWidth = SettingsCard.ChoiceWidth };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(replayGainBox, "Loudness leveling");
         replayGainBox.Items.Add(new ComboBoxItem { Content = "Track (Balanced)", Tag = "Track" });
         replayGainBox.Items.Add(new ComboBoxItem { Content = "Album (Preserve)", Tag = "Album" });
         replayGainBox.Items.Add(new ComboBoxItem { Content = "Off", Tag = "Off" });
@@ -478,8 +490,14 @@ public sealed partial class MainWindow
             "Off" => 2,
             _ => 0
         };
+        static string LevelingDetail(string mode) => mode switch
+        {
+            "Off" => "Off: every file plays at its own level",
+            "Album" => "Each album at about -14 LUFS, its songs kept as mastered",
+            _ => "Every track at about -14 LUFS, the level streaming services use"
+        };
         var (rgRow, _, rgDetail) = SettingsCard.Row("\uE767", "Loudness leveling",
-            "On-the-fly volume match", replayGainBox);
+            LevelingDetail(_settings.ReplayGainMode), replayGainBox);
         replayGainBox.SelectionChanged += (_, _) =>
         {
             if (loading) return;
@@ -487,10 +505,12 @@ public sealed partial class MainWindow
             if (string.Equals(_settings.ReplayGainMode, mode, StringComparison.OrdinalIgnoreCase)) return;
             _settings.ReplayGainMode = mode;
             _settings.Save();
+            rgDetail.Text = LevelingDetail(mode);
             ApplyLiveReplayGain();
         };
 
-        var eqPresetBox = new ComboBox { MinWidth = 180, FontSize = 12 };
+        var eqPresetBox = new ComboBox { MinWidth = SettingsCard.ChoiceWidth };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(eqPresetBox, "Equalizer");
         string[] eqOrder = { "Flat", "Rock", "Pop", "Jazz", "Classical", "Bass Boost", "Vocal", "Acoustic", "Electronic", "Custom" };
         ComboBoxItem? customEqItem = null;
         foreach (string pName in eqOrder)
@@ -554,8 +574,9 @@ public sealed partial class MainWindow
             OffContent = "Off",
             HorizontalAlignment = HorizontalAlignment.Right
         };
-        var (exclusiveRow, _, _) = SettingsCard.Row("\uE8D6", "WASAPI Exclusive",
-            "Bypass Windows mixer (locks output device)", exclusiveToggle);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(exclusiveToggle, "Exclusive audio");
+        var (exclusiveRow, _, _) = SettingsCard.Row("\uE8D6", "Exclusive audio",
+            "ZenMusic takes the device for itself and other apps go silent", exclusiveToggle);
         exclusiveToggle.Toggled += (_, _) =>
         {
             if (loading) return;
@@ -564,7 +585,8 @@ public sealed partial class MainWindow
             ApplyAudioConfigFromSettings();
         };
 
-        var vizBox = new ComboBox { MinWidth = 200 };
+        var vizBox = new ComboBox { MinWidth = SettingsCard.ChoiceWidth };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(vizBox, "Visualizer style");
         vizBox.Items.Add(new ComboBoxItem { Content = "Spectrum bars", Tag = "Spectrum" });
         vizBox.Items.Add(new ComboBoxItem { Content = "Silk waveform", Tag = "Waveform" });
         vizBox.Items.Add(new ComboBoxItem { Content = "Bars + waveform", Tag = "BarsAndWaveform" });
@@ -593,7 +615,8 @@ public sealed partial class MainWindow
         var (largeVizRow, _, _) = SettingsCard.Row("\uE9D9", "Library backdrop visualizer",
             "Calm ambient visualizer behind the track list.", largeVizToggle);
 
-        var themeBox = new ComboBox { MinWidth = 140 };
+        var themeBox = new ComboBox { MinWidth = SettingsCard.ChoiceWidth };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(themeBox, "App theme");
         themeBox.Items.Add(new ComboBoxItem { Content = "Dark", Tag = "Dark" });
         themeBox.Items.Add(new ComboBoxItem { Content = "Light", Tag = "Light" });
         themeBox.Items.Add(new ComboBoxItem { Content = "Use system setting", Tag = "System" });
@@ -637,12 +660,25 @@ public sealed partial class MainWindow
             : $"{_settings.MusicFolder} · Watched automatically for changes (F5)";
         var (rescanRow, _, _) = SettingsCard.Row("", "Music library folder", librarySubtitle, rescanNowBtn);
 
-        int localCount = _allTracks.Count(t => !t.IsCloudOnly);
-        int measuredCount = _allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue);
-        string RgStatusText(int measured, int total) =>
-            total == 0 ? "No local tracks loaded" : $"{measured:N0} of {total:N0} tracks measured (read-only)";
-        var rgAnalyzeBtn = new Button { Content = _rgScanCts != null ? "Cancel" : "Analyze" };
-        var (rgAnalyzeRow, _, rgAnalyzeDetail) = SettingsCard.Row("\uE9D9", "Analyze loudness", RgStatusText(measuredCount, localCount), rgAnalyzeBtn);
+        var rgAnalyzeBtn = new Button { Content = "Analyze" };
+        var (rgAnalyzeRow, _, rgAnalyzeDetail) = SettingsCard.Row("\uE9D9", "Measure loudness", null, rgAnalyzeBtn);
+        void RefreshAnalyzeRow()
+        {
+            if (_rgScanCts != null)
+            {
+                rgAnalyzeBtn.Content = "Stop";
+                rgAnalyzeDetail.Text = $"Measuring {_rgScanDone:N0} of {_rgScanTotal:N0}... Files are only read.";
+                return;
+            }
+            int total = _allTracks.Count(t => !t.IsCloudOnly);
+            int measured = _allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue && !t.ReplayGainIsStale);
+            rgAnalyzeBtn.Content = "Analyze";
+            rgAnalyzeDetail.Text = total == 0
+                ? "No local tracks loaded"
+                : $"{measured:N0} of {total:N0} tracks measured. Files are only read, never changed.";
+        }
+        _rgScanProgressChanged = RefreshAnalyzeRow;
+        RefreshAnalyzeRow();
         rgAnalyzeBtn.Click += async (_, _) =>
         {
             if (_rgScanCts != null)
@@ -650,53 +686,12 @@ public sealed partial class MainWindow
                 _rgScanCts.Cancel();
                 return;
             }
-            var pending = _allTracks.Where(t => !t.IsCloudOnly && !t.ReplayGainTrackDb.HasValue).ToList();
-            if (pending.Count == 0)
+            if (!_allTracks.Any(NeedsLoudnessMeasure))
             {
-                rgAnalyzeDetail.Text = RgStatusText(_allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue), _allTracks.Count(t => !t.IsCloudOnly));
                 ShowHudPill("All local tracks are already measured");
                 return;
             }
-            var cts = new CancellationTokenSource();
-            _rgScanCts = cts;
-            rgAnalyzeBtn.Content = "Cancel";
-            int total = _allTracks.Count(t => !t.IsCloudOnly);
-            int done = _allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue);
-            try
-            {
-                await Parallel.ForEachAsync(pending, new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (t, ct) =>
-                {
-                    if (ct.IsCancellationRequested) return;
-                    var res = await Task.Run(() => ReplayGainAnalyzer.AnalyzeFile(t.Path), ct);
-                    int curDone = Interlocked.Increment(ref done);
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        if (res is ReplayGainAnalysis rg)
-                        {
-                            foreach (var peer in EnumerateMatchingTrackItems(t))
-                            {
-                                peer.ReplayGainTrackDb = rg.TrackGainDb;
-                                peer.ReplayGainTrackPeak = rg.TrackPeak;
-                                peer.NotifyDetailChanged();
-                            }
-                            if (string.Equals(_engine.CurrentPath, t.Path, StringComparison.OrdinalIgnoreCase))
-                                _engine.SetReplayGainFactor(GetTrackReplayGainFactor(t));
-                        }
-                        rgAnalyzeDetail.Text = $"Analyzing {curDone:N0} / {total:N0}...";
-                        if (curDone % 25 == 0) SaveLibraryCacheSnapshot();
-                    });
-                });
-            }
-            catch (OperationCanceledException) { }
-            finally
-            {
-                _rgScanCts = null;
-                cts.Dispose();
-                SaveLibraryCacheSnapshot();
-                int finalMeasured = _allTracks.Count(t => !t.IsCloudOnly && t.ReplayGainTrackDb.HasValue);
-                rgAnalyzeBtn.Content = "Analyze";
-                rgAnalyzeDetail.Text = RgStatusText(finalMeasured, _allTracks.Count(t => !t.IsCloudOnly));
-            }
+            await RunLoudnessAnalysisAsync(staleOnly: false);
         };
 
         var resetBtn = new Button { Content = "Reset" };
@@ -728,8 +723,16 @@ public sealed partial class MainWindow
         };
 
         var panel = new StackPanel();
-        panel.Children.Add(SettingsCard.Section("Audio and speakers", first: true));
-        panel.Children.Add(SettingsCard.Card(deviceRow, layoutRow, rgRow, eqRow, exclusiveRow, centerRow, lfeRow, rearRow));
+        panel.Children.Add(SettingsCard.Section("Speakers", first: true));
+        panel.Children.Add(SettingsCard.CardWithDividers(
+            (deviceRow, null),
+            (layoutRow, null),
+            (centerRow, centerDivider),
+            (lfeRow, lfeDivider),
+            (rearRow, rearDivider),
+            (exclusiveRow, null)));
+        panel.Children.Add(SettingsCard.Section("Loudness and tone"));
+        panel.Children.Add(SettingsCard.Card(rgRow, rgAnalyzeRow, eqRow));
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
             SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
@@ -737,7 +740,7 @@ public sealed partial class MainWindow
             SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row,
             tintRow));
         panel.Children.Add(SettingsCard.Section("Library and application"));
-        panel.Children.Add(SettingsCard.Card(rescanRow, rgAnalyzeRow, resetRow));
+        panel.Children.Add(SettingsCard.Card(rescanRow, resetRow));
 
         loading = false;
         return panel;

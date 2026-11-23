@@ -141,6 +141,29 @@ public static class SettingsCard
         return (row, name, line);
     }
 
+    /// <summary>Width every right-hand drop-down in Settings shares, so the column lines up.</summary>
+    public const double ChoiceWidth = 200;
+
+    public static Border Divider() =>
+        FromXaml<Border>("Height=\"1\" Background=\"{ThemeResource DividerStrokeColorDefaultBrush}\"");
+
+    /// <summary>
+    /// A card whose rows can come with their own divider (shown above the row), so a row can be
+    /// collapsed together with its divider. Rows given a null divider get a fixed one.
+    /// </summary>
+    public static Border CardWithDividers(params (FrameworkElement Row, Border? Divider)[] rows)
+    {
+        var stack = new StackPanel();
+        for (int i = 0; i < rows.Length; i++)
+        {
+            if (i > 0) stack.Children.Add(rows[i].Divider ?? Divider());
+            stack.Children.Add(rows[i].Row);
+        }
+        var card = FromXaml<Border>("CornerRadius=\"8\" BorderThickness=\"1\" BorderBrush=\"{ThemeResource CardStrokeColorDefaultBrush}\" Background=\"{ThemeResource CardBackgroundFillColorDefaultBrush}\"");
+        card.Child = stack;
+        return card;
+    }
+
     public static Border Card(params FrameworkElement[] rows)
     {
         var stack = new StackPanel();

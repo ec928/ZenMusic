@@ -82,6 +82,7 @@ public static class LibraryScanner
                             {
                                 item.ReplayGainTrackDb = prior.ReplayGainTrackDb;
                                 item.ReplayGainTrackPeak = prior.ReplayGainTrackPeak;
+                                item.ReplayGainMeterVersion = prior.ReplayGainMeterVersion;
                                 item.ReplayGainAlbumDb ??= prior.ReplayGainAlbumDb;
                                 item.ReplayGainAlbumPeak ??= prior.ReplayGainAlbumPeak;
                             }

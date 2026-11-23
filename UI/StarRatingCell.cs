@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -92,6 +93,8 @@ public sealed class StarRatingCell : Grid
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false
             };
+            // Screen readers get one "Rating" name for the cell, not ten star glyphs.
+            AutomationProperties.SetAccessibilityView(bg, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             SetColumn(bg, i);
             Children.Add(bg);
             _bgs[i] = bg;
@@ -114,6 +117,7 @@ public sealed class StarRatingCell : Grid
                 Visibility = Visibility.Collapsed,
                 IsHitTestVisible = false
             };
+            AutomationProperties.SetAccessibilityView(fill, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             fillHost.Children.Add(fill);
             SetColumn(fillHost, i);
             Children.Add(fillHost);
@@ -170,6 +174,10 @@ public sealed class StarRatingCell : Grid
         var dim = useDark ? DarkDimBrush : LightDimBrush;
         var active = useDark ? DarkGoldBrush : LightAmberBrush;
         var hover = useDark ? DarkHoverBrush : LightHoverBrush;
+
+        AutomationProperties.SetName(this, Value is double v && v > 0
+            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, "Rating {0:0.#} stars", v)
+            : "Not rated");
 
         double r = _hoverValue ?? Value ?? 0;
         var brush = _hoverValue.HasValue ? hover

@@ -385,13 +385,14 @@ public sealed class AudioAndLibraryTests
         // Off mode always returns unity
         Assert.Equal(1.0f, ReplayGainAnalyzer.ComputeLinearFactor(-6.0, 0.9f, -4.0, 0.8f, "Off"), 4);
 
-        // Track mode attenuates hot tracks (~ -6 dB -> 0.501)
+        // Stored gains are relative to -18 LUFS; playback adds 4 dB to level at -14 LUFS.
+        // Track mode: -6 + 4 = -2 dB -> 0.794
         float trackFactor = ReplayGainAnalyzer.ComputeLinearFactor(-6.0, 0.9f, -3.0, 0.8f, "Track");
-        Assert.InRange(trackFactor, 0.49f, 0.51f);
+        Assert.InRange(trackFactor, 0.78f, 0.80f);
 
-        // Album mode prefers album gain when present
+        // Album mode prefers album gain when present: -3 + 4 = +1 dB -> 1.122
         float albumFactor = ReplayGainAnalyzer.ComputeLinearFactor(-6.0, 0.9f, -3.0, 0.8f, "Album");
-        Assert.InRange(albumFactor, 0.70f, 0.72f);
+        Assert.InRange(albumFactor, 1.11f, 1.13f);
 
         // High boost + peak protection prevents clipping (> 0.98 / peak)
         float capped = ReplayGainAnalyzer.ComputeLinearFactor(10.0, 0.6f, null, null, "Track");
@@ -401,17 +402,33 @@ public sealed class AudioAndLibraryTests
     [Fact]
     public void ReplayGain_AnalyzeSampleProvider_MeasuresHotAndQuietSignals()
     {
-        var hotSrc = new BoundedSampleProvider(new ConstantSampleProvider(44100, 0.8f, 0.8f), 44100);
-        var hot = ReplayGainAnalyzer.AnalyzeSampleProvider(hotSrc);
-        Assert.NotNull(hot);
-        Assert.True(hot!.Value.TrackGainDb < -10.0);
-        Assert.Equal(0.8f, hot.Value.TrackPeak, 3);
+        // EBU Tech 3341: a stereo 1 kHz sine at -23 dBFS peak reads -23 LUFS.
+        static ISampleProvider Sine(int rate, double amplitude, double seconds) =>
+            new NAudio.Wave.SampleProviders.SignalGenerator(rate, 2)
+            {
+                Type = NAudio.Wave.SampleProviders.SignalGeneratorType.Sin,
+                Frequency = 1000,
+                Gain = amplitude
+            }.Take(TimeSpan.FromSeconds(seconds));
 
-        var quietSrc = new BoundedSampleProvider(new ConstantSampleProvider(44100, 0.02f, 0.02f), 44100);
-        var quiet = ReplayGainAnalyzer.AnalyzeSampleProvider(quietSrc);
+        double? ref23 = ReplayGainAnalyzer.MeasureIntegratedLoudness(Sine(48000, Math.Pow(10, -23 / 20.0), 5), out _);
+        Assert.NotNull(ref23);
+        Assert.InRange(ref23!.Value, -23.1, -22.9);
+        double? ref23At44 = ReplayGainAnalyzer.MeasureIntegratedLoudness(Sine(44100, Math.Pow(10, -23 / 20.0), 5), out _);
+        Assert.InRange(ref23At44!.Value, -23.1, -22.9);
+
+        var hot = ReplayGainAnalyzer.AnalyzeSampleProvider(Sine(44100, 0.8, 3));
+        Assert.NotNull(hot);
+        Assert.InRange(hot!.Value.TrackGainDb, -16.2, -15.9); // -18 - (-1.94 LUFS)
+        Assert.Equal(0.8f, hot.Value.TrackPeak, 2);
+
+        var quiet = ReplayGainAnalyzer.AnalyzeSampleProvider(Sine(44100, 0.02, 3));
         Assert.NotNull(quiet);
-        Assert.True(quiet!.Value.TrackGainDb > 10.0);
-        Assert.Equal(0.02f, quiet.Value.TrackPeak, 3);
+        Assert.InRange(quiet!.Value.TrackGainDb, 15.8, 16.1);  // -18 - (-33.98 LUFS)
+
+        // Silence and sub-block audio give no reading rather than a wild gain.
+        Assert.Null(ReplayGainAnalyzer.AnalyzeSampleProvider(Sine(44100, 0, 3)));
+        Assert.Null(ReplayGainAnalyzer.AnalyzeSampleProvider(Sine(44100, 0.5, 0.2)));
     }
 
     [Fact]
