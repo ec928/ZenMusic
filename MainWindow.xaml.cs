@@ -113,13 +113,17 @@ public sealed partial class MainWindow : Window
         EndPoint = new Point(0.5, 1),
         GradientStops =
         {
-            // Dense under the artist and specs lines so lettering on the cover cannot show through them.
+            // A dark shade that starts clear and only darkens under the text, so the cover stays
+            // visible. Used on light covers too: a white wash over a photo reads as fog.
             new GradientStop { Color = Color.FromArgb(0, 0, 0, 0), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(200, 10, 10, 10), Offset = 0.22 },
-            new GradientStop { Color = Color.FromArgb(236, 8, 8, 8), Offset = 0.5 },
-            new GradientStop { Color = Color.FromArgb(248, 8, 8, 8), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(95, 0, 0, 0), Offset = 0.35 },
+            new GradientStop { Color = Color.FromArgb(165, 0, 0, 0), Offset = 0.6 },
+            new GradientStop { Color = Color.FromArgb(215, 0, 0, 0), Offset = 0.78 },
+            new GradientStop { Color = Color.FromArgb(230, 0, 0, 0), Offset = 1.0 }
         }
     };
+    // The white wash for light covers hid most of the cover; kept switchable for comparison.
+    private const bool UseLightCoverOverlay = false;
     private static readonly LinearGradientBrush InspectorLightOverlayBrush = new()
     {
         StartPoint = new Point(0.5, 0),
@@ -127,9 +131,9 @@ public sealed partial class MainWindow : Window
         GradientStops =
         {
             new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 0.0 },
-            new GradientStop { Color = Color.FromArgb(205, 255, 255, 255), Offset = 0.22 },
-            new GradientStop { Color = Color.FromArgb(238, 248, 248, 248), Offset = 0.5 },
-            new GradientStop { Color = Color.FromArgb(248, 248, 248, 248), Offset = 1.0 }
+            new GradientStop { Color = Color.FromArgb(175, 255, 255, 255), Offset = 0.32 },
+            new GradientStop { Color = Color.FromArgb(208, 250, 250, 250), Offset = 0.62 },
+            new GradientStop { Color = Color.FromArgb(242, 248, 248, 248), Offset = 1.0 }
         }
     };
     private static readonly SolidColorBrush DarkOverlayPrimaryBrush = new(Color.FromArgb(255, 245, 245, 245));
@@ -4126,7 +4130,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (_selectedArtIsLight)
+        // Every cover gets the dark shade and light text (see InspectorOverlayBrush).
+        if (UseLightCoverOverlay && _selectedArtIsLight)
         {
             SelectedInfoOverlay.RequestedTheme = ElementTheme.Light;
             SelectedInfoOverlay.Background = InspectorLightOverlayBrush;
