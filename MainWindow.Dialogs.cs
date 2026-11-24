@@ -2721,17 +2721,17 @@ public sealed partial class MainWindow
                 "<ColumnDefinition Width=\"*\"/>" +
                 "<ColumnDefinition Width=\"Auto\"/>" +
                 "</Grid.ColumnDefinitions>" +
-                "<Border x:Name=\"ArtBox\" Grid.Column=\"0\" Width=\"42\" Height=\"42\" CornerRadius=\"6\" BorderBrush=\"#22FFFFFF\" BorderThickness=\"1\" VerticalAlignment=\"Center\">" +
+                "<Border Grid.Column=\"0\" Width=\"42\" Height=\"42\" CornerRadius=\"6\" BorderBrush=\"#22FFFFFF\" BorderThickness=\"1\" VerticalAlignment=\"Center\">" +
                 "<Grid>" +
-                "<TextBlock x:Name=\"ArtInitial\" FontSize=\"17\" FontWeight=\"SemiBold\" Foreground=\"#CCFFFFFF\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>" +
-                "<Image x:Name=\"ArtImg\" Stretch=\"UniformToFill\"/>" +
+                "<TextBlock FontSize=\"17\" FontWeight=\"SemiBold\" Foreground=\"#CCFFFFFF\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>" +
+                "<Image Stretch=\"UniformToFill\"/>" +
                 "</Grid>" +
                 "</Border>" +
                 "<StackPanel Grid.Column=\"1\" VerticalAlignment=\"Center\" Spacing=\"1\">" +
-                "<TextBlock x:Name=\"RowTitle\" FontSize=\"13\" FontWeight=\"SemiBold\" TextTrimming=\"CharacterEllipsis\"/>" +
-                "<TextBlock x:Name=\"RowSub\" FontSize=\"11.5\" Opacity=\"0.72\" TextTrimming=\"CharacterEllipsis\"/>" +
+                "<TextBlock FontSize=\"13\" FontWeight=\"SemiBold\" TextTrimming=\"CharacterEllipsis\"/>" +
+                "<TextBlock FontSize=\"11.5\" Opacity=\"0.72\" TextTrimming=\"CharacterEllipsis\"/>" +
                 "</StackPanel>" +
-                "<TextBlock x:Name=\"RowBadge\" Grid.Column=\"2\" FontSize=\"11.5\" FontWeight=\"SemiBold\" Foreground=\"#FFC83B\" VerticalAlignment=\"Center\" Margin=\"6,0,4,0\"/>" +
+                "<TextBlock Grid.Column=\"2\" FontSize=\"11.5\" FontWeight=\"SemiBold\" Foreground=\"#FFC83B\" VerticalAlignment=\"Center\" Margin=\"6,0,4,0\"/>" +
                 "</Grid>" +
                 "</DataTemplate>")
         };
@@ -2739,12 +2739,13 @@ public sealed partial class MainWindow
         lv.ContainerContentChanging += async (_, args) =>
         {
             if (args.ItemContainer?.ContentTemplateRoot is not Grid root) return;
-            var artBox = root.FindName("ArtBox") as Border;
-            var artInit = root.FindName("ArtInitial") as TextBlock;
-            var artImg = root.FindName("ArtImg") as Image;
-            var rowTitle = root.FindName("RowTitle") as TextBlock;
-            var rowSub = root.FindName("RowSub") as TextBlock;
-            var rowBadge = root.FindName("RowBadge") as TextBlock;
+            var row = ReadBrowseRowVisual(root);
+            var artBox = row.ArtBox;
+            var artInit = row.ArtInitial;
+            var artImg = row.ArtImg;
+            var rowTitle = row.Title;
+            var rowSub = row.Subtitle;
+            var rowBadge = row.Badge;
 
             if (args.InRecycleQueue || args.Item is not BrowseRowEntry entry)
             {
@@ -2795,6 +2796,23 @@ public sealed partial class MainWindow
         };
 
         return lv;
+    }
+
+    private readonly record struct BrowseRowVisual(Border? ArtBox, TextBlock? ArtInitial, Image? ArtImg, TextBlock? Title, TextBlock? Subtitle, TextBlock? Badge);
+
+    // The row template is loaded from a string. x:Name is not used: XamlReader
+    // rejects an undeclared x: prefix, and that exception closed the app from Browse Albums.
+    private static BrowseRowVisual ReadBrowseRowVisual(Grid root)
+    {
+        var artBox = root.Children.Count > 0 ? root.Children[0] as Border : null;
+        var inner = artBox?.Child as Grid;
+        var artInit = inner != null && inner.Children.Count > 0 ? inner.Children[0] as TextBlock : null;
+        var artImg = inner != null && inner.Children.Count > 1 ? inner.Children[1] as Image : null;
+        var textCol = root.Children.Count > 1 ? root.Children[1] as StackPanel : null;
+        var title = textCol != null && textCol.Children.Count > 0 ? textCol.Children[0] as TextBlock : null;
+        var sub = textCol != null && textCol.Children.Count > 1 ? textCol.Children[1] as TextBlock : null;
+        var badge = root.Children.Count > 2 ? root.Children[2] as TextBlock : null;
+        return new BrowseRowVisual(artBox, artInit, artImg, title, sub, badge);
     }
 
     private async Task OpenBrowseAlbumsDialogAsync()
