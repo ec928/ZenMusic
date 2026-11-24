@@ -567,6 +567,66 @@ public sealed class AudioAndLibraryTests
     }
 
     [Fact]
+    public void AutoTagger_AlbumFirstRanking_PrefersRequestedAlbumOverMatchingYearLiveRelease()
+    {
+        double matchedSim = ZenMusic.Tagging.AutoTagger.AlbumSimilarity(
+            "The Very Best Of 1990 - 2000",
+            "The Very Best of Sarah Brightman 1990–2000");
+        double wrongLiveSim = ZenMusic.Tagging.AutoTagger.AlbumSimilarity(
+            "The Very Best Of 1990 - 2000",
+            "La Luna (Live in Concert)");
+
+        Assert.True(matchedSim >= 0.85, $"Expected high similarity for matching album variant, got {matchedSim:0.###}");
+        Assert.Equal(0.0, wrongLiveSim);
+
+        Assert.Equal(
+            "[MusicBrainz Album] Sarah Brightman — The Very Best of 1990–2000, 2001",
+            ZenMusic.Tagging.AutoTagger.FormatDisplayLabel("MusicBrainz Album", "Sarah Brightman", "", "The Very Best of 1990–2000", 2001));
+
+        var candidates = new[]
+        {
+            new ZenMusic.Tagging.AutoTagCandidate
+            {
+                Source = "MusicBrainz",
+                Title = "A Question of Honour",
+                Artist = "Sarah Brightman",
+                Album = "La Luna (Live in Concert)",
+                Year = 2001,
+                TrackNumber = 11
+            },
+            new ZenMusic.Tagging.AutoTagCandidate
+            {
+                Source = "MusicBrainz",
+                Title = "A Question of Honour",
+                Artist = "Sarah Brightman",
+                Album = "The Very Best of Sarah Brightman 1990–2000",
+                Year = 2002,
+                TrackNumber = 1
+            }
+        };
+
+        var ranked = ZenMusic.Tagging.AutoTagger.RankCandidates(
+            candidates,
+            queryTitle: "A Question of Honour",
+            queryArtist: "Sarah Brightman",
+            albumHint: "The Very Best Of 1990 - 2000",
+            yearHint: 2001);
+
+        Assert.Equal(2, ranked.Count);
+        Assert.Equal("The Very Best of Sarah Brightman 1990–2000", ranked[0].Album);
+        Assert.Equal(1, ranked[0].TrackNumber);
+
+        // "1990 - 2000" and "1990-2000" are the same MusicBrainz token. Splitting
+        // them into 1990 AND 2000 returned no release for this album.
+        Assert.Equal(
+            "release:(very AND best AND 1990-2000)",
+            ZenMusic.Tagging.AutoTagger.BuildLuceneAlbumClause("The Very Best Of 1990 - 2000"));
+        Assert.Equal(
+            "release:(very AND best AND 1990-2000)",
+            ZenMusic.Tagging.AutoTagger.BuildLuceneAlbumClause("The Very Best of 1990-2000"));
+    }
+
+    [Fact]
     public void AudioFileOpener_FindFlacMagicAfterId3_DetectsSynchsafeOffset()
     {
         string tmp = Path.Combine(Path.GetTempPath(), $"zen_id3flac_{Guid.NewGuid():N}.flac");

@@ -45,6 +45,7 @@ public sealed partial class MainWindow : Window
 
     private readonly List<TrackItem> _allTracks = new();
     private ObservableCollection<TrackItem> _visibleTracks = new();
+    private ObservableCollection<AlbumCardItem> _visibleAlbumCards = new();
     private readonly ObservableCollection<TrackItem> _queueTracks = new();
     private readonly List<TrackItem> _unshuffledQueue = new();
     private readonly ConcurrentDictionary<string, ImageSource?> _artThumbCache = new(StringComparer.OrdinalIgnoreCase);
@@ -95,9 +96,19 @@ public sealed partial class MainWindow : Window
     private double _splitterStartHeight;
     private bool _isMuted;
     private bool _isHoveringSeek;
+    private double _seekHoverRatio;
     private bool _isHoveringVolume;
     private double _seekProgressRatio;
     private double _preMuteVolume = 70;
+    private string? _draggingTableColTag;
+    private double _tableColDragStartX;
+    private double _tableColStartLeftStar;
+    private double _tableColStartRightStar;
+    private double _tableColStarsPerDip;
+    private ScrollViewer? _queueScrollViewer;
+    private bool _albumTrackOrderActive;
+    private bool _enteredAlbumFromGrid;
+    private readonly SnapshotRequest? _snapshotRequest;
 
     private int _activeFocusLrcIndex = -1;
     private int _activeSelectedLrcIndex = -1;
@@ -141,18 +152,33 @@ public sealed partial class MainWindow : Window
 
     private bool IsTileMode => string.Equals(_settings.ViewMode, "Grid", StringComparison.OrdinalIgnoreCase);
 
+    private AlbumCardItem? FindAlbumCardForTrack(TrackItem? track)
+    {
+        if (track == null || _visibleAlbumCards.Count == 0) return null;
+        return _visibleAlbumCards.FirstOrDefault(c =>
+            c.Tracks.Any(t => ReferenceEquals(t, track) || string.Equals(t.Path, track.Path, StringComparison.OrdinalIgnoreCase)));
+    }
+
     private List<TrackItem> GetSelectedTracks()
     {
-        var active = IsTileMode ? (ListViewBase)AlbumsGridView : TracksListView;
-        return active.SelectedItems.OfType<TrackItem>().ToList();
+        if (IsTileMode)
+        {
+            return AlbumsGridView.SelectedItems
+                .OfType<AlbumCardItem>()
+                .SelectMany(c => c.Tracks)
+                .ToList();
+        }
+        return TracksListView.SelectedItems.OfType<TrackItem>().ToList();
     }
 
     private TrackItem? GetPrimarySelectedTrack()
     {
-        var active = IsTileMode ? (ListViewBase)AlbumsGridView : TracksListView;
-        return active.SelectedItem as TrackItem
-            ?? TracksListView.SelectedItem as TrackItem
-            ?? AlbumsGridView.SelectedItem as TrackItem;
+        if (IsTileMode && AlbumsGridView.SelectedItem is AlbumCardItem card)
+        {
+            return card.Tracks.FirstOrDefault(t => t.IsNowPlaying) ?? card.Tracks.FirstOrDefault();
+        }
+        return TracksListView.SelectedItem as TrackItem
+            ?? (AlbumsGridView.SelectedItem as AlbumCardItem)?.Tracks.FirstOrDefault();
     }
 
     private void SyncSelectionAcrossViews(TrackItem? track)
@@ -161,7 +187,7 @@ public sealed partial class MainWindow : Window
         try
         {
             TracksListView.SelectedItem = track;
-            AlbumsGridView.SelectedItem = track;
+            AlbumsGridView.SelectedItem = FindAlbumCardForTrack(track);
         }
         finally
         {
@@ -177,8 +203,12 @@ public sealed partial class MainWindow : Window
             if (!_visibleTracks.Contains(track)) return;
             if (IsTileMode)
             {
-                AlbumsGridView.UpdateLayout();
-                AlbumsGridView.ScrollIntoView(track, alignment);
+                var card = FindAlbumCardForTrack(track);
+                if (card != null)
+                {
+                    AlbumsGridView.UpdateLayout();
+                    AlbumsGridView.ScrollIntoView(card, alignment);
+                }
             }
             else
             {
@@ -195,12 +225,18 @@ public sealed partial class MainWindow : Window
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
         foreach (var t in _visibleTracks)
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
+        foreach (var c in _visibleAlbumCards)
+            c.IsNowPlaying = hasPath && c.Tracks.Any(t => string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase));
         foreach (var t in _queueTracks)
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
         foreach (var t in _editingPlaylistTracks)
             t.IsNowPlaying = hasPath && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
         if (_initialized)
+        {
+            UpdateQueueHistoryDimming();
+            UpdateQueueJumpPill();
             RefreshInspectorPlayingContext();
+        }
     }
 
     private static double _titleStar = 2.15;
@@ -239,8 +275,9 @@ public sealed partial class MainWindow : Window
 
     private bool _hasLaunchFiles;
 
-    public MainWindow(IReadOnlyList<string>? launchFiles = null)
+    public MainWindow(IReadOnlyList<string>? launchFiles = null, SnapshotRequest? snapshotRequest = null)
     {
+        _snapshotRequest = snapshotRequest;
         _hasLaunchFiles = launchFiles is { Count: > 0 };
         InitializeComponent();
 
@@ -303,7 +340,7 @@ public sealed partial class MainWindow : Window
         UpdateRepeatButtonVisual();
 
         TracksListView.ItemsSource = _visibleTracks;
-        AlbumsGridView.ItemsSource = _visibleTracks;
+        AlbumsGridView.ItemsSource = _visibleAlbumCards;
         QueueListView.ItemsSource = _queueTracks;
         SelectedSyncedLyricsList.ItemsSource = _selectedLrcLines;
         FocusSyncedLyricsList.ItemsSource = _focusLrcLines;
@@ -341,13 +378,19 @@ public sealed partial class MainWindow : Window
                 _folderWatcher.Dispose();
                 _folderWatcher = null;
             }
-            SaveWindowBounds();
-            SaveSessionState();
-            _settings.Save();
+            if (_snapshotRequest == null)
+            {
+                SaveWindowBounds();
+                SaveSessionState();
+                _settings.Save();
+            }
             _cacheSaveTimer?.Stop();
             _engine.Dispose();
-            FlushPendingRatingWritesSync();
-            SaveLibraryCacheSnapshot();
+            if (_snapshotRequest == null)
+            {
+                FlushPendingRatingWritesSync();
+                SaveLibraryCacheSnapshot();
+            }
         };
 
         if (!string.IsNullOrWhiteSpace(_settings.MusicFolder) && Directory.Exists(_settings.MusicFolder))
@@ -360,7 +403,141 @@ public sealed partial class MainWindow : Window
         {
             _ = OpenLaunchFilesAsync(launchFiles);
         }
+        if (_snapshotRequest != null)
+        {
+            _ = RunSnapshotCaptureAsync(_snapshotRequest);
+        }
         _initialized = true;
+    }
+
+    private async Task RunSnapshotCaptureAsync(SnapshotRequest req)
+    {
+        try
+        {
+            // Wait for library cache & session queue to populate
+            for (int i = 0; i < 20 && _allTracks.Count == 0; i++)
+                await Task.Delay(120);
+
+            if (!string.IsNullOrWhiteSpace(req.AlbumFilter))
+            {
+                ApplyAlbumScope(req.AlbumFilter);
+            }
+            if (!string.IsNullOrWhiteSpace(req.SearchQuery))
+            {
+                SearchBox.Text = req.SearchQuery;
+                RefreshVisibleTracks();
+            }
+            if (!string.IsNullOrWhiteSpace(req.ViewMode))
+            {
+                _settings.ViewMode = req.ViewMode;
+                ApplyViewModeVisuals();
+                if (IsTileMode) FitTilesToWidth();
+            }
+            if (req.ScrollQueueToIndex is int qIdx && qIdx >= 0 && qIdx < _queueTracks.Count)
+            {
+                QueueListView.UpdateLayout();
+                QueueListView.ScrollIntoView(_queueTracks[qIdx], ScrollIntoViewAlignment.Leading);
+                await Task.Delay(200);
+                UpdateQueueJumpPill();
+            }
+            if (string.Equals(req.OpenDialog, "albums", StringComparison.OrdinalIgnoreCase))
+            {
+                for (int i = 0; i < 15 && RootGrid.XamlRoot == null; i++)
+                    await Task.Delay(80);
+                _ = OpenBrowseAlbumsDialogAsync();
+            }
+            else if (string.Equals(req.OpenDialog, "artists", StringComparison.OrdinalIgnoreCase))
+            {
+                for (int i = 0; i < 15 && RootGrid.XamlRoot == null; i++)
+                    await Task.Delay(80);
+                _ = OpenBrowseArtistsDialogAsync();
+            }
+            else if (string.Equals(req.OpenDialog, "autotag", StringComparison.OrdinalIgnoreCase))
+            {
+                for (int i = 0; i < 15 && RootGrid.XamlRoot == null; i++)
+                    await Task.Delay(80);
+                var sample = _visibleTracks.Where(t => !t.IsCloudOnly).Take(16).ToList();
+                if (sample.Count == 0)
+                    sample = _allTracks.Where(t => !t.IsCloudOnly).Take(16).ToList();
+                if (sample.Count > 0)
+                {
+                    _ = OpenAutoTagDialogAsync(sample);
+                    await Task.Delay(4800);
+                }
+            }
+
+            // Allow realized row/tile thumbnails, cover tint, and inspector image to decode
+            await Task.Delay(1700);
+            RootGrid.UpdateLayout();
+
+            var rtb = new RenderTargetBitmap();
+            await rtb.RenderAsync(RootGrid);
+            int w = rtb.PixelWidth;
+            int h = rtb.PixelHeight;
+            byte[] pixels = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(await rtb.GetPixelsAsync());
+
+            // ContentDialog & Flyout render in XamlRoot's Popup layer outside RootGrid: composite if open.
+            var openPopup = RootGrid.XamlRoot != null
+                ? VisualTreeHelper.GetOpenPopupsForXamlRoot(RootGrid.XamlRoot).LastOrDefault()
+                : null;
+            if (openPopup?.Child is FrameworkElement popEl && popEl.ActualWidth > 10 && popEl.ActualHeight > 10)
+            {
+                for (int idx = 0; idx < pixels.Length; idx += 4)
+                {
+                    pixels[idx] = (byte)(pixels[idx] * 0.42);
+                    pixels[idx + 1] = (byte)(pixels[idx + 1] * 0.42);
+                    pixels[idx + 2] = (byte)(pixels[idx + 2] * 0.42);
+                }
+
+                var popRtb = new RenderTargetBitmap();
+                await popRtb.RenderAsync(popEl);
+                int pw = popRtb.PixelWidth;
+                int ph = popRtb.PixelHeight;
+                byte[] popPixels = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(await popRtb.GetPixelsAsync());
+                int ox = Math.Max(0, (w - pw) / 2);
+                int oy = Math.Max(0, (h - ph) / 2);
+                for (int py = 0; py < ph && (oy + py) < h; py++)
+                {
+                    for (int px = 0; px < pw && (ox + px) < w; px++)
+                    {
+                        int si = (py * pw + px) * 4;
+                        byte sa = popPixels[si + 3];
+                        if (sa == 0) continue;
+                        int di = ((oy + py) * w + (ox + px)) * 4;
+                        float inv = (255 - sa) / 255f;
+                        pixels[di] = (byte)Math.Clamp(popPixels[si] + pixels[di] * inv, 0, 255);
+                        pixels[di + 1] = (byte)Math.Clamp(popPixels[si + 1] + pixels[di + 1] * inv, 0, 255);
+                        pixels[di + 2] = (byte)Math.Clamp(popPixels[si + 2] + pixels[di + 2] * inv, 0, 255);
+                        pixels[di + 3] = 255;
+                    }
+                }
+            }
+
+            string? dir = Path.GetDirectoryName(req.OutputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            using var fs = File.Create(req.OutputPath);
+            using var ras = fs.AsRandomAccessStream();
+            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ras);
+            double dpi = (RootGrid.XamlRoot?.RasterizationScale ?? 1.0) * 96.0;
+            encoder.SetPixelData(
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied,
+                (uint)rtb.PixelWidth,
+                (uint)rtb.PixelHeight,
+                dpi,
+                dpi,
+                pixels);
+            await encoder.FlushAsync();
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(req.OutputPath + ".err.txt", ex.ToString()); } catch { }
+        }
+        finally
+        {
+            Close();
+        }
     }
 
     private async Task OpenLaunchFilesAsync(IReadOnlyList<string> filePaths)
@@ -707,7 +884,13 @@ public sealed partial class MainWindow : Window
     private void ApplyColumnWidths()
     {
         bool tiles = IsTileMode;
-        if (_rightPaneOpen)
+        if (_settings.CustomTitleStar is double ct && _settings.CustomArtistStar is double ca && _settings.CustomAlbumStar is double cal)
+        {
+            _titleStar = ct;
+            _artistStar = ca;
+            _albumStar = cal;
+        }
+        else if (_rightPaneOpen)
         {
             _titleStar = 2.15;
             _artistStar = 0.98;
@@ -721,6 +904,11 @@ public sealed partial class MainWindow : Window
             _artistStar = 1.05;
             _albumStar = 1.70;
         }
+
+        if (ColSplitTitleArtist != null)
+            ColSplitTitleArtist.Visibility = tiles ? Visibility.Collapsed : Visibility.Visible;
+        if (ColSplitArtistAlbum != null)
+            ColSplitArtistAlbum.Visibility = tiles ? Visibility.Collapsed : Visibility.Visible;
 
         GridLength Fit(GridLength table) => tiles && table.Value > 0 ? GridLength.Auto : table;
         HeaderColTitle.Width = tiles ? GridLength.Auto : ColTitleWidth();
@@ -765,6 +953,95 @@ public sealed partial class MainWindow : Window
     }
 
     private readonly Dictionary<Button, Thickness> _headerTableMargins = new();
+
+    private void TableColSplitter_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Panel p && p.Children.FirstOrDefault() is UIElement line)
+            line.Opacity = 0.7;
+    }
+
+    private void TableColSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (_draggingTableColTag != null) return;
+        if (sender is Panel p && p.Children.FirstOrDefault() is UIElement line)
+            line.Opacity = 0;
+    }
+
+    private void TableColSplitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        _draggingTableColTag = null;
+        _settings.CustomTitleStar = null;
+        _settings.CustomArtistStar = null;
+        _settings.CustomAlbumStar = null;
+        ApplyColumnWidths();
+        if (_snapshotRequest == null) _settings.Save();
+        ShowHudPill("Column widths reset");
+    }
+
+    private void TableColSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsTileMode || sender is not UIElement grip || (sender as FrameworkElement)?.Tag is not string tag) return;
+        double w0 = HeaderColTitle.ActualWidth;
+        double w1 = HeaderColArtist.ActualWidth;
+        double w2 = HeaderColAlbum.ActualWidth;
+        double totalFlexWidth = w0 + w1 + w2;
+        double totalStars = _titleStar + _artistStar + _albumStar;
+        if (totalFlexWidth < 120 || totalStars <= 0.1) return;
+
+        _draggingTableColTag = tag;
+        _tableColDragStartX = e.GetCurrentPoint(TableHeaderGrid).Position.X;
+        _tableColStarsPerDip = totalStars / totalFlexWidth;
+        if (tag == "TitleArtist")
+        {
+            _tableColStartLeftStar = _titleStar;
+            _tableColStartRightStar = _artistStar;
+        }
+        else
+        {
+            _tableColStartLeftStar = _artistStar;
+            _tableColStartRightStar = _albumStar;
+        }
+        grip.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void TableColSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_draggingTableColTag == null) return;
+        double x = e.GetCurrentPoint(TableHeaderGrid).Position.X;
+        double deltaStars = (x - _tableColDragStartX) * _tableColStarsPerDip;
+        double pairSum = _tableColStartLeftStar + _tableColStartRightStar;
+        const double minStar = 0.48;
+        double newLeft = Math.Clamp(_tableColStartLeftStar + deltaStars, minStar, Math.Max(minStar, pairSum - minStar));
+        double newRight = pairSum - newLeft;
+
+        if (_draggingTableColTag == "TitleArtist")
+        {
+            _settings.CustomTitleStar = newLeft;
+            _settings.CustomArtistStar = newRight;
+            _settings.CustomAlbumStar ??= _albumStar;
+        }
+        else
+        {
+            _settings.CustomTitleStar ??= _titleStar;
+            _settings.CustomArtistStar = newLeft;
+            _settings.CustomAlbumStar = newRight;
+        }
+        ApplyColumnWidths();
+    }
+
+    private void TableColSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_draggingTableColTag == null) return;
+        _draggingTableColTag = null;
+        if (sender is UIElement grip)
+            grip.ReleasePointerCapture(e.Pointer);
+        if (sender is Panel p && p.Children.FirstOrDefault() is UIElement line)
+            line.Opacity = 0;
+        if (_snapshotRequest == null)
+            _settings.Save();
+    }
 
     // Tiles are sized so a whole number of them fills the row: the spare width goes into the covers.
     private double _tileWidth = 172;
@@ -1250,15 +1527,24 @@ public sealed partial class MainWindow : Window
 
         if (!string.IsNullOrEmpty(query))
         {
-            source = source.Where(t =>
-                t.DisplayTitle.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                t.Artist.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                t.Album.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                t.Genre.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                t.Path.Contains(query, StringComparison.OrdinalIgnoreCase));
+            var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            source = source.Where(t => MatchesAllSearchTokens(t, tokens));
         }
 
-        if (_activeFacet != "recent")
+        bool showTrackNums = !string.IsNullOrEmpty(_activeAlbumFilter);
+        bool badgeVisibilityChanged = TrackItem.ShowAlbumTrackNumbers != showTrackNums;
+        TrackItem.ShowAlbumTrackNumbers = showTrackNums;
+        if (badgeVisibilityChanged && TableHeaderGrid != null)
+            UpdateSortHeaders();
+
+        if (showTrackNums && _albumTrackOrderActive)
+        {
+            source = source
+                .OrderBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue)
+                .ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue)
+                .ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase);
+        }
+        else if (_activeFacet != "recent")
         {
             source = ApplySort(source, _settings.SortColumn, _settings.SortAscending);
         }
@@ -1273,30 +1559,32 @@ public sealed partial class MainWindow : Window
             var t = filtered[i];
             t.IsNowPlaying = hasPlaying && string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase);
             t.IsEvenRow = (i & 1) == 1;
+            if (badgeVisibilityChanged)
+                t.NotifyTrackBadgeChanged();
         }
 
-        if (!_visibleTracks.SequenceEqual(filtered))
+        var albumCards = BuildAlbumCardsFromTracks(filtered, playingPath);
+
+        _suppressSelectionChanged = true;
+        try
         {
-            _suppressSelectionChanged = true;
-            try
+            if (!_visibleTracks.SequenceEqual(filtered))
             {
                 _visibleTracks = new ObservableCollection<TrackItem>(filtered);
                 TracksListView.ItemsSource = _visibleTracks;
-                AlbumsGridView.ItemsSource = _visibleTracks;
-                if (previousSelection != null && _visibleTracks.Contains(previousSelection))
-                {
-                    TracksListView.SelectedItem = previousSelection;
-                    AlbumsGridView.SelectedItem = previousSelection;
-                }
             }
-            finally
+            _visibleAlbumCards = new ObservableCollection<AlbumCardItem>(albumCards);
+            AlbumsGridView.ItemsSource = _visibleAlbumCards;
+
+            if (previousSelection != null && _visibleTracks.Contains(previousSelection))
             {
-                _suppressSelectionChanged = false;
+                TracksListView.SelectedItem = previousSelection;
+                AlbumsGridView.SelectedItem = FindAlbumCardForTrack(previousSelection);
             }
         }
-        else if (previousSelection != null && _visibleTracks.Contains(previousSelection))
+        finally
         {
-            SyncSelectionAcrossViews(previousSelection);
+            _suppressSelectionChanged = false;
         }
 
         var scrollTarget = (previousSelection != null && _visibleTracks.Contains(previousSelection))
@@ -1375,6 +1663,170 @@ public sealed partial class MainWindow : Window
         _ => "Library hygiene"
     };
 
+    private static bool MatchesAllSearchTokens(TrackItem t, string[] tokens)
+    {
+        foreach (string tok in tokens)
+        {
+            if (string.Equals(tok, "5*", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!(t.Rating is >= 4.9)) return false;
+                continue;
+            }
+            if (string.Equals(tok, "4+", StringComparison.OrdinalIgnoreCase) || string.Equals(tok, "4*", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!(t.Rating is >= 4.0)) return false;
+                continue;
+            }
+            if (string.Equals(tok, "3+", StringComparison.OrdinalIgnoreCase) || string.Equals(tok, "3*", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!(t.Rating is >= 3.0)) return false;
+                continue;
+            }
+            if (string.Equals(tok, "unrated", StringComparison.OrdinalIgnoreCase))
+            {
+                if (t.Rating is > 0) return false;
+                continue;
+            }
+
+            bool hit = t.DisplayTitle.Contains(tok, StringComparison.OrdinalIgnoreCase) ||
+                       t.Artist.Contains(tok, StringComparison.OrdinalIgnoreCase) ||
+                       t.Album.Contains(tok, StringComparison.OrdinalIgnoreCase) ||
+                       t.Genre.Contains(tok, StringComparison.OrdinalIgnoreCase) ||
+                       t.YearText.Equals(tok, StringComparison.OrdinalIgnoreCase) ||
+                       t.Codec.Equals(tok, StringComparison.OrdinalIgnoreCase) ||
+                       t.Path.Contains(tok, StringComparison.OrdinalIgnoreCase);
+            if (!hit) return false;
+        }
+        return true;
+    }
+
+    private List<AlbumCardItem> BuildAlbumCardsFromTracks(IReadOnlyList<TrackItem> tracks, string? playingPath)
+    {
+        bool hasPlaying = !string.IsNullOrEmpty(playingPath);
+        var cards = new List<AlbumCardItem>();
+
+        foreach (var grp in tracks.Where(t => !string.IsNullOrWhiteSpace(t.Album))
+                                  .GroupBy(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            var ordered = grp.OrderBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue)
+                             .ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue)
+                             .ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase)
+                             .ToList();
+            var artists = ordered.Select(t => t.Artist.Trim()).Where(a => !string.IsNullOrEmpty(a)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            string artistLabel = !string.IsNullOrWhiteSpace(ordered[0].AlbumArtist)
+                ? ordered[0].AlbumArtist.Trim()
+                : (artists.Count == 1 ? artists[0] : (artists.Count > 1 ? "Various Artists" : "Unknown Artist"));
+            var rated = ordered.Where(t => t.Rating is > 0).Select(t => t.Rating!.Value).ToList();
+            string? coverPath = ordered.FirstOrDefault(t => t.HasEmbeddedArt && !t.IsCloudOnly)?.Path;
+            ImageSource? cachedImg = coverPath != null && _artThumbCache.TryGetValue(coverPath, out var ci) ? ci : null;
+
+            var card = new AlbumCardItem
+            {
+                Key = grp.Key,
+                AlbumName = grp.Key,
+                Artist = artistLabel,
+                Year = ordered.Max(t => t.Year),
+                TrackCount = ordered.Count,
+                AverageBitrate = (int)Math.Round(ordered.Average(t => t.Bitrate)),
+                LatestAddedUtc = ordered.Max(t => t.DateAddedUtc),
+                AverageRating = rated.Count > 0 ? rated.Average() : null,
+                TotalDuration = TimeSpan.FromTicks(ordered.Sum(t => t.Duration.Ticks)),
+                CoverTrackPath = coverPath,
+                CoverImage = cachedImg,
+                ArtLoadAttempted = coverPath == null || cachedImg != null,
+                IsNowPlaying = hasPlaying && ordered.Any(t => string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase))
+            };
+            card.Tracks.AddRange(ordered);
+            cards.Add(card);
+        }
+
+        foreach (var single in tracks.Where(t => string.IsNullOrWhiteSpace(t.Album)))
+        {
+            string? coverPath = single.HasEmbeddedArt && !single.IsCloudOnly ? single.Path : null;
+            ImageSource? cachedImg = coverPath != null && _artThumbCache.TryGetValue(coverPath, out var ci) ? ci : null;
+            var card = new AlbumCardItem
+            {
+                Key = string.Empty,
+                AlbumName = single.DisplayTitle,
+                Artist = single.DisplayArtist,
+                Year = single.Year,
+                TrackCount = 1,
+                AverageBitrate = single.Bitrate,
+                LatestAddedUtc = single.DateAddedUtc,
+                AverageRating = single.Rating,
+                TotalDuration = single.Duration,
+                CoverTrackPath = coverPath,
+                CoverImage = cachedImg,
+                ArtLoadAttempted = coverPath == null || cachedImg != null,
+                IsSingle = true,
+                IsNowPlaying = hasPlaying && string.Equals(single.Path, playingPath, StringComparison.OrdinalIgnoreCase)
+            };
+            card.Tracks.Add(single);
+            cards.Add(card);
+        }
+
+        bool asc = _settings.SortAscending;
+        IEnumerable<AlbumCardItem> sorted = _settings.SortColumn switch
+        {
+            "Artist" => asc
+                ? cards.OrderBy(c => c.DisplayArtist, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Year).ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+                : cards.OrderByDescending(c => c.DisplayArtist, StringComparer.OrdinalIgnoreCase).ThenByDescending(c => c.Year),
+            "Year" => asc
+                ? cards.OrderBy(c => c.Year > 0 ? c.Year : int.MaxValue).ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+                : cards.OrderByDescending(c => c.Year).ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase),
+            "Rating" => asc
+                ? cards.OrderBy(c => c.AverageRating ?? -1).ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+                : cards.OrderByDescending(c => c.AverageRating ?? -1).ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase),
+            "Duration" => asc
+                ? cards.OrderBy(c => c.TotalDuration)
+                : cards.OrderByDescending(c => c.TotalDuration),
+            "DateAdded" => asc
+                ? cards.OrderBy(c => c.LatestAddedUtc)
+                : cards.OrderByDescending(c => c.LatestAddedUtc),
+            "Bitrate" => asc
+                ? cards.OrderBy(c => c.AverageBitrate)
+                : cards.OrderByDescending(c => c.AverageBitrate),
+            _ => asc
+                ? cards.OrderBy(c => c.IsSingle ? 1 : 0).ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+                : cards.OrderBy(c => c.IsSingle ? 1 : 0).ThenByDescending(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+        };
+
+        return sorted.ToList();
+    }
+
+    private async Task<ImageSource?> LoadThumbnailForPathAsync(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        if (_artThumbCache.TryGetValue(path, out var cachedImg))
+            return cachedImg;
+
+        var (bytes, hash) = await Task.Run(() =>
+        {
+            byte[]? b = MusicLibrary.ReadEmbeddedArtBytes(path);
+            if (b == null || b.Length == 0) return ((byte[]?)null, string.Empty);
+            string h = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(b));
+            return (b, h);
+        });
+
+        if (bytes == null || bytes.Length == 0)
+        {
+            _artThumbCache.TryAdd(path, null);
+            return null;
+        }
+
+        if (_artBitmapByHash.TryGetValue(hash, out var sharedBmp))
+        {
+            _artThumbCache[path] = sharedBmp;
+            return sharedBmp;
+        }
+
+        var bmp = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 180);
+        if (bmp == null) return null;
+        var finalBmp = _artBitmapByHash.GetOrAdd(hash, bmp);
+        _artThumbCache[path] = finalBmp;
+        return finalBmp;
+    }
+
     private async void AlbumsGridView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         if (!args.InRecycleQueue && ReferenceEquals(sender, AlbumsGridView))
@@ -1388,7 +1840,36 @@ public sealed partial class MainWindow : Window
             if ((args.ItemContainer?.ContentTemplateRoot as Grid)?.FindName("RowStarCell") is StarRatingCell starCell)
                 starCell.IsRowHovered = false;
         }
-        if (args.InRecycleQueue || args.Item is not TrackItem track) return;
+
+        if (args.InRecycleQueue) return;
+
+        if (args.Item is AlbumCardItem card)
+        {
+            if (card.CoverImage != null || card.ArtLoadAttempted || string.IsNullOrEmpty(card.CoverTrackPath))
+                return;
+
+            if (_artThumbCache.TryGetValue(card.CoverTrackPath, out var cachedCardImg))
+            {
+                card.ArtLoadAttempted = true;
+                card.CoverImage = cachedCardImg;
+                return;
+            }
+
+            card.ArtLoadAttempted = true;
+            await Task.Delay(90);
+            if (!ReferenceEquals(args.ItemContainer?.Content, card))
+            {
+                card.ArtLoadAttempted = false;
+                return;
+            }
+
+            var bmp = await LoadThumbnailForPathAsync(card.CoverTrackPath);
+            if (bmp != null)
+                card.CoverImage = bmp;
+            return;
+        }
+
+        if (args.Item is not TrackItem track) return;
         if (track.CoverThumbnail != null || track.ArtLoadAttempted) return;
         if (!track.HasEmbeddedArt || track.IsCloudOnly)
         {
@@ -1405,9 +1886,6 @@ public sealed partial class MainWindow : Window
         }
 
         track.ArtLoadAttempted = true;
-
-        // Rows and tiles that are only passing through during a fast scroll never reach the disk:
-        // wait briefly, and give up if the container has already been handed to another track.
         await Task.Delay(120);
         if (!ReferenceEquals(args.ItemContainer?.Content, track))
         {
@@ -1415,35 +1893,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        string path = track.Path;
-        var (bytes, hash) = await Task.Run(() =>
-        {
-            byte[]? b = MusicLibrary.ReadEmbeddedArtBytes(path);
-            if (b == null || b.Length == 0) return ((byte[]?)null, string.Empty);
-            string h = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(b));
-            return (b, h);
-        });
-
-        if (bytes == null || bytes.Length == 0)
-        {
-            _artThumbCache.TryAdd(cacheKey, null);
-            return;
-        }
-
-        if (_artBitmapByHash.TryGetValue(hash, out var sharedBmp))
-        {
-            _artThumbCache[cacheKey] = sharedBmp;
-            track.CoverThumbnail = sharedBmp;
-            return;
-        }
-
-        var bmp = await CreateBitmapFromBytesAsync(bytes, decodePixelWidth: 180);
-        if (bmp != null)
-        {
-            var finalBmp = _artBitmapByHash.GetOrAdd(hash, bmp);
-            _artThumbCache[cacheKey] = finalBmp;
-            track.CoverThumbnail = finalBmp;
-        }
+        var loaded = await LoadThumbnailForPathAsync(track.Path);
+        if (loaded != null)
+            track.CoverThumbnail = loaded;
     }
 
     // Tiles stay quiet until pointed at: the card lifts slightly and its play button fades in.
@@ -1475,12 +1927,44 @@ public sealed partial class MainWindow : Window
 
     private void TilePlayBtn_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is TrackItem track)
+        if ((sender as FrameworkElement)?.Tag is AlbumCardItem card && card.Tracks.Count > 0)
+        {
+            var lead = card.Tracks[0];
+            SyncSelectionAcrossViews(lead);
+            UpdateInspectorForSelection(lead);
+            if (card.IsSingle)
+            {
+                PlayFromList(_visibleTracks.ToList(), lead);
+            }
+            else
+            {
+                PlayFromList(card.Tracks, lead);
+                ShowHudPill($"Playing {card.DisplayAlbum} ({card.TrackCount} tracks)");
+            }
+        }
+        else if ((sender as FrameworkElement)?.Tag is TrackItem track)
         {
             SyncSelectionAcrossViews(track);
             UpdateInspectorForSelection(track);
             PlayFromList(_visibleTracks.ToList(), track);
         }
+    }
+
+    private void AlbumsGridView_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (IsInsideButton(e.OriginalSource as DependencyObject)) return;
+        if (AlbumsGridView.SelectedItem is not AlbumCardItem card || card.Tracks.Count == 0) return;
+
+        if (card.IsSingle || string.IsNullOrWhiteSpace(card.Key))
+        {
+            PlayFromList(_visibleTracks.ToList(), card.Tracks[0]);
+            return;
+        }
+
+        _enteredAlbumFromGrid = true;
+        _settings.ViewMode = "Table";
+        ApplyViewModeVisuals();
+        ApplyAlbumScope(card.Key);
     }
 
     private void UpdateSidebarCounts()
@@ -1726,6 +2210,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplySortColumn(string col)
     {
+        _albumTrackOrderActive = false;
         if (string.Equals(_settings.SortColumn, col, StringComparison.Ordinal))
         {
             _settings.SortAscending = !_settings.SortAscending;
@@ -1823,7 +2308,8 @@ public sealed partial class MainWindow : Window
             ? PlaybarGoldBrush
             : (isLight ? SortHeaderActiveLightBrush : SortHeaderActiveDarkBrush);
         Brush inactiveBrush = isLight ? SortHeaderInactiveLightBrush : SortHeaderInactiveDarkBrush;
-        string sortArrow = _settings.SortAscending ? "\u2191" : "\u2193";
+        bool albumTrackOrder = !IsTileMode && !string.IsNullOrEmpty(_activeAlbumFilter) && _albumTrackOrderActive;
+        string sortArrow = albumTrackOrder ? "\u2191" : (_settings.SortAscending ? "\u2191" : "\u2193");
 
         foreach (var child in TableHeaderGrid.Children.OfType<Button>())
         {
@@ -1849,13 +2335,13 @@ public sealed partial class MainWindow : Window
                         ToolTipService.SetToolTip(child, "Click to sort by Bitrate, Codec, Plays...");
                     }
                 }
-                else if (string.Equals(_settings.SortColumn, activeField, StringComparison.Ordinal))
+                else if (!albumTrackOrder && string.Equals(_settings.SortColumn, activeField, StringComparison.Ordinal))
                 {
                     detailSorted = true;
                     HeaderDetailLabel.Text = $"{activeHeader} {sortArrow}";
                     ToolTipService.SetToolTip(child, $"Showing & sorted by: {activeDisplay} ({(_settings.SortAscending ? "Ascending" : "Descending")})\nClick to change field or sort");
                 }
-                else if (TryGetDetailSortMeta(_settings.SortColumn, out string sortMenuLabel, out _))
+                else if (!albumTrackOrder && TryGetDetailSortMeta(_settings.SortColumn, out string sortMenuLabel, out _))
                 {
                     detailSorted = true;
                     HeaderDetailLabel.Text = $"{activeHeader} {sortArrow}";
@@ -1871,6 +2357,13 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
+            if (albumTrackOrder && string.Equals(tag, "Title", StringComparison.Ordinal))
+            {
+                child.Foreground = activeBrush;
+                child.Content = "# · Title \u2191";
+                continue;
+            }
+
             string label = tag switch
             {
                 "Index" => "#",
@@ -1878,7 +2371,7 @@ public sealed partial class MainWindow : Window
                 "DateAdded" => IsTileMode ? "Date Added" : "Added",
                 _ => tag
             };
-            bool isSorted = string.Equals(tag, _settings.SortColumn, StringComparison.Ordinal);
+            bool isSorted = !albumTrackOrder && string.Equals(tag, _settings.SortColumn, StringComparison.Ordinal);
             child.Foreground = isSorted ? activeBrush : inactiveBrush;
             child.Content = isSorted ? $"{label} {sortArrow}" : label;
         }
@@ -1918,6 +2411,40 @@ public sealed partial class MainWindow : Window
         catch (TaskCanceledException) { }
     }
 
+    private void SearchBox_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Down)
+        {
+            if (IsTileMode && _visibleAlbumCards.Count > 0)
+            {
+                if (AlbumsGridView.SelectedIndex < 0) AlbumsGridView.SelectedIndex = 0;
+                AlbumsGridView.Focus(FocusState.Programmatic);
+                e.Handled = true;
+            }
+            else if (!IsTileMode && _visibleTracks.Count > 0)
+            {
+                if (TracksListView.SelectedIndex < 0) TracksListView.SelectedIndex = 0;
+                TracksListView.Focus(FocusState.Programmatic);
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == VirtualKey.Enter && _visibleTracks.Count > 0)
+        {
+            var start = GetPrimarySelectedTrack();
+            if (start == null || !_visibleTracks.Contains(start))
+                start = _visibleTracks[0];
+            SyncSelectionAcrossViews(start);
+            PlayFromList(_visibleTracks.ToList(), start);
+            e.Handled = true;
+        }
+        else if (e.Key == VirtualKey.Escape && !string.IsNullOrEmpty(SearchBox.Text))
+        {
+            SearchBox.Text = string.Empty;
+            RefreshVisibleTracks();
+            e.Handled = true;
+        }
+    }
+
     private void ClearSearchBtn_Click(object sender, RoutedEventArgs e)
     {
         SearchBox.Text = string.Empty;
@@ -1926,6 +2453,10 @@ public sealed partial class MainWindow : Window
 
     private void ScopeClearBtn_Click(object sender, RoutedEventArgs e)
     {
+        string? prevAlbum = _activeAlbumFilter;
+        bool returnToGrid = _enteredAlbumFromGrid && !string.IsNullOrEmpty(prevAlbum);
+        _enteredAlbumFromGrid = false;
+        _albumTrackOrderActive = false;
         _activeAlbumFilter = null;
         _activeArtistFilter = null;
         _activeHygiene = null;
@@ -1934,7 +2465,21 @@ public sealed partial class MainWindow : Window
         _activeFacet = "all";
         if (!string.IsNullOrEmpty(SearchBox.Text))
             SearchBox.Text = string.Empty;
-        RefreshVisibleTracks();
+        if (returnToGrid)
+        {
+            _settings.ViewMode = "Grid";
+            ApplyViewModeVisuals();
+        }
+        RefreshVisibleTracks(scrollToSelection: true);
+        if (returnToGrid && !string.IsNullOrEmpty(prevAlbum))
+        {
+            var card = _visibleAlbumCards.FirstOrDefault(c => string.Equals(c.Key, prevAlbum, StringComparison.OrdinalIgnoreCase));
+            if (card != null)
+            {
+                AlbumsGridView.SelectedItem = card;
+                DispatcherQueue.TryEnqueue(() => AlbumsGridView.ScrollIntoView(card));
+            }
+        }
     }
 
     private void ViewToggleBtn_Click(object sender, RoutedEventArgs e)
@@ -2093,6 +2638,87 @@ public sealed partial class MainWindow : Window
 
         if (refreshCombo)
             RefreshRightListModeCombo();
+        UpdateQueueHistoryDimming();
+        UpdateQueueJumpPill();
+    }
+
+    private void UpdateQueueHistoryDimming()
+    {
+        if (_editingPlaylist != null)
+        {
+            foreach (var t in _editingPlaylistTracks)
+                t.QueueRowOpacity = 1.0;
+            return;
+        }
+        for (int i = 0; i < _queueTracks.Count; i++)
+        {
+            _queueTracks[i].QueueRowOpacity = (_queueIndex > 0 && i < _queueIndex) ? 0.54 : 1.0;
+        }
+    }
+
+    private void QueueListView_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_queueScrollViewer != null) return;
+        _queueScrollViewer = FindDescendant<ScrollViewer>(QueueListView);
+        if (_queueScrollViewer != null)
+        {
+            _queueScrollViewer.ViewChanged += (_, _) => UpdateQueueJumpPill();
+        }
+    }
+
+    private static T? FindDescendant<T>(DependencyObject? root) where T : DependencyObject
+    {
+        if (root == null) return null;
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } nested) return nested;
+        }
+        return null;
+    }
+
+    private void UpdateQueueJumpPill()
+    {
+        if (QueueJumpPlayingBtn == null) return;
+        if (_editingPlaylist != null || _queueIndex < 0 || _queueIndex >= _queueTracks.Count || _queueTracks.Count <= 8)
+        {
+            QueueJumpPlayingBtn.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (QueueListView.ItemsPanelRoot is not ItemsStackPanel panel || panel.FirstVisibleIndex < 0)
+        {
+            QueueJumpPlayingBtn.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (_queueIndex < panel.FirstVisibleIndex)
+        {
+            QueueJumpPlayingText.Text = "↑ Jump to playing";
+            QueueJumpPlayingBtn.Visibility = Visibility.Visible;
+        }
+        else if (_queueIndex > panel.LastVisibleIndex)
+        {
+            QueueJumpPlayingText.Text = "↓ Jump to playing";
+            QueueJumpPlayingBtn.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            QueueJumpPlayingBtn.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void QueueJumpPlayingBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_editingPlaylist == null && _queueIndex >= 0 && _queueIndex < _queueTracks.Count)
+        {
+            var playing = _queueTracks[_queueIndex];
+            QueueListView.SelectedItem = playing;
+            QueueListView.ScrollIntoView(playing, ScrollIntoViewAlignment.Leading);
+            DispatcherQueue.TryEnqueue(() => UpdateQueueJumpPill());
+        }
     }
 
     private void QueueListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2277,6 +2903,10 @@ public sealed partial class MainWindow : Window
     private void TracksListView_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
         var dragged = e.Items.OfType<TrackItem>().ToList();
+        if (dragged.Count == 0)
+        {
+            dragged = e.Items.OfType<AlbumCardItem>().SelectMany(c => c.Tracks).ToList();
+        }
         if (dragged.Count == 0)
             dragged = GetSelectedTracks();
         _draggedTracks = dragged;
@@ -3605,21 +4235,36 @@ public sealed partial class MainWindow : Window
     private void SeekSlider_PointerExited(object sender, PointerRoutedEventArgs e)
     {
         _isHoveringSeek = false;
+        if (SeekHoverTimePill != null)
+            SeekHoverTimePill.Visibility = Visibility.Collapsed;
         SeekRailCanvas?.Invalidate();
     }
 
     private void SeekSlider_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (_engine == null || _engine.Duration.TotalSeconds <= 0 || SeekSlider.ActualWidth <= 0) return;
-        double ratio = Math.Clamp(e.GetCurrentPoint(SeekSlider).Position.X / SeekSlider.ActualWidth, 0.0, 1.0);
+        double pointerX = e.GetCurrentPoint(SeekSlider).Position.X;
+        double ratio = Math.Clamp(pointerX / SeekSlider.ActualWidth, 0.0, 1.0);
+        _seekHoverRatio = ratio;
         var hoverTime = TimeSpan.FromSeconds(ratio * _engine.Duration.TotalSeconds);
-        ToolTipService.SetToolTip(SeekSlider, $"{FormatTime(hoverTime)} / {FormatTime(_engine.Duration)}");
+        string formatted = FormatTime(hoverTime);
+        ToolTipService.SetToolTip(SeekSlider, $"{formatted} / {FormatTime(_engine.Duration)}");
+        if (SeekHoverTimePill != null && SeekHoverTimeText != null)
+        {
+            SeekHoverTimeText.Text = formatted;
+            SeekHoverTimePill.Visibility = Visibility.Visible;
+            double pillW = SeekHoverTimePill.ActualWidth > 0 ? SeekHoverTimePill.ActualWidth : 44;
+            double clampedLeft = Math.Clamp(pointerX - pillW * 0.5, 8, Math.Max(8, SeekSlider.ActualWidth - pillW - 8));
+            SeekHoverTimePill.Margin = new Thickness(clampedLeft, -22, 0, 0);
+        }
+        SeekRailCanvas?.Invalidate();
     }
 
     private void SeekRailCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
-        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, _seekProgressRatio, _isHoveringSeek || _isDraggingSeek, isLight);
+        bool active = _isHoveringSeek || _isDraggingSeek;
+        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, _seekProgressRatio, active, isLight, showThumbWhenIdle: false, hoverRatio: active ? _seekHoverRatio : null);
     }
 
     private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -3651,12 +4296,13 @@ public sealed partial class MainWindow : Window
         DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, ratio, _isHoveringVolume, isLight);
     }
 
-    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering, bool isLight)
+    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering, bool isLight, bool showThumbWhenIdle = true, double? hoverRatio = null)
     {
         if (w <= 8f || h <= 4f) return;
 
-        // WinUI 3 Slider leaves a ~10px thumb inset on each edge so the visual dot tracks the pointer hit-target.
-        float padX = Math.Min(10f, w * 0.15f);
+        // When the seek rail is idle (showThumbWhenIdle = false), span edge-to-edge as a clean 2.5px bar
+        // without a protruding circle over the bottom track row; show the thumb & hover ghost on pointer entry.
+        float padX = (showThumbWhenIdle || hovering) ? Math.Min(10f, w * 0.15f) : 0f;
         float trackW = Math.Max(1f, w - padX * 2f);
         float midY = h * 0.5f;
         float clampedRatio = (float)Math.Clamp(ratio, 0.0, 1.0);
@@ -3664,19 +4310,30 @@ public sealed partial class MainWindow : Window
 
         Color trackBg = isLight ? Color.FromArgb(42, 0, 0, 0) : Color.FromArgb(56, 255, 255, 255);
         Color accentFill = isLight ? Color.FromArgb(255, 217, 119, 6) : Color.FromArgb(255, 255, 200, 59);
+        Color hoverGhost = isLight ? Color.FromArgb(60, 0, 0, 0) : Color.FromArgb(72, 255, 255, 255);
         Color hoverHalo = isLight ? Color.FromArgb(55, 217, 119, 6) : Color.FromArgb(65, 255, 200, 59);
         Color thumbRing = isLight ? Color.FromArgb(65, 0, 0, 0) : Color.FromArgb(95, 0, 0, 0);
         Color thumbCenter = isLight ? Color.FromArgb(255, 34, 34, 34) : Color.FromArgb(255, 255, 255, 255);
 
-        const float railH = 2.5f;
+        float railH = (!showThumbWhenIdle && hovering) ? 3.5f : 2.5f;
         float railY = midY - railH * 0.5f;
-        ds.FillRoundedRectangle(padX, railY, trackW, railH, 1.25f, 1.25f, trackBg);
+        ds.FillRoundedRectangle(padX, railY, trackW, railH, railH * 0.5f, railH * 0.5f, trackBg);
+
+        if (hovering && hoverRatio is double hr)
+        {
+            float ghostW = Math.Max(0f, (float)Math.Clamp(hr, 0.0, 1.0) * trackW);
+            if (ghostW > 0.5f)
+                ds.FillRoundedRectangle(padX, railY, ghostW, railH, railH * 0.5f, railH * 0.5f, hoverGhost);
+        }
 
         float activeW = Math.Max(0f, thumbX - padX);
         if (activeW > 0.5f)
         {
-            ds.FillRoundedRectangle(padX, railY, activeW, railH, 1.25f, 1.25f, accentFill);
+            ds.FillRoundedRectangle(padX, railY, activeW, railH, railH * 0.5f, railH * 0.5f, accentFill);
         }
+
+        if (!showThumbWhenIdle && !hovering)
+            return;
 
         if (hovering)
         {
@@ -4041,19 +4698,21 @@ public sealed partial class MainWindow : Window
     private void TracksListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressSelectionChanged) return;
+        var sel = TracksListView.SelectedItem as TrackItem;
         _suppressSelectionChanged = true;
-        try { AlbumsGridView.SelectedItem = TracksListView.SelectedItem; }
+        try { AlbumsGridView.SelectedItem = FindAlbumCardForTrack(sel); }
         finally { _suppressSelectionChanged = false; }
-        UpdateInspectorForSelection(TracksListView.SelectedItem as TrackItem);
+        UpdateInspectorForSelection(sel);
     }
 
     private void AlbumsGridView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressSelectionChanged) return;
+        var lead = (AlbumsGridView.SelectedItem as AlbumCardItem)?.Tracks.FirstOrDefault();
         _suppressSelectionChanged = true;
-        try { TracksListView.SelectedItem = AlbumsGridView.SelectedItem; }
+        try { TracksListView.SelectedItem = lead; }
         finally { _suppressSelectionChanged = false; }
-        UpdateInspectorForSelection(AlbumsGridView.SelectedItem as TrackItem);
+        UpdateInspectorForSelection(lead);
     }
 
     // The track the card is showing: the selection, or the playing track when nothing is selected.
@@ -4323,6 +4982,12 @@ public sealed partial class MainWindow : Window
         if (_isMiniPlayer)
             SetMiniPlayerMode(false);
         RevealTrackInMainList(playing);
+        if (_editingPlaylist == null && _queueTracks.Contains(playing))
+        {
+            QueueListView.SelectedItem = playing;
+            QueueListView.ScrollIntoView(playing, ScrollIntoViewAlignment.Leading);
+            DispatcherQueue.TryEnqueue(() => UpdateQueueJumpPill());
+        }
     }
 
     private void RevealTrackInMainList(TrackItem track)
@@ -5145,6 +5810,28 @@ public sealed partial class MainWindow : Window
         await action();
     }
 
+    private void RowArtistCell_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        bool ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (!ctrl) return;
+        if ((sender as FrameworkElement)?.DataContext is TrackItem track && !string.IsNullOrWhiteSpace(track.Artist))
+        {
+            e.Handled = true;
+            ApplyArtistScope(track.Artist);
+        }
+    }
+
+    private void RowAlbumCell_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        bool ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (!ctrl) return;
+        if ((sender as FrameworkElement)?.DataContext is TrackItem track && !string.IsNullOrWhiteSpace(track.Album))
+        {
+            e.Handled = true;
+            ApplyAlbumScope(track.Album);
+        }
+    }
+
     private void TracksListView_RightTapped(object sender, RightTappedRoutedEventArgs e)
         => ShowTrackContextMenu(TracksListView, e);
 
@@ -5153,17 +5840,57 @@ public sealed partial class MainWindow : Window
 
     private void ShowTrackContextMenu(ListViewBase view, RightTappedRoutedEventArgs e)
     {
-        if ((e.OriginalSource as FrameworkElement)?.DataContext is TrackItem hit && !view.SelectedItems.Contains(hit))
+        AlbumCardItem? hitCard = null;
+        if (ReferenceEquals(view, AlbumsGridView))
+        {
+            if ((e.OriginalSource as FrameworkElement)?.DataContext is AlbumCardItem card)
+            {
+                hitCard = card;
+                if (!view.SelectedItems.Contains(card))
+                    view.SelectedItem = card;
+            }
+        }
+        else if ((e.OriginalSource as FrameworkElement)?.DataContext is TrackItem hit && !view.SelectedItems.Contains(hit))
+        {
             view.SelectedItem = hit;
+        }
 
-        var selected = view.SelectedItems.OfType<TrackItem>().ToList();
+        var selected = ReferenceEquals(view, AlbumsGridView)
+            ? view.SelectedItems.OfType<AlbumCardItem>().SelectMany(c => c.Tracks).ToList()
+            : view.SelectedItems.OfType<TrackItem>().ToList();
         if (selected.Count == 0) return;
 
         var menu = new MenuFlyout();
 
-        var playItem = new MenuFlyoutItem { Text = "Play now" };
-        playItem.Click += (_, _) => PlayFromList(_visibleTracks.ToList(), selected[0]);
-        menu.Items.Add(playItem);
+        if (hitCard != null && !hitCard.IsSingle)
+        {
+            var playAlbumItem = new MenuFlyoutItem { Text = $"Play album ({hitCard.TrackCount} tracks)" };
+            playAlbumItem.Click += (_, _) =>
+            {
+                PlayFromList(hitCard.Tracks, hitCard.Tracks[0]);
+                ShowHudPill($"Playing {hitCard.DisplayAlbum} ({hitCard.TrackCount} tracks)");
+            };
+            menu.Items.Add(playAlbumItem);
+
+            if (!string.IsNullOrWhiteSpace(hitCard.Key))
+            {
+                var openAlbumItem = new MenuFlyoutItem { Text = "Open album tracklist" };
+                openAlbumItem.Click += (_, _) =>
+                {
+                    _enteredAlbumFromGrid = true;
+                    _settings.ViewMode = "Table";
+                    ApplyViewModeVisuals();
+                    ApplyAlbumScope(hitCard.Key);
+                };
+                menu.Items.Add(openAlbumItem);
+            }
+        }
+        else
+        {
+            var playItem = new MenuFlyoutItem { Text = "Play now" };
+            playItem.Click += (_, _) => PlayFromList(_visibleTracks.ToList(), selected[0]);
+            menu.Items.Add(playItem);
+        }
 
         var playNextItem = new MenuFlyoutItem { Text = "Play next" };
         playNextItem.Click += (_, _) =>
@@ -5812,8 +6539,23 @@ public sealed partial class MainWindow : Window
                     }
                 }
             }
-            else if ((IsInsideElement(focused as DependencyObject, TracksListView) ||
-                      IsInsideElement(focused as DependencyObject, AlbumsGridView)) &&
+            else if (IsInsideElement(focused as DependencyObject, AlbumsGridView) &&
+                     AlbumsGridView.SelectedItem is AlbumCardItem selCard && selCard.Tracks.Count > 0)
+            {
+                if (!selCard.IsSingle && !string.IsNullOrWhiteSpace(selCard.Key))
+                {
+                    _enteredAlbumFromGrid = true;
+                    _settings.ViewMode = "Table";
+                    ApplyViewModeVisuals();
+                    ApplyAlbumScope(selCard.Key);
+                }
+                else
+                {
+                    PlayFromList(_visibleTracks.ToList(), selCard.Tracks[0]);
+                }
+                e.Handled = true;
+            }
+            else if (IsInsideElement(focused as DependencyObject, TracksListView) &&
                      GetPrimarySelectedTrack() is TrackItem track)
             {
                 PlayFromList(_visibleTracks.ToList(), track);
@@ -5952,6 +6694,8 @@ public sealed partial class MainWindow : Window
     private void ApplyArtistScope(string artist)
     {
         if (string.IsNullOrWhiteSpace(artist)) return;
+        _enteredAlbumFromGrid = false;
+        _albumTrackOrderActive = false;
         _activeFacet = "all";
         _activePlaylist = null;
         _activeCustomFilter = null;
@@ -5964,6 +6708,7 @@ public sealed partial class MainWindow : Window
     private void ApplyAlbumScope(string album)
     {
         if (string.IsNullOrWhiteSpace(album)) return;
+        _albumTrackOrderActive = true;
         _activeFacet = "all";
         _activePlaylist = null;
         _activeCustomFilter = null;

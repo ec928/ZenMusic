@@ -778,6 +778,7 @@ public sealed partial class MainWindow
             _rightPaneOpen = _settings.RightPaneOpen;
             _rightPaneWidth = _settings.RightPaneWidth;
             ApplyPaneWidths();
+            ApplyColumnWidths();
             SelectedInspectorScroll.MaxHeight = _settings.InspectorHeight;
             _inspectorArtMode = _settings.InspectorArtMode;
             ApplyInspectorArtMode();
@@ -1915,23 +1916,25 @@ public sealed partial class MainWindow
                 ? current.Album.Trim()
                 : (!string.Equals(parsed.Album, initialArtist, StringComparison.OrdinalIgnoreCase) ? parsed.Album : string.Empty);
 
-            var queryTitleBox = new TextBox
+            var queryAlbumBox = new TextBox
             {
-                Header = FieldLabel("Search Title"),
-                Text = string.IsNullOrWhiteSpace(cleanedInitialTitle) ? initialTitle : cleanedInitialTitle,
+                Header = FieldLabel("Search Album"),
+                Text = initialAlbum,
+                PlaceholderText = "Album name...",
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var queryArtistBox = new TextBox
             {
                 Header = FieldLabel("Search Artist"),
                 Text = initialArtist,
+                PlaceholderText = "Artist name...",
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
-            var queryAlbumBox = new TextBox
+            var queryTitleBox = new TextBox
             {
-                Header = FieldLabel("Search Album (optional)"),
-                Text = initialAlbum,
-                PlaceholderText = "Album name...",
+                Header = FieldLabel("Search Title (optional)"),
+                Text = string.IsNullOrWhiteSpace(cleanedInitialTitle) ? initialTitle : cleanedInitialTitle,
+                PlaceholderText = "Clear for album-only search...",
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var searchBtn = new Button { Content = "Search", VerticalAlignment = VerticalAlignment.Bottom };
@@ -1939,28 +1942,40 @@ public sealed partial class MainWindow
             var statusLabel = new TextBlock { FontSize = 11, Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center, Text = "Searching MusicBrainz, iTunes & LRCLIB..." };
 
             var searchRow = new Grid { ColumnSpacing = 8 };
-            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
-            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.0, GridUnitType.Star) });
+            searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) });
             searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(queryTitleBox, 0);
+            Grid.SetColumn(queryAlbumBox, 0);
             Grid.SetColumn(queryArtistBox, 1);
-            Grid.SetColumn(queryAlbumBox, 2);
+            Grid.SetColumn(queryTitleBox, 2);
             Grid.SetColumn(searchBtn, 3);
-            searchRow.Children.Add(queryTitleBox);
-            searchRow.Children.Add(queryArtistBox);
             searchRow.Children.Add(queryAlbumBox);
+            searchRow.Children.Add(queryArtistBox);
+            searchRow.Children.Add(queryTitleBox);
             searchRow.Children.Add(searchBtn);
 
             var matchCombo = new ComboBox { Header = FieldLabel("Matched Release / Source"), HorizontalAlignment = HorizontalAlignment.Stretch };
 
-            var selectAllBtn = new Button { Content = "Select All (Recommended)", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
+            var selectAllBtn = new Button { Content = "Recommended", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
             var emptyOnlyBtn = new Button { Content = "Only Empty Fields", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
             var uncheckAllBtn = new Button { Content = "Uncheck All", Padding = new Thickness(10, 4, 10, 4), FontSize = 11 };
+            Button? applyAlbumBatchBtn = null;
             var presetButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             presetButtons.Children.Add(selectAllBtn);
             presetButtons.Children.Add(emptyOnlyBtn);
             presetButtons.Children.Add(uncheckAllBtn);
+            if (tracks.Count > 1 && trackIdx < tracks.Count - 1)
+            {
+                applyAlbumBatchBtn = new Button
+                {
+                    Content = $"Apply Album & Art to All ({tracks.Count - trackIdx})",
+                    Padding = new Thickness(10, 4, 10, 4),
+                    FontSize = 11
+                };
+                ToolTipService.SetToolTip(applyAlbumBatchBtn, "Applies checked Album, Album Artist, Genre, Year, and Cover Art across this track and all remaining tracks in the selection");
+                presetButtons.Children.Add(applyAlbumBatchBtn);
+            }
 
             var statusPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
             statusPanel.Children.Add(loadingRing);
@@ -2111,7 +2126,9 @@ public sealed partial class MainWindow
                 }
             }
 
-            void ApplyRecommendedChecks(bool onlyEmpty)
+            bool applyBatchAlbumToRest = false;
+
+            void ApplyRecommendedChecks(bool onlyEmpty, bool protectExistingAlbum = true)
             {
                 static string Norm(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
                 bool ShouldCheck(string proposed, string existing) =>
@@ -2119,13 +2136,19 @@ public sealed partial class MainWindow
                     !string.Equals(Norm(proposed), Norm(existing), StringComparison.Ordinal) &&
                     (!onlyEmpty || string.IsNullOrWhiteSpace(existing));
 
+                // Never auto-check Album / Track # to overwrite a user's existing known album with an unrelated release!
+                bool mismatchedDifferentAlbum = protectExistingAlbum &&
+                    !string.IsNullOrWhiteSpace(current.Album) &&
+                    !string.IsNullOrWhiteSpace(boxAlbum.Text) &&
+                    AutoTagger.AlbumSimilarity(current.Album, boxAlbum.Text) < 0.45;
+
                 chkTitle.IsChecked = ShouldCheck(boxTitle.Text, current.Title);
                 chkArtist.IsChecked = ShouldCheck(boxArtist.Text, current.Artist);
-                chkAlbum.IsChecked = ShouldCheck(boxAlbum.Text, current.Album);
+                chkAlbum.IsChecked = !mismatchedDifferentAlbum && ShouldCheck(boxAlbum.Text, current.Album);
                 chkAlbumArtist.IsChecked = ShouldCheck(boxAlbumArtist.Text, current.AlbumArtist);
                 chkGenre.IsChecked = ShouldCheck(boxGenre.Text, current.Genre);
-                chkYear.IsChecked = ShouldCheck(boxYear.Text, current.Year > 0 ? current.Year.ToString() : "");
-                chkTrack.IsChecked = ShouldCheck(boxTrack.Text, current.TrackNumber > 0 ? current.TrackNumber.ToString() : "");
+                chkYear.IsChecked = !mismatchedDifferentAlbum && ShouldCheck(boxYear.Text, current.Year > 0 ? current.Year.ToString() : "");
+                chkTrack.IsChecked = !mismatchedDifferentAlbum && ShouldCheck(boxTrack.Text, current.TrackNumber > 0 ? current.TrackNumber.ToString() : "");
                 chkLyrics.IsChecked = ShouldCheck(boxLyrics.Text, current.Lyrics);
                 bool sameArt = chosenArtBytes is { Length: > 0 } &&
                                current.ArtBytes is { Length: > 0 } &&
@@ -2135,18 +2158,18 @@ public sealed partial class MainWindow
 
             void PopulateCandidate(AutoTagCandidate c)
             {
-                boxTitle.Text = c.Title;
+                boxTitle.Text = !string.IsNullOrWhiteSpace(c.Title) ? c.Title : current.Title;
                 boxArtist.Text = c.Artist;
                 boxAlbum.Text = c.Album;
                 boxAlbumArtist.Text = c.AlbumArtist;
                 boxGenre.Text = c.Genre;
                 boxYear.Text = c.Year > 0 ? c.Year.ToString() : string.Empty;
-                boxTrack.Text = c.TrackNumber > 0 ? c.TrackNumber.ToString() : string.Empty;
-                ApplyRecommendedChecks(onlyEmpty: false);
+                boxTrack.Text = c.TrackNumber > 0 ? c.TrackNumber.ToString() : (current.TrackNumber > 0 ? current.TrackNumber.ToString() : string.Empty);
+                ApplyRecommendedChecks(onlyEmpty: false, protectExistingAlbum: true);
             }
 
-            selectAllBtn.Click += (_, _) => ApplyRecommendedChecks(onlyEmpty: false);
-            emptyOnlyBtn.Click += (_, _) => ApplyRecommendedChecks(onlyEmpty: true);
+            selectAllBtn.Click += (_, _) => ApplyRecommendedChecks(onlyEmpty: false, protectExistingAlbum: true);
+            emptyOnlyBtn.Click += (_, _) => ApplyRecommendedChecks(onlyEmpty: true, protectExistingAlbum: false);
             uncheckAllBtn.Click += (_, _) =>
             {
                 foreach (var cb in new[] { chkTitle, chkArtist, chkAlbum, chkAlbumArtist, chkGenre, chkYear, chkTrack, chkLyrics, chkArt })
@@ -2157,13 +2180,13 @@ public sealed partial class MainWindow
             {
                 if (latestResult == null || matchCombo.SelectedIndex < 0 || matchCombo.SelectedIndex >= latestResult.Candidates.Count) return;
                 var c = latestResult.Candidates[matchCombo.SelectedIndex];
-                PopulateCandidate(c);
                 if (!string.IsNullOrEmpty(c.ArtUrl))
                 {
                     int artIdx = latestResult.ArtOptions.FindIndex(a => string.Equals(a.Url, c.ArtUrl, StringComparison.OrdinalIgnoreCase));
                     if (artIdx >= 0)
                         await SelectArtOptionAsync(latestResult.ArtOptions[artIdx].Bytes, artIdx);
                 }
+                PopulateCandidate(c);
             };
 
             CancellationTokenSource? searchCts = null;
@@ -2185,7 +2208,9 @@ public sealed partial class MainWindow
                     track.Duration,
                     token,
                     albumHint: queryAlbumBox.Text,
-                    yearHint: current.Year);
+                    yearHint: current.Year,
+                    trackMatchHint: initialTitle,
+                    trackNumberHint: current.TrackNumber);
                 if (token.IsCancellationRequested) return;
 
                 latestResult = res;
@@ -2224,7 +2249,11 @@ public sealed partial class MainWindow
                             Child = thumbImg
                         };
                         ToolTipService.SetToolTip(b, $"{opt.Source} cover #{i + 1}");
-                        b.Tapped += async (_, _) => await SelectArtOptionAsync(opt.Bytes, capturedIdx);
+                        b.Tapped += async (_, _) =>
+                        {
+                            await SelectArtOptionAsync(opt.Bytes, capturedIdx);
+                            chkArt.IsChecked = true;
+                        };
                         Grid.SetRow(b, i / 3);
                         Grid.SetColumn(b, i % 3);
                         artThumbBorders.Add(b);
@@ -2257,13 +2286,13 @@ public sealed partial class MainWindow
             queryArtistBox.KeyDown += QueryBox_KeyDown;
             queryAlbumBox.KeyDown += QueryBox_KeyDown;
 
-            var bodyGrid = new Grid { ColumnSpacing = 18, Width = 860 };
+            var bodyGrid = new Grid { ColumnSpacing = 18, HorizontalAlignment = HorizontalAlignment.Stretch };
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
             Grid.SetColumn(leftCol, 0); Grid.SetColumn(rightCol, 1);
             bodyGrid.Children.Add(leftCol); bodyGrid.Children.Add(rightCol);
 
-            var rootPanel = new StackPanel { Spacing = 10, Width = 860 };
+            var rootPanel = new StackPanel { Spacing = 10, Width = 860, Padding = new Thickness(0, 0, 14, 0) };
             rootPanel.Children.Add(searchRow);
             rootPanel.Children.Add(matchCombo);
             rootPanel.Children.Add(presetRow);
@@ -2286,12 +2315,21 @@ public sealed partial class MainWindow
             dlg.Resources["ContentDialogMaxHeight"] = 800.0;
             DialogFooter.MainButtonOnRight(dlg);
 
+            if (applyAlbumBatchBtn != null)
+            {
+                applyAlbumBatchBtn.Click += (_, _) =>
+                {
+                    applyBatchAlbumToRest = true;
+                    dlg.Hide();
+                };
+            }
+
             _ = RunSearchAsync();
             var dlgResult = await dlg.ShowAsync();
             searchCts?.Cancel();
 
-            if (dlgResult == ContentDialogResult.None) break;
-            if (dlgResult == ContentDialogResult.Secondary) continue;
+            if (dlgResult == ContentDialogResult.None && !applyBatchAlbumToRest) break;
+            if (dlgResult == ContentDialogResult.Secondary && !applyBatchAlbumToRest) continue;
 
             bool applyArt = chkArt.IsChecked == true && chosenArtBytes is { Length: > 0 };
             string artMime = applyArt
@@ -2314,8 +2352,70 @@ public sealed partial class MainWindow
                 ArtChanged = applyArt
             };
 
-            if ((await SaveTrackDetailsAsync(track, updated)).TagsSaved)
+            var batchSnapshots = applyBatchAlbumToRest ? new List<(TrackItem Track, MusicLibrary.TrackDetails Before)>() : null;
+            if (batchSnapshots != null)
+            {
+                current.Rating = ResolveTrackRating(track, current.Rating);
+                current.ArtChanged = applyArt;
+            }
+
+            bool firstSaved = (await SaveTrackDetailsAsync(track, updated, pushUndo: !applyBatchAlbumToRest)).TagsSaved;
+            if (firstSaved)
+            {
+                batchSnapshots?.Add((track, current));
+                if (!applyBatchAlbumToRest)
+                    RefreshVisibleTracks();
+            }
+
+            if (applyBatchAlbumToRest)
+            {
+                for (int restIdx = trackIdx + 1; restIdx < tracks.Count; restIdx++)
+                {
+                    var peerTrack = tracks[restIdx];
+                    if (peerTrack.IsCloudOnly) continue;
+                    var (pOk, pCur, _) = await ReadTrackDetailsSafelyAsync(peerTrack.Path);
+                    if (!pOk) continue;
+
+                    double? pRating = ResolveTrackRating(peerTrack, pCur.Rating);
+                    pCur.Rating = pRating;
+                    pCur.ArtChanged = applyArt;
+
+                    var peerUpdated = new MusicLibrary.TrackDetails
+                    {
+                        Title = pCur.Title,
+                        Artist = chkArtist.IsChecked == true ? boxArtist.Text.Trim() : pCur.Artist,
+                        Album = chkAlbum.IsChecked == true ? boxAlbum.Text.Trim() : pCur.Album,
+                        AlbumArtist = chkAlbumArtist.IsChecked == true ? boxAlbumArtist.Text.Trim() : pCur.AlbumArtist,
+                        Genre = chkGenre.IsChecked == true ? boxGenre.Text.Trim() : pCur.Genre,
+                        Year = chkYear.IsChecked == true && int.TryParse(boxYear.Text.Trim(), out int pyVal) ? pyVal : pCur.Year,
+                        TrackNumber = pCur.TrackNumber,
+                        DiscNumber = pCur.DiscNumber,
+                        Rating = pRating,
+                        Lyrics = pCur.Lyrics,
+                        ArtBytes = applyArt ? chosenArtBytes : pCur.ArtBytes,
+                        ArtMimeType = applyArt ? artMime : pCur.ArtMimeType,
+                        ArtChanged = applyArt
+                    };
+                    if ((await SaveTrackDetailsAsync(peerTrack, peerUpdated, pushUndo: false)).TagsSaved)
+                        batchSnapshots!.Add((peerTrack, pCur));
+                }
+
+                if (batchSnapshots!.Count > 0)
+                {
+                    PushUndo(async () =>
+                    {
+                        foreach (var (tr, before) in batchSnapshots)
+                            await SaveTrackDetailsAsync(tr, before, pushUndo: false);
+                        RefreshVisibleTracks();
+                        SaveLibraryCacheSnapshot();
+                        ShowHudPill($"Undone: Auto-Tag ({batchSnapshots.Count} tracks)");
+                    });
+                }
+
                 RefreshVisibleTracks();
+                ShowHudPill($"Applied album tags & cover to {batchSnapshots.Count} tracks");
+                break;
+            }
         }
         SaveLibraryCacheSnapshot();
     }
@@ -2593,6 +2693,110 @@ public sealed partial class MainWindow
         }
     }
 
+    private sealed class BrowseRowEntry
+    {
+        public string Title { get; init; } = string.Empty;
+        public string Subtitle { get; init; } = string.Empty;
+        public string Badge { get; init; } = string.Empty;
+        public string Initial { get; init; } = "♪";
+        public Brush Placeholder { get; init; } = new SolidColorBrush(Colors.DimGray);
+        public string? CoverTrackPath { get; init; }
+        public ImageSource? CachedImage { get; set; }
+        public bool ArtRequested { get; set; }
+        public object? Payload { get; init; }
+    }
+
+    private ListView CreateVirtualizedBrowseListView()
+    {
+        var lv = new ListView
+        {
+            Height = 430,
+            SelectionMode = ListViewSelectionMode.Single,
+            ShowsScrollingPlaceholders = false,
+            ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+                "<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
+                "<Grid Height=\"52\" ColumnSpacing=\"12\" Padding=\"2,4\">" +
+                "<Grid.ColumnDefinitions>" +
+                "<ColumnDefinition Width=\"Auto\"/>" +
+                "<ColumnDefinition Width=\"*\"/>" +
+                "<ColumnDefinition Width=\"Auto\"/>" +
+                "</Grid.ColumnDefinitions>" +
+                "<Border x:Name=\"ArtBox\" Grid.Column=\"0\" Width=\"42\" Height=\"42\" CornerRadius=\"6\" BorderBrush=\"#22FFFFFF\" BorderThickness=\"1\" VerticalAlignment=\"Center\">" +
+                "<Grid>" +
+                "<TextBlock x:Name=\"ArtInitial\" FontSize=\"17\" FontWeight=\"SemiBold\" Foreground=\"#CCFFFFFF\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\"/>" +
+                "<Image x:Name=\"ArtImg\" Stretch=\"UniformToFill\"/>" +
+                "</Grid>" +
+                "</Border>" +
+                "<StackPanel Grid.Column=\"1\" VerticalAlignment=\"Center\" Spacing=\"1\">" +
+                "<TextBlock x:Name=\"RowTitle\" FontSize=\"13\" FontWeight=\"SemiBold\" TextTrimming=\"CharacterEllipsis\"/>" +
+                "<TextBlock x:Name=\"RowSub\" FontSize=\"11.5\" Opacity=\"0.72\" TextTrimming=\"CharacterEllipsis\"/>" +
+                "</StackPanel>" +
+                "<TextBlock x:Name=\"RowBadge\" Grid.Column=\"2\" FontSize=\"11.5\" FontWeight=\"SemiBold\" Foreground=\"#FFC83B\" VerticalAlignment=\"Center\" Margin=\"6,0,4,0\"/>" +
+                "</Grid>" +
+                "</DataTemplate>")
+        };
+
+        lv.ContainerContentChanging += async (_, args) =>
+        {
+            if (args.ItemContainer?.ContentTemplateRoot is not Grid root) return;
+            var artBox = root.FindName("ArtBox") as Border;
+            var artInit = root.FindName("ArtInitial") as TextBlock;
+            var artImg = root.FindName("ArtImg") as Image;
+            var rowTitle = root.FindName("RowTitle") as TextBlock;
+            var rowSub = root.FindName("RowSub") as TextBlock;
+            var rowBadge = root.FindName("RowBadge") as TextBlock;
+
+            if (args.InRecycleQueue || args.Item is not BrowseRowEntry entry)
+            {
+                if (artImg != null) artImg.Source = null;
+                return;
+            }
+
+            if (artBox != null) artBox.Background = entry.Placeholder;
+            if (artInit != null) artInit.Text = entry.Initial;
+            if (rowTitle != null) rowTitle.Text = entry.Title;
+            if (rowSub != null) rowSub.Text = entry.Subtitle;
+            if (rowBadge != null)
+            {
+                rowBadge.Text = entry.Badge;
+                rowBadge.Visibility = string.IsNullOrEmpty(entry.Badge) ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            if (entry.CachedImage == null && !string.IsNullOrEmpty(entry.CoverTrackPath) &&
+                _artThumbCache.TryGetValue(entry.CoverTrackPath, out var cached))
+            {
+                entry.CachedImage = cached;
+            }
+
+            if (artImg != null)
+            {
+                artImg.Source = entry.CachedImage;
+                artImg.Visibility = entry.CachedImage != null ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            if (entry.CachedImage != null || entry.ArtRequested || string.IsNullOrEmpty(entry.CoverTrackPath))
+                return;
+
+            entry.ArtRequested = true;
+            await Task.Delay(60);
+            if (!ReferenceEquals(args.ItemContainer?.Content, entry))
+            {
+                entry.ArtRequested = false;
+                return;
+            }
+
+            var loaded = await LoadThumbnailForPathAsync(entry.CoverTrackPath);
+            entry.CachedImage = loaded;
+            if (ReferenceEquals(args.ItemContainer?.Content, entry) && artImg != null)
+            {
+                artImg.Source = loaded;
+                artImg.Visibility = loaded != null ? Visibility.Visible : Visibility.Collapsed;
+            }
+        };
+
+        return lv;
+    }
+
     private async Task OpenBrowseAlbumsDialogAsync()
     {
         if (_allTracks.Count == 0)
@@ -2602,7 +2806,8 @@ public sealed partial class MainWindow
         }
 
         var cards = _allTracks
-            .GroupBy(t => string.IsNullOrWhiteSpace(t.Album) ? string.Empty : t.Album.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(t => !string.IsNullOrWhiteSpace(t.Album))
+            .GroupBy(t => t.Album.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(g =>
             {
                 var ordered = g.OrderBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue)
@@ -2610,73 +2815,95 @@ public sealed partial class MainWindow
                                .ThenBy(t => t.DisplayTitle, StringComparer.OrdinalIgnoreCase)
                                .ToList();
                 var artists = ordered.Select(t => t.Artist.Trim()).Where(a => !string.IsNullOrEmpty(a)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                string artistLabel = artists.Count == 1 ? artists[0] : (artists.Count > 1 ? "Various Artists" : "Unknown Artist");
+                string artistLabel = !string.IsNullOrWhiteSpace(ordered[0].AlbumArtist)
+                    ? ordered[0].AlbumArtist.Trim()
+                    : (artists.Count == 1 ? artists[0] : (artists.Count > 1 ? "Various Artists" : "Unknown Artist"));
+                var rated = ordered.Where(t => t.Rating is > 0).Select(t => t.Rating!.Value).ToList();
                 var card = new AlbumCardItem
                 {
                     Key = g.Key,
-                    AlbumName = string.IsNullOrEmpty(g.Key) ? "Unknown Album" : g.Key,
+                    AlbumName = g.Key,
                     Artist = artistLabel,
                     Year = ordered.Max(t => t.Year),
                     TrackCount = ordered.Count,
+                    AverageRating = rated.Count > 0 ? rated.Average() : null,
                     TotalDuration = TimeSpan.FromTicks(ordered.Sum(t => t.Duration.Ticks)),
-                    CoverTrackPath = ordered.FirstOrDefault(t => t.HasEmbeddedArt)?.Path ?? ordered[0].Path
+                    CoverTrackPath = ordered.FirstOrDefault(t => t.HasEmbeddedArt && !t.IsCloudOnly)?.Path ?? ordered[0].Path
                 };
                 card.Tracks.AddRange(ordered);
                 return card;
             })
-            .OrderBy(c => string.Equals(c.AlbumName, "Unknown Album", StringComparison.Ordinal) ? 1 : 0)
-            .ThenBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c.DisplayAlbum, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new BrowseRowEntry
+            {
+                Title = c.DisplayAlbum,
+                Subtitle = c.BrowseSubtitleText,
+                Badge = c.RatingBadgeText,
+                Initial = c.ArtInitial,
+                Placeholder = PlaceholderBrush(c.Artist, c.AlbumName, c.DisplayAlbum),
+                CoverTrackPath = c.CoverTrackPath,
+                Payload = c
+            })
             .ToList();
 
-        var searchBox = new TextBox { PlaceholderText = $"Search {cards.Count:N0} albums or artists..." };
-        var list = new ListBox { MaxHeight = 420 };
+        var searchBox = new TextBox { PlaceholderText = $"Filter {cards.Count:N0} albums by title, artist, or year..." };
+        var countLabel = new TextBlock { FontSize = 11.5, Opacity = 0.65, Margin = new Thickness(2, -2, 0, 0) };
+        var list = CreateVirtualizedBrowseListView();
+        var visibleEntries = new System.Collections.ObjectModel.ObservableCollection<BrowseRowEntry>(cards);
+        list.ItemsSource = visibleEntries;
+        countLabel.Text = $"{cards.Count:N0} albums";
+        if (visibleEntries.Count > 0) list.SelectedIndex = 0;
 
         void Populate(string q)
         {
-            list.Items.Clear();
-            IEnumerable<AlbumCardItem> view = cards;
+            visibleEntries.Clear();
+            IEnumerable<BrowseRowEntry> view = cards;
             if (!string.IsNullOrWhiteSpace(q))
             {
-                string needle = q.Trim();
-                view = view.Where(c =>
-                    c.DisplayAlbum.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
-                    c.DisplayArtist.Contains(needle, StringComparison.OrdinalIgnoreCase));
+                var tokens = q.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                view = view.Where(e => tokens.All(tok =>
+                    e.Title.Contains(tok, StringComparison.OrdinalIgnoreCase) ||
+                    e.Subtitle.Contains(tok, StringComparison.OrdinalIgnoreCase)));
             }
-            foreach (var c in view.Take(250))
-            {
-                list.Items.Add(new ListBoxItem
-                {
-                    Tag = c,
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Content = new TextBlock
-                    {
-                        Text = $"{c.DisplayAlbum}  —  {c.DisplayArtist}  ({c.MetaText})",
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    }
-                });
-            }
+            foreach (var e in view) visibleEntries.Add(e);
+            countLabel.Text = visibleEntries.Count == cards.Count
+                ? $"{cards.Count:N0} albums"
+                : $"{visibleEntries.Count:N0} of {cards.Count:N0} albums";
+            if (visibleEntries.Count > 0) list.SelectedIndex = 0;
         }
 
         searchBox.TextChanged += (_, _) => Populate(searchBox.Text);
-        Populate(string.Empty);
 
-        var panel = new StackPanel { Spacing = 10, Width = 540 };
+        var panel = new StackPanel { Spacing = 8, Width = 560 };
         panel.Children.Add(searchBox);
+        panel.Children.Add(countLabel);
         panel.Children.Add(list);
 
         var dlg = new ContentDialog
         {
             Title = "Browse by Album",
             Content = panel,
-            PrimaryButtonText = "Show in library",
+            PrimaryButtonText = "Show album",
             SecondaryButtonText = "Play album",
             CloseButtonText = "Close",
             DefaultButton = ContentDialogButton.Primary,
-            IsPrimaryButtonEnabled = false,
-            IsSecondaryButtonEnabled = false,
+            IsPrimaryButtonEnabled = list.SelectedItem != null,
+            IsSecondaryButtonEnabled = list.SelectedItem != null,
             XamlRoot = RootGrid.XamlRoot,
             RequestedTheme = RootGrid.RequestedTheme
         };
+
+        searchBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Down && visibleEntries.Count > 0)
+            {
+                list.Focus(FocusState.Programmatic);
+                if (list.SelectedIndex < 0) list.SelectedIndex = 0;
+                e.Handled = true;
+            }
+        };
+        dlg.Opened += (_, _) => searchBox.Focus(FocusState.Programmatic);
+
         list.SelectionChanged += (_, _) =>
         {
             bool hasSel = list.SelectedItem != null;
@@ -2685,18 +2912,18 @@ public sealed partial class MainWindow
         };
         list.DoubleTapped += (_, _) =>
         {
-            if ((list.SelectedItem as ListBoxItem)?.Tag is AlbumCardItem album)
+            if ((list.SelectedItem as BrowseRowEntry)?.Payload is AlbumCardItem album)
             {
                 dlg.Hide();
                 if (!string.IsNullOrEmpty(album.Key))
                     ApplyAlbumScope(album.Key);
             }
         };
-        dlg.Resources["ContentDialogMaxWidth"] = 620.0;
+        dlg.Resources["ContentDialogMaxWidth"] = 640.0;
         DialogFooter.MainButtonOnRight(dlg);
 
         var res = await dlg.ShowAsync();
-        if ((list.SelectedItem as ListBoxItem)?.Tag is not AlbumCardItem chosen) return;
+        if ((list.SelectedItem as BrowseRowEntry)?.Payload is not AlbumCardItem chosen) return;
 
         if (res == ContentDialogResult.Primary)
         {
@@ -2721,64 +2948,97 @@ public sealed partial class MainWindow
         var groups = _allTracks
             .Where(t => !string.IsNullOrWhiteSpace(t.Artist))
             .GroupBy(t => t.Artist.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(g => new
+            .Select(g =>
             {
-                Artist = g.Key,
-                TrackCount = g.Count(),
-                AlbumCount = g.Select(t => t.Album.Trim()).Where(a => !string.IsNullOrEmpty(a)).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                Tracks = g.OrderBy(t => t.Album, StringComparer.OrdinalIgnoreCase)
-                          .ThenBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue)
-                          .ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue)
-                          .ToList()
+                var ordered = g.OrderBy(t => t.Album, StringComparer.OrdinalIgnoreCase)
+                               .ThenBy(t => t.DiscNumber > 0 ? t.DiscNumber : int.MaxValue)
+                               .ThenBy(t => t.TrackNumber > 0 ? t.TrackNumber : int.MaxValue)
+                               .ToList();
+                int albumCount = ordered.Select(t => t.Album.Trim()).Where(a => !string.IsNullOrEmpty(a)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                var totalDur = TimeSpan.FromTicks(ordered.Sum(t => t.Duration.Ticks));
+                string durText = totalDur.TotalHours >= 1
+                    ? $"{(int)totalDur.TotalHours}h {totalDur.Minutes}m"
+                    : totalDur.TotalMinutes >= 1 ? $"{(int)Math.Round(totalDur.TotalMinutes)}m" : string.Empty;
+                string albumPart = albumCount > 0 ? $"{albumCount} {(albumCount == 1 ? "album" : "albums")} · " : string.Empty;
+                string durPart = string.IsNullOrEmpty(durText) ? string.Empty : $" · {durText}";
+                var artTrack = ordered.FirstOrDefault(t => t.HasEmbeddedArt && !t.IsCloudOnly) ?? ordered[0];
+                return new
+                {
+                    Artist = g.Key,
+                    TrackCount = ordered.Count,
+                    Tracks = ordered,
+                    Entry = new BrowseRowEntry
+                    {
+                        Title = g.Key,
+                        Subtitle = $"{albumPart}{ordered.Count} {(ordered.Count == 1 ? "track" : "tracks")}{durPart}",
+                        Badge = string.Empty,
+                        Initial = artTrack.ArtInitial,
+                        Placeholder = PlaceholderBrush(g.Key, string.Empty, g.Key),
+                        CoverTrackPath = artTrack.HasEmbeddedArt && !artTrack.IsCloudOnly ? artTrack.Path : null,
+                        Payload = g.Key
+                    }
+                };
             })
             .OrderBy(a => a.Artist, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var searchBox = new TextBox { PlaceholderText = $"Search {groups.Count:N0} artists..." };
-        var list = new ListBox { MaxHeight = 420 };
+        var allEntries = groups.Select(g => g.Entry).ToList();
+        var searchBox = new TextBox { PlaceholderText = $"Filter {allEntries.Count:N0} artists..." };
+        var countLabel = new TextBlock { FontSize = 11.5, Opacity = 0.65, Margin = new Thickness(2, -2, 0, 0) };
+        var list = CreateVirtualizedBrowseListView();
+        var visibleEntries = new System.Collections.ObjectModel.ObservableCollection<BrowseRowEntry>(allEntries);
+        list.ItemsSource = visibleEntries;
+        countLabel.Text = $"{allEntries.Count:N0} artists";
+        if (visibleEntries.Count > 0) list.SelectedIndex = 0;
 
         void Populate(string q)
         {
-            list.Items.Clear();
-            var view = string.IsNullOrWhiteSpace(q)
-                ? groups
-                : groups.Where(a => a.Artist.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase));
-            foreach (var a in view.Take(250))
+            visibleEntries.Clear();
+            IEnumerable<BrowseRowEntry> view = allEntries;
+            if (!string.IsNullOrWhiteSpace(q))
             {
-                string albumPart = a.AlbumCount > 0 ? $"{a.AlbumCount} {(a.AlbumCount == 1 ? "album" : "albums")} · " : string.Empty;
-                list.Items.Add(new ListBoxItem
-                {
-                    Tag = a.Artist,
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Content = new TextBlock
-                    {
-                        Text = $"{a.Artist}  ({albumPart}{a.TrackCount} {(a.TrackCount == 1 ? "track" : "tracks")})",
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    }
-                });
+                var tokens = q.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                view = view.Where(e => tokens.All(tok => e.Title.Contains(tok, StringComparison.OrdinalIgnoreCase)));
             }
+            foreach (var e in view) visibleEntries.Add(e);
+            countLabel.Text = visibleEntries.Count == allEntries.Count
+                ? $"{allEntries.Count:N0} artists"
+                : $"{visibleEntries.Count:N0} of {allEntries.Count:N0} artists";
+            if (visibleEntries.Count > 0) list.SelectedIndex = 0;
         }
 
         searchBox.TextChanged += (_, _) => Populate(searchBox.Text);
-        Populate(string.Empty);
 
-        var panel = new StackPanel { Spacing = 10, Width = 520 };
+        var panel = new StackPanel { Spacing = 8, Width = 540 };
         panel.Children.Add(searchBox);
+        panel.Children.Add(countLabel);
         panel.Children.Add(list);
 
         var dlg = new ContentDialog
         {
             Title = "Browse by Artist",
             Content = panel,
-            PrimaryButtonText = "Show in library",
+            PrimaryButtonText = "Show artist",
             SecondaryButtonText = "Play all",
             CloseButtonText = "Close",
             DefaultButton = ContentDialogButton.Primary,
-            IsPrimaryButtonEnabled = false,
-            IsSecondaryButtonEnabled = false,
+            IsPrimaryButtonEnabled = list.SelectedItem != null,
+            IsSecondaryButtonEnabled = list.SelectedItem != null,
             XamlRoot = RootGrid.XamlRoot,
             RequestedTheme = RootGrid.RequestedTheme
         };
+
+        searchBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Down && visibleEntries.Count > 0)
+            {
+                list.Focus(FocusState.Programmatic);
+                if (list.SelectedIndex < 0) list.SelectedIndex = 0;
+                e.Handled = true;
+            }
+        };
+        dlg.Opened += (_, _) => searchBox.Focus(FocusState.Programmatic);
+
         list.SelectionChanged += (_, _) =>
         {
             bool hasSel = list.SelectedItem != null;
@@ -2787,17 +3047,17 @@ public sealed partial class MainWindow
         };
         list.DoubleTapped += (_, _) =>
         {
-            if ((list.SelectedItem as ListBoxItem)?.Tag is string artist)
+            if ((list.SelectedItem as BrowseRowEntry)?.Payload is string artist)
             {
                 dlg.Hide();
                 ApplyArtistScope(artist);
             }
         };
-        dlg.Resources["ContentDialogMaxWidth"] = 600.0;
+        dlg.Resources["ContentDialogMaxWidth"] = 620.0;
         DialogFooter.MainButtonOnRight(dlg);
 
         var res = await dlg.ShowAsync();
-        if ((list.SelectedItem as ListBoxItem)?.Tag is not string selectedArtist) return;
+        if ((list.SelectedItem as BrowseRowEntry)?.Payload is not string selectedArtist) return;
 
         if (res == ContentDialogResult.Primary)
         {

@@ -77,6 +77,9 @@ public sealed class AppSettings
     public string SortColumn { get; set; } = "Title";
     public bool SortAscending { get; set; } = true;
     public string DetailColumnField { get; set; } = "Bitrate";
+    public double? CustomTitleStar { get; set; }
+    public double? CustomArtistStar { get; set; }
+    public double? CustomAlbumStar { get; set; }
 
     // Persistent window geometry
     public int WindowWidth { get; set; } = 1368;
@@ -124,6 +127,9 @@ public sealed class AppSettings
         InspectorArtMode = 2;
         ViewMode = "Table";
         DetailColumnField = "Bitrate";
+        CustomTitleStar = null;
+        CustomArtistStar = null;
+        CustomAlbumStar = null;
         WindowWidth = 1368;
         WindowHeight = 900;
         WindowX = null;

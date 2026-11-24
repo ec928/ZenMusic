@@ -197,7 +197,7 @@
             <Grid Grid.Column="1" Margin="12,0">
                 <Grid x:Name="TitleBarDragRegion" Background="Transparent"/>
                 <Grid x:Name="SearchHostGrid" MinWidth="200" Width="300" MaxWidth="380" Height="30" VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBox x:Name="SearchBox" Height="30" CornerRadius="15" Padding="32,4,30,4" PlaceholderText="Search title, artist, album... (Ctrl+F)" FontSize="12" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged"
+                    <TextBox x:Name="SearchBox" Height="30" CornerRadius="15" Padding="32,4,30,4" PlaceholderText="Search title, artist, album... (Ctrl+F)" FontSize="12" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown"
                              BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}">
                         <TextBox.Resources>
                             <!-- A pill has no flat bottom edge for the default underline to sit on: use an even 1px ring in every state. -->
@@ -304,9 +304,15 @@
                         <ColumnDefinition x:Name="HeaderColBitrate" Width="64"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="TileSortLabel" Grid.Column="0" Text="Sort by" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False"/>
-                    <Button x:Name="HeaderTitleBtn" Grid.Column="0" Tag="Title" Content="Title ↑" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="28,0,-4,0" Click="SortHeader_Click"/>
-                    <Button Grid.Column="1" Tag="Artist" Content="Artist" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <Button x:Name="HeaderTitleBtn" Grid.Column="0" Tag="Title" Content="Title ↑" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="28,0,4,0" Click="SortHeader_Click"/>
+                    <Button Grid.Column="1" Tag="Artist" Content="Artist" Style="{StaticResource ColumnHeaderBtnStyle}" Margin="-4,0,4,0" Click="SortHeader_Click"/>
                     <Button Grid.Column="2" Tag="Album" Content="Album" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
+                    <ui:ColumnResizeGripBorder x:Name="ColSplitTitleArtist" Grid.Column="0" Tag="TitleArtist" Width="10" HorizontalAlignment="Right" Margin="0,4,-5,4" Background="Transparent" IsDoubleTapEnabled="True" DoubleTapped="TableColSplitter_DoubleTapped" PointerEntered="TableColSplitter_PointerEntered" PointerExited="TableColSplitter_PointerExited" PointerPressed="TableColSplitter_PointerPressed" PointerMoved="TableColSplitter_PointerMoved" PointerReleased="TableColSplitter_PointerReleased" ToolTipService.ToolTip="Drag to resize Title / Artist · Double-click to reset">
+                        <Border Width="1.5" CornerRadius="1" Background="{ThemeResource FavouriteStarBrush}" Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
+                    </ui:ColumnResizeGripBorder>
+                    <ui:ColumnResizeGripBorder x:Name="ColSplitArtistAlbum" Grid.Column="1" Tag="ArtistAlbum" Width="10" HorizontalAlignment="Right" Margin="0,4,-5,4" Background="Transparent" IsDoubleTapEnabled="True" DoubleTapped="TableColSplitter_DoubleTapped" PointerEntered="TableColSplitter_PointerEntered" PointerExited="TableColSplitter_PointerExited" PointerPressed="TableColSplitter_PointerPressed" PointerMoved="TableColSplitter_PointerMoved" PointerReleased="TableColSplitter_PointerReleased" ToolTipService.ToolTip="Drag to resize Artist / Album · Double-click to reset">
+                        <Border Width="1.5" CornerRadius="1" Background="{ThemeResource FavouriteStarBrush}" Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
+                    </ui:ColumnResizeGripBorder>
                     <Button Grid.Column="3" Tag="Genre" Content="Genre" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="4" Tag="Year" Content="Year" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
                     <Button Grid.Column="5" Tag="Rating" Content="Rating" Style="{StaticResource ColumnHeaderBtnStyle}" Click="SortHeader_Click"/>
@@ -380,6 +386,7 @@
                                 <Grid Grid.Column="0" Margin="0,0,8,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
@@ -389,12 +396,15 @@
                                             <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
                                         </Grid>
                                     </Border>
-                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
-                                    <FontIcon Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind TrackNumberBadge, Mode=OneWay}" Visibility="{x:Bind local:MainWindow.BoolVis(IsTrackBadgeVisible), Mode=OneWay}" FontSize="11.5" Typography.NumeralAlignment="Tabular" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="2" Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
+                                    <FontIcon Grid.Column="3" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE753;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind local:MainWindow.BoolVis(IsCloudOnly), Mode=OneWay}" ToolTipService.ToolTip="OneDrive cloud-only file (online)"/>
                                 </Grid>
 
-                                <TextBlock Grid.Column="1" Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
-                                <Border Grid.Column="2" Background="Transparent" Margin="0,0,8,0" ToolTipService.ToolTip="{x:Bind AlbumHoverText, Mode=OneWay}">
+                                <Border Grid.Column="1" Background="Transparent" Margin="0,0,8,0" Tapped="RowArtistCell_Tapped" ToolTipService.ToolTip="{x:Bind ArtistHoverText, Mode=OneWay}">
+                                    <TextBlock Text="{x:Bind Artist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                </Border>
+                                <Border Grid.Column="2" Background="Transparent" Margin="0,0,8,0" Tapped="RowAlbumCell_Tapped" ToolTipService.ToolTip="{x:Bind AlbumCellHoverText, Mode=OneWay}">
                                     <TextBlock Text="{x:Bind Album, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                 </Border>
                                 <TextBlock Grid.Column="3" Text="{x:Bind Genre, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,8,0" PointerEntered="TrimmedCell_PointerEntered" IsTextTrimmedChanged="TrimmedCell_IsTextTrimmedChanged"/>
@@ -412,12 +422,12 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <!-- Tile View (Shared Sort Order & Selection with Track Table) -->
+                <!-- Album Tile View (True Grouped Album Cards + Single Cards) -->
                 <GridView x:Name="AlbumsGridView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed" SizeChanged="AlbumsGridView_SizeChanged"
                           Padding="14,12,14,18"
                           SelectionMode="Extended"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
-                          IsDoubleTapEnabled="True" DoubleTapped="TracksListView_DoubleTapped"
+                          IsDoubleTapEnabled="True" DoubleTapped="AlbumsGridView_DoubleTapped"
                           SelectionChanged="AlbumsGridView_SelectionChanged"
                           RightTapped="AlbumsGridView_RightTapped"
                           ContainerContentChanging="AlbumsGridView_ContainerContentChanging">
@@ -447,7 +457,7 @@
                         </Style>
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="lib:TrackItem">
+                        <DataTemplate x:DataType="lib:AlbumCardItem">
                             <Grid Width="172" Height="246" Background="Transparent" PointerEntered="Tile_PointerEntered" PointerExited="Tile_PointerExited" PointerCanceled="Tile_PointerExited" PointerCaptureLost="Tile_PointerExited">
                                 <Grid.TranslationTransition>
                                     <Vector3Transition Duration="0:0:0.14"/>
@@ -455,34 +465,34 @@
                                 <Border CornerRadius="8" Background="{x:Bind local:MainWindow.PlayingRowTint}" BorderBrush="{ThemeResource FavouriteStarBrush}" BorderThickness="1.5" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}" IsHitTestVisible="False"/>
                                 <StackPanel Spacing="5" Padding="10">
                                     <Grid x:Name="TileArt" Width="150" Height="150">
-                                        <Border CornerRadius="6" Background="{x:Bind local:MainWindow.PlaceholderBrush(Artist, Album, DisplayTitle), Mode=OneWay}" BorderBrush="#1AFFFFFF" BorderThickness="1">
+                                        <Border CornerRadius="6" Background="{x:Bind local:MainWindow.PlaceholderBrush(Artist, AlbumName, DisplayAlbum), Mode=OneWay}" BorderBrush="#1AFFFFFF" BorderThickness="1">
                                             <Grid>
                                                 <TextBlock Text="{x:Bind ArtInitial, Mode=OneWay}" FontSize="64" FontWeight="SemiBold" Foreground="#B3FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                <Image Source="{x:Bind local:MainWindow.ToImageSource(CoverThumbnail), Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverThumbnail), Mode=OneWay}" Stretch="UniformToFill"/>
+                                                <Image Source="{x:Bind CoverImage, Mode=OneWay}" Visibility="{x:Bind local:MainWindow.NotNullVis(CoverImage), Mode=OneWay}" Stretch="UniformToFill"/>
                                             </Grid>
                                         </Border>
                                         <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,6,0,0" CornerRadius="4" Padding="6,2" Background="#D9181818" Visibility="{x:Bind local:MainWindow.NowPlayingVis(IsNowPlaying), Mode=OneWay}">
                                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="11" Foreground="{ThemeResource FavouriteStarBrush}"/>
                                         </Border>
-                                        <Button x:Name="TilePlayBtn" AutomationProperties.Name="Play" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18"
+                                        <Button x:Name="TilePlayBtn" AutomationProperties.Name="Play album" Width="36" Height="36" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="18"
                                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,8"
                                                 Background="#E6181818" BorderBrush="#40FFFFFF" BorderThickness="1" Opacity="0"
-                                                Tag="{x:Bind}" Click="TilePlayBtn_Click" ToolTipService.ToolTip="Play track">
+                                                Tag="{x:Bind}" Click="TilePlayBtn_Click" ToolTipService.ToolTip="{x:Bind PlayTooltipText}">
                                             <Button.OpacityTransition>
                                                 <ScalarTransition Duration="0:0:0.12"/>
                                             </Button.OpacityTransition>
                                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="12" Foreground="#FFFFFF"/>
                                         </Button>
                                     </Grid>
-                                    <TextBlock Text="{x:Bind DisplayTitle, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind DisplayAlbum, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{x:Bind DisplayArtist, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{x:Bind TileMetaText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                        <ui:StarRatingCell Grid.Column="1" Value="{x:Bind Rating, Mode=OneWay}" Quiet="{x:Bind local:MainWindow.Not(IsNowPlaying), Mode=OneWay}" RatingSelected="RowRatingCell_RatingSelected" VerticalAlignment="Center" Margin="6,0,-2,0"/>
+                                        <TextBlock Grid.Column="0" Text="{x:Bind MetaText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind RatingBadgeText, Mode=OneWay}" Visibility="{x:Bind RatingBadgeVis, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                                     </Grid>
                                 </StackPanel>
                             </Grid>
@@ -561,6 +571,7 @@
                         </Grid>
                     </Border>
                     <ListView x:Name="QueueListView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
+                              Loaded="QueueListView_Loaded"
                               CanReorderItems="True" AllowDrop="True" CanDragItems="True"
                               DragOver="QueueListView_DragOver" Drop="QueueListView_Drop" DragItemsCompleted="QueueListView_DragItemsCompleted"
                               SelectionChanged="QueueListView_SelectionChanged"
@@ -575,7 +586,7 @@
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="lib:TrackItem">
-                                <Grid Padding="0,4">
+                                <Grid Padding="0,4" Opacity="{x:Bind QueueRowOpacity, Mode=OneWay}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
@@ -604,6 +615,13 @@
                                FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Center"
                                Margin="12" IsHitTestVisible="False" Visibility="Visible"/>
+                    <Button x:Name="QueueJumpPlayingBtn" Grid.Row="1" RequestedTheme="Dark"
+                            Height="25" MinWidth="0" MinHeight="0" Padding="10,0" CornerRadius="12.5"
+                            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                            Background="#E61A1A1A" BorderBrush="#48FFC83B" BorderThickness="1"
+                            Visibility="Collapsed" Click="QueueJumpPlayingBtn_Click" ToolTipService.ToolTip="Scroll queue back to playing song">
+                        <TextBlock x:Name="QueueJumpPlayingText" Text="↑ Jump to playing" FontSize="11" FontWeight="SemiBold" Foreground="#FFC83B" VerticalAlignment="Center"/>
+                    </Button>
                 </Grid>
 
                 <!-- Draggable Splitter between Queue and Inspector -->
@@ -1028,6 +1046,11 @@
             <!-- Full-width seek rail straddling the playbar's top edge (replaces the divider line) -->
             <Grid x:Name="SeekRailHost" Height="16" VerticalAlignment="Top" Margin="-16,-10,-16,0">
                 <canvas:CanvasControl x:Name="SeekRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="SeekRailCanvas_Draw"/>
+                <Border x:Name="SeekHoverTimePill" RequestedTheme="Dark" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-24,0,0"
+                        Background="#EB181818" BorderBrush="#40FFFFFF" BorderThickness="1" CornerRadius="5" Padding="6,2"
+                        Visibility="Collapsed" IsHitTestVisible="False">
+                    <TextBlock x:Name="SeekHoverTimeText" Text="00:00" FontSize="10.5" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Foreground="#FFFFFF"/>
+                </Border>
                 <Slider x:Name="SeekSlider" AutomationProperties.Name="Position in track" Opacity="0" Minimum="0" Maximum="100" Value="0" MinHeight="16" Height="16" Padding="0" VerticalAlignment="Center"
                         ValueChanged="SeekSlider_ValueChanged" PointerMoved="SeekSlider_PointerMoved" KeyUp="SeekSlider_KeyUp"
                         PointerEntered="SeekSlider_PointerEntered" PointerExited="SeekSlider_PointerExited"/>

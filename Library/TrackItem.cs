@@ -18,6 +18,7 @@ public sealed class TrackItem : INotifyPropertyChanged
     private double? _rating;
     private bool _isNowPlaying;
     private bool _isEvenRow;
+    private double _queueRowOpacity = 1.0;
     private string _path = string.Empty;
     private DateTime _dateAddedUtc;
     private int _playCount;
@@ -226,6 +227,30 @@ public sealed class TrackItem : INotifyPropertyChanged
             _isEvenRow = value;
             OnPropertyChanged();
         }
+    }
+
+    public static bool ShowAlbumTrackNumbers { get; set; }
+
+    public double QueueRowOpacity
+    {
+        get => _queueRowOpacity;
+        set
+        {
+            if (Math.Abs(_queueRowOpacity - value) < 0.01) return;
+            _queueRowOpacity = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string TrackNumberBadge => TrackNumber > 0 ? TrackNumber.ToString("D2") : string.Empty;
+    public bool IsTrackBadgeVisible => ShowAlbumTrackNumbers && TrackNumber > 0;
+    public string ArtistHoverText => string.IsNullOrWhiteSpace(Artist) ? string.Empty : $"{Artist}\nCtrl+Click to filter by artist";
+    public string AlbumCellHoverText => string.IsNullOrWhiteSpace(Album) ? string.Empty : $"{AlbumHoverText}\nCtrl+Click to filter by album";
+
+    public void NotifyTrackBadgeChanged()
+    {
+        OnPropertyChanged(nameof(TrackNumberBadge));
+        OnPropertyChanged(nameof(IsTrackBadgeVisible));
     }
 
     public bool ArtLoadAttempted { get; set; }
