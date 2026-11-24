@@ -146,12 +146,12 @@ public sealed class FftAnalyzer
                 if (mag > maxMag) maxMag = mag;
             }
 
-            float targetAutoGain = Math.Clamp(0.28f / Math.Max(0.03f, maxMag), 0.9f, 3.2f);
+            float targetAutoGain = Math.Clamp(0.20f / Math.Max(0.04f, maxMag), 0.65f, 2.4f);
             _autoGain = _autoGain * 0.94f + targetAutoGain * 0.06f;
 
             int sr = _sampleRate;
-            double minFreq = 24.0;
-            double maxFreq = Math.Min(16500.0, sr * 0.45);
+            double minFreq = 30.0;
+            double maxFreq = Math.Min(12000.0, sr * 0.45);
             double logMin = Math.Log10(minFreq);
             double logMax = Math.Log10(maxFreq);
             double binHz = sr / (double)FftSize;
@@ -185,9 +185,13 @@ public sealed class FftAnalyzer
                     }
                 }
 
-                // Convert to perceptual dB scale (-54 dB .. 0 dB -> 0 .. 1) with gentle auto-gain
-                float db = 20f * MathF.Log10(peakMag * _autoGain + 1e-6f);
-                float level = Math.Clamp((db + 54f) / 50f, 0f, 1f);
+                // Apply moderate pink-noise slope compensation (+2.4 dB/oct above 120 Hz) with headroom at the top
+                // so treble stays lively without brick-walling loud mastered tracks against the ceiling.
+                float centerFreq = (float)Math.Sqrt(f0 * f1);
+                float pinkTiltDb = Math.Clamp(8.0f * MathF.Log10(MathF.Max(30f, centerFreq) / 120f), -1.5f, 13.5f);
+                float db = 20f * MathF.Log10(peakMag * _autoGain + 1e-6f) + (peakMag > 1e-5f ? pinkTiltDb : 0f);
+                float rawNorm = Math.Clamp((db + 52f) / 57f, 0f, 1f);
+                float level = MathF.Pow(rawNorm, 1.18f);
 
                 float prev = _bands[b];
                 _bands[b] = level > prev ? prev * 0.18f + level * 0.82f : prev * decay + level * (1f - decay);

@@ -9,9 +9,11 @@ public sealed class SnapshotRequest
     public string OutputPath { get; init; } = string.Empty;
     public string? ViewMode { get; init; }
     public string? AlbumFilter { get; init; }
+    public string? ArtistFilter { get; init; }
     public string? SearchQuery { get; init; }
     public int? ScrollQueueToIndex { get; init; }
     public string? OpenDialog { get; init; }
+    public bool CollapseArt { get; init; }
 }
 
 public partial class App : Application
@@ -56,9 +58,11 @@ public partial class App : Application
         string? outPath = null;
         string? view = null;
         string? album = null;
+        string? artist = null;
         string? search = null;
         int? scrollQueue = null;
         string? dialog = null;
+        bool collapseArt = false;
 
         for (int i = 1; i < argv.Length; i++)
         {
@@ -69,12 +73,16 @@ public partial class App : Application
                 view = argv[++i];
             else if (string.Equals(a, "--snapshot-album", StringComparison.OrdinalIgnoreCase) && i + 1 < argv.Length)
                 album = argv[++i];
+            else if (string.Equals(a, "--snapshot-artist", StringComparison.OrdinalIgnoreCase) && i + 1 < argv.Length)
+                artist = argv[++i];
             else if (string.Equals(a, "--snapshot-search", StringComparison.OrdinalIgnoreCase) && i + 1 < argv.Length)
                 search = argv[++i];
             else if (string.Equals(a, "--snapshot-scroll-queue", StringComparison.OrdinalIgnoreCase) && i + 1 < argv.Length && int.TryParse(argv[++i], out int qIdx))
                 scrollQueue = qIdx;
             else if (string.Equals(a, "--snapshot-dialog", StringComparison.OrdinalIgnoreCase) && i + 1 < argv.Length)
                 dialog = argv[++i];
+            else if (string.Equals(a, "--snapshot-collapse-art", StringComparison.OrdinalIgnoreCase))
+                collapseArt = true;
         }
 
         return string.IsNullOrWhiteSpace(outPath) ? null : new SnapshotRequest
@@ -82,9 +90,11 @@ public partial class App : Application
             OutputPath = Path.GetFullPath(outPath),
             ViewMode = view,
             AlbumFilter = album,
+            ArtistFilter = artist,
             SearchQuery = search,
             ScrollQueueToIndex = scrollQueue,
-            OpenDialog = dialog
+            OpenDialog = dialog,
+            CollapseArt = collapseArt
         };
     }
 

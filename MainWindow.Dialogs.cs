@@ -669,6 +669,17 @@ public sealed partial class MainWindow
             ApplyVisualizerFromSettings();
         };
 
+        var wingsVizToggle = new ToggleSwitch { IsOn = _settings.PlaybarVisualizerEnabled, MinWidth = 0 };
+        wingsVizToggle.Toggled += (_, _) =>
+        {
+            if (loading) return;
+            _settings.PlaybarVisualizerEnabled = wingsVizToggle.IsOn;
+            _settings.Save();
+            SyncVisualizerStageVisibility();
+        };
+        var (wingsVizRow, _, _) = SettingsCard.Row("\uE9D9", "Playbar visualizer wings",
+            "Symmetric visualizer wings beside the transport controls.", wingsVizToggle);
+
         var largeVizToggle = new ToggleSwitch { IsOn = _settings.WindowVisualizerEnabled, MinWidth = 0 };
         largeVizToggle.Toggled += (_, _) =>
         {
@@ -780,8 +791,10 @@ public sealed partial class MainWindow
             ApplyPaneWidths();
             ApplyColumnWidths();
             SelectedInspectorScroll.MaxHeight = _settings.InspectorHeight;
+            _inspectorCollapsed = _settings.InspectorCollapsed;
             _inspectorArtMode = _settings.InspectorArtMode;
             ApplyInspectorArtMode();
+            ApplyInspectorCollapseState();
             ApplyTheme(_settings.Theme);
             ApplyAudioConfigFromSettings();
             ApplyLiveReplayGain();
@@ -802,7 +815,8 @@ public sealed partial class MainWindow
         panel.Children.Add(SettingsCard.Card(rgRow, rgAnalyzeRow, eqRow));
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
-            SettingsCard.Row("", "Visualizer style", "Playbar and the F11 focus stage", vizBox).Row,
+            SettingsCard.Row("", "Visualizer style", "Playbar, backdrop and the F11 focus stage", vizBox).Row,
+            wingsVizRow,
             largeVizRow,
             SettingsCard.Row("", "App theme", "Applies to the whole window", themeBox).Row,
             tintRow));

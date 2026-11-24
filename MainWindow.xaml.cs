@@ -84,14 +84,17 @@ public sealed partial class MainWindow : Window
     private bool _isDraggingSeek;
     private bool _isUpdatingSeekSlider;
     private DateTime _lastStarPointerUtc = DateTime.MinValue;
-    private RectInt32 _lastSearchPassthroughRect;
+    private int _lastTitleBarPassthroughHash;
     private string? _selectedLyricsTrackPath;
     private int _inspectorArtMode = 2;
+    private bool _inspectorCollapsed;
     private double _rightPaneWidth = 242;
     private bool _isDraggingColSplitter;
     private double _colSplitterStartX;
     private double _colSplitterStartWidth;
     private bool _isDraggingSplitter;
+    private bool _splitterMovedBeyondThreshold;
+    private DateTime _lastSplitterPressUtc = DateTime.MinValue;
     private double _splitterStartY;
     private double _splitterStartHeight;
     private bool _isMuted;
@@ -295,7 +298,7 @@ public sealed partial class MainWindow : Window
         try { SystemBackdrop = new MicaBackdrop(); } catch { }
 
         ExtendsContentIntoTitleBar = true;
-        SetTitleBar(TitleBarDragRegion);
+        SetTitleBar(MainTitleBar);
 
         _settings = AppSettings.Load();
         TrackItem.ActiveDetailField = NormalizeDetailField(_settings.DetailColumnField);
@@ -305,6 +308,7 @@ public sealed partial class MainWindow : Window
         _rightPaneOpen = _settings.RightPaneOpen;
         _rightPaneWidth = Math.Clamp(_settings.RightPaneWidth > 0 ? _settings.RightPaneWidth : 242, 226, 360);
         _inspectorArtMode = Math.Clamp(_settings.InspectorArtMode, 0, 2);
+        _inspectorCollapsed = _settings.InspectorCollapsed;
         SelectedInspectorScroll.MaxHeight = Math.Clamp(_settings.InspectorHeight, 130, 460);
 
         ApplyPaneWidths();
@@ -313,6 +317,7 @@ public sealed partial class MainWindow : Window
         WatchSystemColours();
         ApplyTheme(_settings.Theme);
         ApplyInspectorArtMode();
+        ApplyInspectorCollapseState();
         ApplyViewModeVisuals();
 
         _engine = new WasapiAudioEngine(DispatcherQueue);
@@ -361,8 +366,8 @@ public sealed partial class MainWindow : Window
         foreach (var starBtn in new[] { StarBtn1, StarBtn2, StarBtn3, StarBtn4, StarBtn5 })
             starBtn.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(StarBtn_PointerPressed), true);
 
-        SearchHostGrid.SizeChanged += (_, _) => UpdateTitleBarPassthrough();
-        SearchHostGrid.LayoutUpdated += (_, _) => UpdateTitleBarPassthrough();
+        MainTitleBar.SizeChanged += (_, _) => UpdateTitleBarPassthrough();
+        MainTitleBar.LayoutUpdated += (_, _) => UpdateTitleBarPassthrough();
 
         Closed += (_, _) =>
         {
@@ -422,6 +427,15 @@ public sealed partial class MainWindow : Window
             {
                 ApplyAlbumScope(req.AlbumFilter);
             }
+            if (!string.IsNullOrWhiteSpace(req.ArtistFilter))
+            {
+                ApplyArtistScope(req.ArtistFilter);
+            }
+            if (req.CollapseArt)
+            {
+                _inspectorCollapsed = true;
+                ApplyInspectorCollapseState();
+            }
             if (!string.IsNullOrWhiteSpace(req.SearchQuery))
             {
                 SearchBox.Text = req.SearchQuery;
@@ -464,6 +478,20 @@ public sealed partial class MainWindow : Window
                     _ = OpenAutoTagDialogAsync(sample);
                     await Task.Delay(4800);
                 }
+            }
+            else if (string.Equals(req.OpenDialog, "focus", StringComparison.OrdinalIgnoreCase))
+            {
+                var target = _visibleTracks.FirstOrDefault() ?? _allTracks.FirstOrDefault();
+                if (target != null)
+                {
+                    FocusTitleText.Text = target.DisplayTitle;
+                    FocusArtistText.Text = target.Artist;
+                    FocusRatingCell.Value = target.Rating;
+                    _activePlayingPathForLyrics = target.Path;
+                    _ = LoadPlayingArtAndSmtcAsync(target);
+                    await LoadFocusLyricsAsync(target.Path);
+                }
+                ToggleFocusVisualizer();
             }
 
             // Allow realized row/tile thumbnails, cover tint, and inspector image to decode
@@ -667,7 +695,9 @@ public sealed partial class MainWindow : Window
     {
         _settings.RightPaneOpen = _rightPaneOpen;
         _settings.RightPaneWidth = _rightPaneWidth;
-        _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
+        if (!_inspectorCollapsed)
+            _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
+        _settings.InspectorCollapsed = _inspectorCollapsed;
         _settings.InspectorArtMode = _inspectorArtMode;
         _settings.SavedQueuePaths = _queueTracks.Select(t => t.Path).ToList();
         _settings.SavedQueueIndex = _queueIndex;
@@ -1178,14 +1208,24 @@ public sealed partial class MainWindow : Window
     private void SyncVisualizerStageVisibility()
     {
         bool focusVisible = FocusVisualizerOverlay.Visibility == Visibility.Visible;
-        bool barVisible = !focusVisible;
         bool largeOn = LargeVisualizerWanted();
+        bool wingsVisible = !focusVisible && (_settings == null || _settings.PlaybarVisualizerEnabled);
         bool vizActive = _settings != null && _settings.VisualizerEnabled
             && !string.Equals(_settings.VisualizerMode, "Off", StringComparison.OrdinalIgnoreCase);
-        PlaybarVisualizerLeft.IsStageVisible = barVisible;
-        PlaybarVisualizer.IsStageVisible = barVisible;
+        PlaybarVisualizerLeft.IsStageVisible = wingsVisible;
+        PlaybarVisualizer.IsStageVisible = wingsVisible;
         WindowVisualizer.IsStageVisible = largeOn;
         FocusVisualizer.IsStageVisible = focusVisible;
+
+        var libToolbarVis = focusVisible ? Visibility.Collapsed : Visibility.Visible;
+        if (FoldersMenuBtn != null) FoldersMenuBtn.Visibility = libToolbarVis;
+        if (HygieneBtn != null) HygieneBtn.Visibility = libToolbarVis;
+        if (SearchHostGrid != null) SearchHostGrid.Visibility = libToolbarVis;
+        if (BrowseBtn != null) BrowseBtn.Visibility = libToolbarVis;
+        if (ViewToggleBtn != null) ViewToggleBtn.Visibility = libToolbarVis;
+        if (TitleBarRightDivider != null) TitleBarRightDivider.Visibility = libToolbarVis;
+        UpdateTitleBarPassthrough();
+
         UpdateFocusStageButtonVisual(focusVisible, largeOn, vizActive);
         ApplyWorkspaceScrim();
     }
@@ -1599,8 +1639,14 @@ public sealed partial class MainWindow : Window
                               _activePlaylist != null || _activeCustomFilter != null || _activeFacet != "all";
 
         if (hasScopeFilter)
-            ScopeClearText.Text = $"{CurrentScopeLabel()} · {_visibleTracks.Count:N0}";
-        ScopeClearBtn.Visibility = hasScopeFilter ? Visibility.Visible : Visibility.Collapsed;
+        {
+            ScopeClearText.Text = CurrentScopeLabel();
+            ScopeCountText.Text = _allTracks.Count > 0
+                ? $"· {_visibleTracks.Count:N0} of {_allTracks.Count:N0}"
+                : $"· {_visibleTracks.Count:N0}";
+            ScopePlayAllBtn.Visibility = _visibleTracks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        ScopeFilterBar.Visibility = hasScopeFilter ? Visibility.Visible : Visibility.Collapsed;
         UpdateSidebarCounts();
         UpdateStatusFooter();
         UpdateEmptyState();
@@ -1990,7 +2036,7 @@ public sealed partial class MainWindow : Window
         {
             FolderPillText.Text = leaf;
         }
-        else if (_visibleTracks.Count < _allTracks.Count)
+        else if (_visibleTracks.Count < _allTracks.Count && ScopeFilterBar.Visibility != Visibility.Visible)
         {
             FolderPillText.Text = $"{leaf} · {_visibleTracks.Count:N0} / {_allTracks.Count:N0}";
         }
@@ -2449,6 +2495,12 @@ public sealed partial class MainWindow : Window
     {
         SearchBox.Text = string.Empty;
         RefreshVisibleTracks();
+    }
+
+    private void ScopePlayAllBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_visibleTracks.Count > 0)
+            PlayFromList(_visibleTracks.ToList(), _visibleTracks[0]);
     }
 
     private void ScopeClearBtn_Click(object sender, RoutedEventArgs e)
@@ -3405,12 +3457,97 @@ public sealed partial class MainWindow : Window
         _settings.Save();
     }
 
+    private void RightPaneSplitter_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (RightPaneSplitterHandle != null)
+            RightPaneSplitterHandle.Opacity = 0.92;
+    }
+
+    private void RightPaneSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (RightPaneSplitterHandle != null && !_isDraggingSplitter)
+            RightPaneSplitterHandle.Opacity = 0.38;
+    }
+
+    private void RightPaneSplitter_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (!_inspectorCollapsed) return;
+        SetInspectorCollapsed(false);
+        e.Handled = true;
+    }
+
+    private void RightPaneSplitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        _isDraggingSplitter = false;
+        SetInspectorCollapsed(!_inspectorCollapsed);
+        e.Handled = true;
+    }
+
+    private void SetInspectorCollapsed(bool collapsed)
+    {
+        _inspectorCollapsed = collapsed;
+        _settings.InspectorCollapsed = collapsed;
+        ApplyInspectorCollapseState();
+        _settings.Save();
+    }
+
+    private void ApplyInspectorCollapseState()
+    {
+        if (SelectedInspectorHost == null || RightPaneSplitter == null || RightPaneSplitterRowDef == null) return;
+        if (_inspectorCollapsed)
+        {
+            SelectedInspectorHost.Visibility = Visibility.Collapsed;
+            RightPaneSplitterRowDef.Height = new GridLength(20);
+            RightPaneSplitter.Height = 20;
+            RightPaneSplitterHandle.Visibility = Visibility.Collapsed;
+            InspectorRestoreHint.Visibility = Visibility.Visible;
+            ToolTipService.SetToolTip(RightPaneSplitter, "Click or double-click to show Preview card");
+        }
+        else
+        {
+            SelectedInspectorHost.Visibility = Visibility.Visible;
+            RightPaneSplitterRowDef.Height = new GridLength(10);
+            RightPaneSplitter.Height = 10;
+            RightPaneSplitterHandle.Visibility = Visibility.Visible;
+            InspectorRestoreHint.Visibility = Visibility.Collapsed;
+            ToolTipService.SetToolTip(RightPaneSplitter, "Drag up or down to resize · Double-click to hide Preview card");
+        }
+    }
+
+    private void SelectedInspectorHost_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (InspectorCollapseBtn != null)
+            InspectorCollapseBtn.Opacity = 0.92;
+    }
+
+    private void SelectedInspectorHost_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (InspectorCollapseBtn != null)
+            InspectorCollapseBtn.Opacity = 0.0;
+    }
+
+    private void InspectorCollapseBtn_Click(object sender, RoutedEventArgs e) => SetInspectorCollapsed(true);
+
     private void RightPaneSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (_inspectorCollapsed) return;
+
+        var now = DateTime.UtcNow;
+        double pressY = e.GetCurrentPoint(RightSidebar).Position.Y;
+        if ((now - _lastSplitterPressUtc).TotalMilliseconds <= 380 && Math.Abs(pressY - _splitterStartY) < 10)
+        {
+            _lastSplitterPressUtc = DateTime.MinValue;
+            _isDraggingSplitter = false;
+            SetInspectorCollapsed(true);
+            e.Handled = true;
+            return;
+        }
+
+        _lastSplitterPressUtc = now;
         _isDraggingSplitter = true;
-        _splitterStartY = e.GetCurrentPoint(RightSidebar).Position.Y;
+        _splitterMovedBeyondThreshold = false;
+        _splitterStartY = pressY;
         _splitterStartHeight = SelectedInspectorScroll.MaxHeight;
-        RightPaneSplitter.CapturePointer(e.Pointer);
     }
 
     private void RightPaneSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
@@ -3418,6 +3555,12 @@ public sealed partial class MainWindow : Window
         if (!_isDraggingSplitter) return;
         double currentY = e.GetCurrentPoint(RightSidebar).Position.Y;
         double delta = _splitterStartY - currentY;
+        if (!_splitterMovedBeyondThreshold)
+        {
+            if (Math.Abs(delta) < 2.5) return;
+            _splitterMovedBeyondThreshold = true;
+            RightPaneSplitter.CapturePointer(e.Pointer);
+        }
         SelectedInspectorScroll.MaxHeight = Math.Clamp(_splitterStartHeight + delta, 130, 560);
     }
 
@@ -3425,9 +3568,12 @@ public sealed partial class MainWindow : Window
     {
         if (!_isDraggingSplitter) return;
         _isDraggingSplitter = false;
-        RightPaneSplitter.ReleasePointerCapture(e.Pointer);
-        _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
-        _settings.Save();
+        if (_splitterMovedBeyondThreshold)
+        {
+            RightPaneSplitter.ReleasePointerCapture(e.Pointer);
+            _settings.InspectorHeight = SelectedInspectorScroll.MaxHeight;
+            _settings.Save();
+        }
     }
 
     private void PlayFromList(IReadOnlyList<TrackItem> list, TrackItem startTrack)
@@ -3881,14 +4027,29 @@ public sealed partial class MainWindow : Window
         bool forceDark)
     {
         string trimmed = rawLyrics?.Trim() ?? string.Empty;
+        bool isFocusHost = ReferenceEquals(host, FocusLyricsHost);
         if (string.IsNullOrEmpty(trimmed))
         {
             host.Visibility = Visibility.Collapsed;
+            if (isFocusHost && FocusHeroRightCol != null && FocusHeroGrid != null)
+            {
+                FocusHeroRightCol.Width = new GridLength(0);
+                FocusHeroRightCol.MaxWidth = double.PositiveInfinity;
+                FocusHeroGrid.ColumnSpacing = 0;
+                FocusHeroGrid.MaxWidth = 760;
+            }
             targetLines.Clear();
             return;
         }
 
         host.Visibility = Visibility.Visible;
+        if (isFocusHost && FocusHeroRightCol != null && FocusHeroGrid != null)
+        {
+            FocusHeroRightCol.Width = new GridLength(0.78, GridUnitType.Star);
+            FocusHeroRightCol.MaxWidth = 420;
+            FocusHeroGrid.ColumnSpacing = 22;
+            FocusHeroGrid.MaxWidth = 1280;
+        }
         var parsed = LrcParser.Parse(trimmed);
         bool useLight = !forceDark && RootGrid.RequestedTheme == ElementTheme.Light;
         targetLines.Clear();
@@ -3904,7 +4065,9 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            plainBlock.Text = trimmed;
+            string cleanedPlain = string.Join("\n",
+                trimmed.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(l => l.Trim()));
+            plainBlock.Text = cleanedPlain;
             syncedList.Visibility = Visibility.Collapsed;
             plainContainer.Visibility = Visibility.Visible;
         }
@@ -4308,15 +4471,21 @@ public sealed partial class MainWindow : Window
         float clampedRatio = (float)Math.Clamp(ratio, 0.0, 1.0);
         float thumbX = padX + clampedRatio * trackW;
 
-        Color trackBg = isLight ? Color.FromArgb(42, 0, 0, 0) : Color.FromArgb(56, 255, 255, 255);
+        Color trackBg = isLight
+            ? Color.FromArgb(showThumbWhenIdle ? (byte)42 : (byte)58, 0, 0, 0)
+            : Color.FromArgb(showThumbWhenIdle ? (byte)56 : (byte)78, 255, 255, 255);
         Color accentFill = isLight ? Color.FromArgb(255, 217, 119, 6) : Color.FromArgb(255, 255, 200, 59);
         Color hoverGhost = isLight ? Color.FromArgb(60, 0, 0, 0) : Color.FromArgb(72, 255, 255, 255);
         Color hoverHalo = isLight ? Color.FromArgb(55, 217, 119, 6) : Color.FromArgb(65, 255, 200, 59);
         Color thumbRing = isLight ? Color.FromArgb(65, 0, 0, 0) : Color.FromArgb(95, 0, 0, 0);
         Color thumbCenter = isLight ? Color.FromArgb(255, 34, 34, 34) : Color.FromArgb(255, 255, 255, 255);
 
-        float railH = (!showThumbWhenIdle && hovering) ? 3.5f : 2.5f;
+        float railH = !showThumbWhenIdle ? (hovering ? 3.5f : 2.0f) : 2.5f;
         float railY = midY - railH * 0.5f;
+        if (!showThumbWhenIdle && !isLight)
+        {
+            ds.FillRectangle(padX, railY + railH, trackW, 1f, Color.FromArgb(110, 0, 0, 0));
+        }
         ds.FillRoundedRectangle(padX, railY, trackW, railH, railH * 0.5f, railH * 0.5f, trackBg);
 
         if (hovering && hoverRatio is double hr)
@@ -4468,7 +4637,9 @@ public sealed partial class MainWindow : Window
         {
             if (item is ToggleMenuFlyoutItem toggle && toggle.Tag is string tag)
             {
-                if (tag == "WindowBackdrop")
+                if (tag == "PlaybarWings")
+                    toggle.IsChecked = _settings.PlaybarVisualizerEnabled;
+                else if (tag == "WindowBackdrop")
                     toggle.IsChecked = _settings.WindowVisualizerEnabled;
                 else
                     toggle.IsChecked = string.Equals(tag, activeTag, StringComparison.OrdinalIgnoreCase);
@@ -4486,6 +4657,14 @@ public sealed partial class MainWindow : Window
         {
             SetVisualizerModeAndSave(mode);
         }
+    }
+
+    private void VisualizerContextWings_Click(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null) return;
+        _settings.PlaybarVisualizerEnabled = !_settings.PlaybarVisualizerEnabled;
+        _settings.Save();
+        SyncVisualizerStageVisibility();
     }
 
     private void VisualizerContextBackdrop_Click(object sender, RoutedEventArgs e)
@@ -4538,8 +4717,8 @@ public sealed partial class MainWindow : Window
                 {
                     TopBarRowDef.Height = new GridLength(44);
                     MainTitleBar.Visibility = Visibility.Visible;
-                    SetTitleBar(TitleBarDragRegion);
-                    _lastSearchPassthroughRect = default;
+                    SetTitleBar(MainTitleBar);
+                    _lastTitleBarPassthroughHash = 0;
                     DispatcherQueue.TryEnqueue(UpdateTitleBarPassthrough);
                 }
                 FocusFullScreenIcon.Glyph = "\uE740";
@@ -4646,7 +4825,7 @@ public sealed partial class MainWindow : Window
 
             TopBarRowDef.Height = new GridLength(44);
             MainTitleBar.Visibility = Visibility.Visible;
-            SetTitleBar(TitleBarDragRegion);
+            SetTitleBar(MainTitleBar);
             WorkspaceRowDef.Height = new GridLength(1, GridUnitType.Star);
             MainWorkspaceGrid.Visibility = Visibility.Visible;
             ApplyPaneWidths();
@@ -4657,7 +4836,7 @@ public sealed partial class MainWindow : Window
             ApplyVisualizerFromSettings();
 
             PlaybarBorder.BorderThickness = new Thickness(0);
-            SeekRailHost.Margin = new Thickness(-16, -10, -16, 0);
+            SeekRailHost.Margin = new Thickness(-16, -9, -16, 0);
             MiniPlayerIcon.Glyph = "\uE73F";
             ToolTipService.SetToolTip(MiniPlayerToggleBtn, "Collapse to Mini Player (Ctrl+M)");
 
@@ -4666,7 +4845,7 @@ public sealed partial class MainWindow : Window
             if (_wasMaximizedBeforeMini && presenter != null)
                 presenter.Maximize();
 
-            _lastSearchPassthroughRect = default;
+            _lastTitleBarPassthroughHash = 0;
             DispatcherQueue.TryEnqueue(UpdateTitleBarPassthrough);
         }
     }
@@ -4933,35 +5112,72 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            if (_isMiniPlayer)
+            if (_isMiniPlayer || MainTitleBar.Visibility != Visibility.Visible)
             {
-                _lastSearchPassthroughRect = default;
-                InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
-                    .SetRegionRects(NonClientRegionKind.Passthrough, Array.Empty<RectInt32>());
+                if (_lastTitleBarPassthroughHash != -1)
+                {
+                    _lastTitleBarPassthroughHash = -1;
+                    InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
+                        .SetRegionRects(NonClientRegionKind.Passthrough, Array.Empty<RectInt32>());
+                }
                 return;
             }
-            if (RootGrid.XamlRoot == null || SearchHostGrid.ActualWidth <= 0) return;
-            double scale = RootGrid.XamlRoot.RasterizationScale;
-            var pt = SearchHostGrid.TransformToVisual(null).TransformPoint(new Point(0, 0));
-            var rect = new RectInt32(
-                (int)Math.Floor(pt.X * scale),
-                (int)Math.Floor(pt.Y * scale),
-                (int)Math.Ceiling(SearchHostGrid.ActualWidth * scale),
-                (int)Math.Ceiling(SearchHostGrid.ActualHeight * scale));
-            if (rect.X == _lastSearchPassthroughRect.X && rect.Y == _lastSearchPassthroughRect.Y &&
-                rect.Width == _lastSearchPassthroughRect.Width && rect.Height == _lastSearchPassthroughRect.Height)
-                return;
+            if (RootGrid.XamlRoot == null || MainTitleBar.ActualWidth <= 0) return;
 
-            _lastSearchPassthroughRect = rect;
+            double scale = RootGrid.XamlRoot.RasterizationScale;
+            var rects = new List<RectInt32>(10);
+
+            void AddElementRect(FrameworkElement? el)
+            {
+                if (el == null || el.Visibility != Visibility.Visible || el.ActualWidth <= 0 || el.ActualHeight <= 0)
+                    return;
+                var pt = el.TransformToVisual(null).TransformPoint(new Point(0, 0));
+                int x = (int)Math.Floor(pt.X * scale);
+                int y = (int)Math.Floor(pt.Y * scale);
+                int w = (int)Math.Ceiling(el.ActualWidth * scale);
+                int h = (int)Math.Ceiling(el.ActualHeight * scale);
+                if (w > 0 && h > 0)
+                    rects.Add(new RectInt32(x, y, w, h));
+            }
+
+            AddElementRect(FoldersMenuBtn);
+            AddElementRect(HygieneBtn);
+            AddElementRect(SearchHostGrid);
+            AddElementRect(BrowseBtn);
+            AddElementRect(ViewToggleBtn);
+            AddElementRect(SettingsBtn);
+            AddElementRect(InfoBtn);
+
+            // Ensure tall ContentDialogs or open Flyouts overlapping the top 44px receive pointer input cleanly.
+            foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(RootGrid.XamlRoot))
+            {
+                if (popup.Child is FrameworkElement popChild)
+                    AddElementRect(popChild);
+            }
+
+            var hc = new HashCode();
+            hc.Add(rects.Count);
+            foreach (var r in rects)
+            {
+                hc.Add(r.X);
+                hc.Add(r.Y);
+                hc.Add(r.Width);
+                hc.Add(r.Height);
+            }
+            int hash = hc.ToHashCode();
+            if (hash == 0) hash = 1;
+            if (hash == _lastTitleBarPassthroughHash) return;
+
+            _lastTitleBarPassthroughHash = hash;
             var nonClient = InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
-            nonClient.SetRegionRects(NonClientRegionKind.Passthrough, new[] { rect });
+            nonClient.SetRegionRects(NonClientRegionKind.Passthrough, rects.ToArray());
         }
         catch { }
     }
 
-    private void NowPlayingInfo_PointerEntered(object sender, PointerRoutedEventArgs e) => NowPlayingLocateBadge.Opacity = 1.0;
+    private void NowPlayingInfo_PointerEntered(object sender, PointerRoutedEventArgs e) => NowPlayingLocateBadge.Opacity = 0.94;
 
-    private void NowPlayingInfo_PointerExited(object sender, PointerRoutedEventArgs e) => NowPlayingLocateBadge.Opacity = 0.82;
+    private void NowPlayingInfo_PointerExited(object sender, PointerRoutedEventArgs e) => NowPlayingLocateBadge.Opacity = 0.0;
 
     private void NowPlayingInfo_Tapped(object sender, TappedRoutedEventArgs e)
     {
@@ -6420,6 +6636,11 @@ public sealed partial class MainWindow : Window
         else if (e.Key == VirtualKey.Escape && FocusVisualizerOverlay.Visibility == Visibility.Visible)
         {
             CloseFocusStage();
+            e.Handled = true;
+        }
+        else if (e.Key == VirtualKey.Escape && !inTextBox && ScopeFilterBar.Visibility == Visibility.Visible)
+        {
+            ScopeClearBtn_Click(this, new RoutedEventArgs());
             e.Handled = true;
         }
         else if (e.Key == VirtualKey.F1)

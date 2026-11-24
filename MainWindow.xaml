@@ -85,6 +85,7 @@
                 <ToggleMenuFlyoutItem Text="Bars + Wave" Tag="BarsAndWaveform" Click="VisualizerContextMenuItem_Click"/>
                 <ToggleMenuFlyoutItem Text="Off" Tag="Off" Click="VisualizerContextMenuItem_Click"/>
                 <MenuFlyoutSeparator/>
+                <ToggleMenuFlyoutItem Text="Show in playbar" Tag="PlaybarWings" Click="VisualizerContextWings_Click"/>
                 <ToggleMenuFlyoutItem Text="Show behind track list" Tag="WindowBackdrop" Click="VisualizerContextBackdrop_Click"/>
                 <MenuFlyoutSeparator/>
                 <MenuFlyoutItem Text="Focus Stage (F11)" Tag="FocusStage" Click="VisualizerContextFocusStage_Click">
@@ -185,17 +186,10 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
-                <Button x:Name="ScopeClearBtn" AutomationProperties.Name="Clear filter" Height="26" MinWidth="0" MinHeight="0" Padding="10,0" CornerRadius="13" Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" VerticalAlignment="Center" Margin="2,0,0,0" ToolTipService.ToolTip="Clear active filter" Click="ScopeClearBtn_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <TextBlock x:Name="ScopeClearText" Text="" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center"/>
-                        <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="9"/>
-                    </StackPanel>
-                </Button>
             </StackPanel>
 
-            <!-- Drag Region + Search -->
+            <!-- Search (MainTitleBar itself is the full-width caption drag surface) -->
             <Grid Grid.Column="1" Margin="12,0">
-                <Grid x:Name="TitleBarDragRegion" Background="Transparent"/>
                 <Grid x:Name="SearchHostGrid" MinWidth="200" Width="300" MaxWidth="380" Height="30" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <TextBox x:Name="SearchBox" Height="30" CornerRadius="15" Padding="32,4,30,4" PlaceholderText="Search title, artist, album... (Ctrl+F)" FontSize="12" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown"
                              BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}">
@@ -236,7 +230,7 @@
                 <Button x:Name="ViewToggleBtn" AutomationProperties.Name="Switch between table and tiles" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Switch Track Table / Tile View" Click="ViewToggleBtn_Click">
                     <FontIcon x:Name="ViewToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE80A;" FontSize="14"/>
                 </Button>
-                <Border Width="1" Height="14" Margin="3,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}" VerticalAlignment="Center"/>
+                <Border x:Name="TitleBarRightDivider" Width="1" Height="14" Margin="3,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}" VerticalAlignment="Center"/>
                 <Button x:Name="SettingsBtn" AutomationProperties.Name="Settings" Style="{StaticResource TitleButtonStyle}" ToolTipService.ToolTip="Settings (Audio, Visualizer, Theme, Rescan)" Click="SettingsBtn_Click">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE713;" FontSize="14"/>
                 </Button>
@@ -273,12 +267,13 @@
             <!-- Center Canvas: Track Table / Album Grid -->
             <Grid x:Name="CenterWorkspaceGrid" Grid.Column="0" Background="{ThemeResource AppCanvasBrush}">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition x:Name="TableHeaderRowDef" Height="32"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
                 <!-- Cover-art colour wash across the list: strongest by the playbar art, faint at the far corner -->
-                <Border x:Name="CanvasTintLayer" Grid.RowSpan="2" IsHitTestVisible="False">
+                <Border x:Name="CanvasTintLayer" Grid.RowSpan="3" IsHitTestVisible="False">
                     <Border.OpacityTransition>
                         <ScalarTransition Duration="0:0:0.3"/>
                     </Border.OpacityTransition>
@@ -290,8 +285,39 @@
                     </Border.Background>
                 </Border>
 
+                <!-- Contextual Filter Strip (only visible when an Album / Artist / Quick Filter scope is active) -->
+                <Border x:Name="ScopeFilterBar" Grid.Row="0" Height="32" Padding="16,0" Visibility="Collapsed"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE71C;" FontSize="11.5" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ScopeClearText" Text="" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" TextTrimming="CharacterEllipsis" MaxWidth="420" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ScopeCountText" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <Button x:Name="ScopePlayAllBtn" AutomationProperties.Name="Play filtered tracks" Height="24" MinWidth="0" MinHeight="0" Padding="9,0" CornerRadius="12" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Play filtered tracks" Click="ScopePlayAllBtn_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="10"/>
+                                    <TextBlock Text="Play" FontSize="11.5" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="ScopeClearBtn" AutomationProperties.Name="Clear filter" Height="24" MinWidth="0" MinHeight="0" Padding="9,0" CornerRadius="12" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Clear active filter (Esc)" Click="ScopeClearBtn_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <TextBlock Text="Show all" FontSize="11.5" VerticalAlignment="Center"/>
+                                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="9" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- Table Column Header (Clickable for Sorting, Right-Click to Show/Hide Columns) -->
-                <Grid x:Name="TableHeaderGrid" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,0" RightTapped="TableHeaderGrid_RightTapped">
+                <Grid x:Name="TableHeaderGrid" Grid.Row="1" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,0" RightTapped="TableHeaderGrid_RightTapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition x:Name="HeaderColTitle" Width="2.15*"/>
                         <ColumnDefinition x:Name="HeaderColArtist" Width="0.98*"/>
@@ -331,7 +357,7 @@
                 </Grid>
 
                 <!-- Virtualized Track List -->
-                <ListView x:Name="TracksListView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" SelectionMode="Extended"
+                <ListView x:Name="TracksListView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="2" SelectionMode="Extended"
                           Padding="0,0,0,6"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
                           IsDoubleTapEnabled="True" DoubleTapped="TracksListView_DoubleTapped"
@@ -423,7 +449,7 @@
                 </ListView>
 
                 <!-- Album Tile View (True Grouped Album Cards + Single Cards) -->
-                <GridView x:Name="AlbumsGridView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="1" Visibility="Collapsed" SizeChanged="AlbumsGridView_SizeChanged"
+                <GridView x:Name="AlbumsGridView" Background="Transparent" ShowsScrollingPlaceholders="False" Grid.Row="2" Visibility="Collapsed" SizeChanged="AlbumsGridView_SizeChanged"
                           Padding="14,12,14,18"
                           SelectionMode="Extended"
                           CanDragItems="True" DragItemsStarting="TracksListView_DragItemsStarting"
@@ -501,7 +527,7 @@
                 </GridView>
 
                 <!-- Type-to-Jump HUD Pill -->
-                <Border x:Name="TypeJumpPill" Grid.Row="1" RequestedTheme="Dark"
+                <Border x:Name="TypeJumpPill" Grid.Row="2" RequestedTheme="Dark"
                         VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,10,18,0"
                         Background="#E61E1E1E" BorderBrush="#33FFFFFF" BorderThickness="1"
                         CornerRadius="8" Padding="12,6" Visibility="Collapsed" IsHitTestVisible="False">
@@ -509,7 +535,7 @@
                 </Border>
 
                 <!-- Empty State -->
-                <StackPanel x:Name="EmptyStatePanel" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Visibility="Visible" MaxWidth="420">
+                <StackPanel x:Name="EmptyStatePanel" Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Visibility="Visible" MaxWidth="420">
                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8D6;" FontSize="40" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock x:Name="EmptyStateTitle" Text="Choose your music folder to begin" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"/>
                     <TextBlock x:Name="EmptyStateSubtitle" Text="Supports MP3, FLAC, M4A, WAV, WMA, OGG with OneDrive cloud-safe scanning." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
@@ -527,7 +553,7 @@
                 </Grid.TranslationTransition>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="10"/>
+                    <RowDefinition x:Name="RightPaneSplitterRowDef" Height="10"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
@@ -624,13 +650,27 @@
                     </Button>
                 </Grid>
 
-                <!-- Draggable Splitter between Queue and Inspector -->
-                <ui:ResizeGripBorder x:Name="RightPaneSplitter" Grid.Row="1" Height="10" Background="Transparent" ToolTipService.ToolTip="Drag up or down to resize Preview card" PointerPressed="RightPaneSplitter_PointerPressed" PointerMoved="RightPaneSplitter_PointerMoved" PointerReleased="RightPaneSplitter_PointerReleased">
-                    <Border Width="36" Height="3" CornerRadius="1.5" Background="{ThemeResource SplitterHandleBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <!-- Draggable Splitter between Queue and Inspector (Double-click to hide/show artwork card) -->
+                <ui:ResizeGripBorder x:Name="RightPaneSplitter" Grid.Row="1" Height="10" Background="Transparent" IsDoubleTapEnabled="True"
+                                     DoubleTapped="RightPaneSplitter_DoubleTapped" Tapped="RightPaneSplitter_Tapped"
+                                     PointerEntered="RightPaneSplitter_PointerEntered" PointerExited="RightPaneSplitter_PointerExited"
+                                     ToolTipService.ToolTip="Drag up or down to resize · Double-click to hide Preview card"
+                                     PointerPressed="RightPaneSplitter_PointerPressed" PointerMoved="RightPaneSplitter_PointerMoved" PointerReleased="RightPaneSplitter_PointerReleased">
+                    <Grid>
+                        <Border x:Name="RightPaneSplitterHandle" Width="36" Height="3" CornerRadius="1.5" Opacity="0.38" Background="{ThemeResource SplitterHandleBrush}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Border.OpacityTransition>
+                                <ScalarTransition Duration="0:0:0.14"/>
+                            </Border.OpacityTransition>
+                        </Border>
+                        <StackPanel x:Name="InspectorRestoreHint" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                            <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE70E;" FontSize="9" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="Show artwork" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
                 </ui:ResizeGripBorder>
 
                 <!-- Bottom: Selected Track Inspector (Compact 212px Full-Bleed Square + Overlay + Scrollable Lyrics) -->
-                <Border Grid.Row="2">
+                <Grid x:Name="SelectedInspectorHost" Grid.Row="2" PointerEntered="SelectedInspectorHost_PointerEntered" PointerExited="SelectedInspectorHost_PointerExited">
                     <ScrollViewer x:Name="SelectedInspectorScroll" MaxHeight="212" VerticalScrollBarVisibility="Hidden">
                         <StackPanel Spacing="8">
                             <Grid x:Name="SelectedHeroGrid" ColumnSpacing="10">
@@ -748,7 +788,17 @@
                             </Border>
                         </StackPanel>
                     </ScrollViewer>
-                </Border>
+                    <Button x:Name="InspectorCollapseBtn" AutomationProperties.Name="Hide artwork card"
+                            Width="24" Height="24" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="12"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0"
+                            Background="#D0161616" BorderBrush="#48FFFFFF" BorderThickness="1" Opacity="0"
+                            ToolTipService.ToolTip="Hide artwork card (expand Queue)" Click="InspectorCollapseBtn_Click">
+                        <Button.OpacityTransition>
+                            <ScalarTransition Duration="0:0:0.14"/>
+                        </Button.OpacityTransition>
+                        <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE70D;" FontSize="10" Foreground="#FFFFFF"/>
+                    </Button>
+                </Grid>
 
                 <!-- Draggable Left-Edge Column Resizer -->
                 <ui:ColumnResizeGripBorder x:Name="RightColSplitter" Grid.RowSpan="3" Width="8" HorizontalAlignment="Left" Margin="-14,-8,0,-10" Background="Transparent" ToolTipService.ToolTip="Drag left or right to resize Queue &amp; Preview column" PointerPressed="RightColSplitter_PointerPressed" PointerMoved="RightColSplitter_PointerMoved" PointerReleased="RightColSplitter_PointerReleased"/>
@@ -783,14 +833,14 @@
                     </Border.Background>
                 </Border>
 
-                <Grid Padding="48,24,48,16">
+                <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <StackPanel x:Name="FocusTopBar" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <StackPanel x:Name="FocusTopBar" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="24,10,24,0">
                         <StackPanel.OpacityTransition>
                             <ScalarTransition Duration="0:0:0.25"/>
                         </StackPanel.OpacityTransition>
@@ -817,13 +867,17 @@
                         </Button>
                     </StackPanel>
 
-                    <Grid Grid.Row="1" ColumnSpacing="40" HorizontalAlignment="Center" Margin="0,12,0,24">
+                    <Grid x:Name="FocusHeroGrid" Grid.Row="1" ColumnSpacing="22" MaxWidth="1280" HorizontalAlignment="Stretch" Margin="24,8,24,10">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition x:Name="FocusHeroLeftCol" Width="*"/>
+                            <ColumnDefinition x:Name="FocusHeroRightCol" Width="0"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="28" VerticalAlignment="Center">
-                            <Border Width="300" Height="300" CornerRadius="14" Background="#1E1E1E" BorderBrush="#2AFFFFFF" BorderThickness="1">
+                        <Grid Grid.Column="0" ColumnSpacing="22" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="300" Height="300" CornerRadius="14" Background="#1E1E1E" BorderBrush="#2AFFFFFF" BorderThickness="1">
                                 <Grid>
                                     <Ellipse Width="140" Height="140" Stroke="#28FFFFFF" StrokeThickness="1.5" Fill="#16FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <Ellipse Width="42" Height="42" Stroke="#38FFC83B" StrokeThickness="1.5" Fill="#22000000" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -843,19 +897,19 @@
                                     </Image>
                                 </Grid>
                             </Border>
-                            <StackPanel VerticalAlignment="Center" Spacing="8" MaxWidth="440">
-                                <TextBlock x:Name="FocusTitleText" Text="Not playing" FontSize="28" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap"/>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+                                <TextBlock x:Name="FocusTitleText" Text="Not playing" FontSize="26" LineHeight="32" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" MaxLines="4" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="FocusArtistText" Text="" FontSize="16" Foreground="#FFC83B" TextTrimming="CharacterEllipsis" Tapped="NowPlayingArtistText_Tapped" ToolTipService.ToolTip="Click to filter library by this artist"/>
                                 <ui:StarRatingCell x:Name="FocusRatingCell" ForceDarkPalette="True" RatingSelected="NowPlayingRatingCell_RatingSelected" ToolTipService.ToolTip="Rate currently playing track"/>
                             </StackPanel>
-                        </StackPanel>
+                        </Grid>
 
-                        <Border x:Name="FocusLyricsHost" Grid.Column="1" Width="420" MaxHeight="300" Background="#18FFFFFF" BorderBrush="#22FFFFFF" BorderThickness="1" CornerRadius="10" Padding="16,12" Visibility="Collapsed">
+                        <Border x:Name="FocusLyricsHost" Grid.Column="1" HorizontalAlignment="Stretch" Height="300" Background="#18FFFFFF" BorderBrush="#24FFFFFF" BorderThickness="1" CornerRadius="10" Padding="16,11" Visibility="Collapsed">
                             <Grid>
-                                <ScrollViewer x:Name="FocusPlainLyricsScroll" VerticalScrollBarVisibility="Hidden">
-                                    <TextBlock x:Name="FocusLyricsText" Text="" FontSize="13.5" LineHeight="22" TextAlignment="Center" TextWrapping="Wrap" Foreground="#D9FFFFFF"/>
+                                <ScrollViewer x:Name="FocusPlainLyricsScroll" HorizontalAlignment="Stretch" VerticalScrollBarVisibility="Hidden">
+                                    <TextBlock x:Name="FocusLyricsText" Text="" HorizontalAlignment="Stretch" FontSize="14" LineHeight="23" Padding="0,0,0,4" TextAlignment="Center" TextWrapping="Wrap" Foreground="#D9FFFFFF"/>
                                 </ScrollViewer>
-                                <ListView x:Name="FocusSyncedLyricsList" Visibility="Collapsed" SelectionMode="None" IsItemClickEnabled="True" ItemClick="LyricsLine_ItemClick" ScrollViewer.VerticalScrollBarVisibility="Hidden">
+                                <ListView x:Name="FocusSyncedLyricsList" HorizontalAlignment="Stretch" Visibility="Collapsed" SelectionMode="None" IsItemClickEnabled="True" ItemClick="LyricsLine_ItemClick" ScrollViewer.VerticalScrollBarVisibility="Hidden">
                                     <ListView.ItemContainerStyle>
                                         <Style TargetType="ListViewItem">
                                             <Setter Property="MinHeight" Value="26"/>
@@ -924,7 +978,10 @@
                             </Image>
                             <Border x:Name="NowPlayingLocateBadge" Width="17" Height="17" CornerRadius="8.5"
                                     HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2"
-                                    Background="#BF101010" BorderBrush="#48FFFFFF" BorderThickness="1" Opacity="0.82">
+                                    Background="#D9101010" BorderBrush="#52FFFFFF" BorderThickness="1" Opacity="0">
+                                <Border.OpacityTransition>
+                                    <ScalarTransition Duration="0:0:0.14"/>
+                                </Border.OpacityTransition>
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE81D;" FontSize="9" Foreground="#FFC83B" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </Grid>
@@ -1044,7 +1101,7 @@
             </Grid>
 
             <!-- Full-width seek rail straddling the playbar's top edge (replaces the divider line) -->
-            <Grid x:Name="SeekRailHost" Height="16" VerticalAlignment="Top" Margin="-16,-10,-16,0">
+            <Grid x:Name="SeekRailHost" Height="16" VerticalAlignment="Top" Margin="-16,-9,-16,0">
                 <canvas:CanvasControl x:Name="SeekRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="SeekRailCanvas_Draw"/>
                 <Border x:Name="SeekHoverTimePill" RequestedTheme="Dark" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-24,0,0"
                         Background="#EB181818" BorderBrush="#40FFFFFF" BorderThickness="1" CornerRadius="5" Padding="6,2"

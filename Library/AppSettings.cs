@@ -56,6 +56,7 @@ public sealed class AppSettings
     public double[] EqualizerGains { get; set; } = new double[10];
     public string VisualizerMode { get; set; } = "Spectrum"; // Spectrum | Waveform | Off
     public bool VisualizerEnabled { get; set; } = true;
+    public bool PlaybarVisualizerEnabled { get; set; } = true;
     public bool WindowVisualizerEnabled { get; set; } = true;
     public string Theme { get; set; } = "Dark"; // Dark | Light | System
     public int CoverTint { get; set; } = 100; // strength of the cover-colour wash, percent: 0 = off, 100 = standard, 200 = vivid
@@ -70,6 +71,7 @@ public sealed class AppSettings
     public bool RightPaneOpen { get; set; } = true;
     public double RightPaneWidth { get; set; } = 242;
     public double InspectorHeight { get; set; } = 212;
+    public bool InspectorCollapsed { get; set; } = false;
     public int InspectorArtMode { get; set; } = 2;
     public string ViewMode { get; set; } = "Table"; // Table | Grid
 
@@ -117,6 +119,7 @@ public sealed class AppSettings
         EqualizerGains = new double[10];
         VisualizerMode = "Spectrum";
         VisualizerEnabled = true;
+        PlaybarVisualizerEnabled = true;
         WindowVisualizerEnabled = true;
         Theme = "Dark";
         CoverTint = 100;
@@ -124,6 +127,7 @@ public sealed class AppSettings
         RightPaneOpen = true;
         RightPaneWidth = 242;
         InspectorHeight = 212;
+        InspectorCollapsed = false;
         InspectorArtMode = 2;
         ViewMode = "Table";
         DetailColumnField = "Bitrate";

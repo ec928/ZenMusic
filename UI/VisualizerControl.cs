@@ -339,11 +339,11 @@ public sealed class VisualizerControl : UserControl
         {
             // Horizon sits just above the bottom edge so the lamps have a reflection.
             float marginFrac = _isFocusStage ? 0.14f : 0.07f;
-            float margin = Math.Clamp(h * marginFrac, Math.Min(28f, h * 0.2f), Math.Min(_isFocusStage ? 88f : 72f, h * 0.28f));
+            float margin = Math.Clamp(h * marginFrac, Math.Min(24f, h * 0.18f), Math.Min(_isFocusStage ? 72f : 64f, h * 0.25f));
             float floor = h - margin;
-            float room = Math.Max(32f, floor - 12f);
-            float riseFrac = _isFocusStage ? 0.78f : 0.44f;
-            float rise = Math.Clamp(h * riseFrac, Math.Min(160f, room), room);
+            float room = Math.Max(32f, floor - 14f);
+            float riseFrac = _isFocusStage ? 0.66f : 0.44f;
+            float rise = Math.Clamp(h * riseFrac, Math.Min(120f, room), room);
             DrawBackdropAtmosphere(ds, sender, w, h, floor, rise);
             if (_mode == VisualizerMode.Spectrum || _mode == VisualizerMode.BarsAndWaveform)
                 DrawBackdropSpectrum(ds, w, h, floor, rise);
@@ -399,14 +399,16 @@ public sealed class VisualizerControl : UserControl
     private void DrawBackdropSpectrum(Microsoft.Graphics.Canvas.CanvasDrawingSession ds, float w, float h, float floor, float rise)
     {
         int totalBands = _bands.Length;
+        float sideInset = _isFocusStage ? 32f : 8f;
+        float availW = Math.Max(64f, w - sideInset * 2f);
         int count = _isFocusStage
-            ? Math.Clamp((int)MathF.Round(w / 22f), 28, 48)
-            : Math.Clamp((int)MathF.Round(w / 30f), 20, 36);
+            ? Math.Clamp((int)MathF.Round(availW / 24f), 28, 46)
+            : Math.Clamp((int)MathF.Round(availW / 30f), 20, 36);
         const float gapRatio = 0.36f;
-        float barW = w / (count + gapRatio * (count - 1));
+        float barW = availW / (count + gapRatio * (count - 1));
         float gap = barW * gapRatio;
         float step = barW + gap;
-        float origin = Math.Max(0f, (w - (count * barW + (count - 1) * gap)) * 0.5f);
+        float origin = sideInset + Math.Max(0f, (availW - (count * barW + (count - 1) * gap)) * 0.5f);
         float mirrorRoom = Math.Max(0f, h - floor - 4f);
         Color rgb = AccentRgb();
         Color tip = Lighten(rgb, _useLightTheme ? 0.28f : 0.52f);
@@ -424,8 +426,8 @@ public sealed class VisualizerControl : UserControl
             int b0 = Math.Clamp((int)MathF.Floor(bandPos), 0, totalBands - 1);
             int b1 = Math.Clamp(b0 + 1, 0, totalBands - 1);
             float frac = bandPos - b0;
-            // Perceptual high-frequency tilt + shallow stage arch so mids and highs stay lively.
-            float tilt = (0.85f + 0.62f * MathF.Pow(t, 0.78f)) * (0.92f + 0.16f * MathF.Sin(t * MathF.PI));
+            // Gentle stage arch now that FftAnalyzer applies perceptual pink-noise slope compensation.
+            float tilt = (0.94f + 0.14f * t) * (0.94f + 0.12f * MathF.Sin(t * MathF.PI));
             float level = Math.Clamp((_bands[b0] * (1f - frac) + _bands[b1] * frac) * tilt, 0f, 1f);
             float peak = Math.Clamp((_peaks[b0] * (1f - frac) + _peaks[b1] * frac) * tilt, 0f, 1f);
             float x = origin + i * step;
@@ -576,8 +578,8 @@ public sealed class VisualizerControl : UserControl
             float frac = bandPos - b0;
 
             float tilt = isCompactWing
-                ? (1.0f + 0.42f * t)
-                : (0.90f + 0.72f * MathF.Pow(t, 0.85f));
+                ? (0.94f + 0.12f * t)
+                : (0.94f + 0.16f * MathF.Pow(t, 0.85f));
             float rawLevel = _bands[b0] * (1f - frac) + _bands[b1] * frac;
             float rawPeak = _peaks[b0] * (1f - frac) + _peaks[b1] * frac;
 
@@ -614,7 +616,7 @@ public sealed class VisualizerControl : UserControl
 
         bool isCompact = w < 340f;
         float midY = h * 0.5f;
-        float amp = h * (isCompact ? 0.44f : 0.46f);
+        float amp = h * (isCompact ? 0.31f : 0.44f);
 
         float PointX(int idx) => MirrorHorizontally
             ? w - (w * idx) / (count - 1)
