@@ -1,6 +1,7 @@
 using NAudio.Wave;
 using System;
 using System.Collections.ObjectModel;
+using System.Text;
 using Xunit;
 using ZenMusic.Audio;
 using ZenMusic.Tagging;
@@ -1000,6 +1001,88 @@ public sealed class AudioAndLibraryTests
         {
             if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void MusicLibrary_ShortPictureFrame_DropsTheFrameAndKeepsTheOtherTags()
+    {
+        string tmpDir = Path.Combine(Path.GetTempPath(), $"zen_short_apic_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            string path = Path.Combine(tmpDir, "short-apic.mp3");
+            WriteMp3WithShortPictureFrame(path, "KeepTitle", "KeepAlbum");
+
+            var thrown = Assert.ThrowsAny<Exception>(() =>
+            {
+                using var broken = TagLib.File.Create(path);
+            });
+            Assert.Contains("at least 5 bytes", thrown.ToString(), StringComparison.OrdinalIgnoreCase);
+
+            Assert.True(MusicLibrary.TryReadFullDetails(path, out var details, out string? err), err);
+            Assert.Equal("KeepTitle", details.Title);
+            Assert.Equal("KeepAlbum", details.Album);
+            Assert.Null(details.ArtBytes);
+
+            Assert.True(MusicLibrary.TryReadFullDetails(path, out var again, out err), err);
+            Assert.Equal("KeepTitle", again.Title);
+            Assert.Equal("KeepAlbum", again.Album);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        }
+    }
+
+    private static void WriteMp3WithShortPictureFrame(string path, string title, string album)
+    {
+        byte[] titleFrame = Id3TextFrame("TIT2", title);
+        byte[] pictureFrame = Id3Frame("APIC", new byte[] { 0x00, 0x00, 0x03, 0x00 });
+        byte[] albumFrame = Id3TextFrame("TALB", album);
+        int tagSize = titleFrame.Length + pictureFrame.Length + albumFrame.Length;
+        var file = new byte[10 + tagSize + 417 * 2];
+        file[0] = (byte)'I';
+        file[1] = (byte)'D';
+        file[2] = (byte)'3';
+        file[3] = 3;
+        file[6] = (byte)((tagSize >> 21) & 0x7f);
+        file[7] = (byte)((tagSize >> 14) & 0x7f);
+        file[8] = (byte)((tagSize >> 7) & 0x7f);
+        file[9] = (byte)(tagSize & 0x7f);
+        int o = 10;
+        titleFrame.CopyTo(file, o);
+        o += titleFrame.Length;
+        pictureFrame.CopyTo(file, o);
+        o += pictureFrame.Length;
+        albumFrame.CopyTo(file, o);
+        o += albumFrame.Length;
+        for (int frame = 0; frame < 2; frame++)
+        {
+            file[o] = 0xFF;
+            file[o + 1] = 0xFB;
+            file[o + 2] = 0x90;
+            o += 417;
+        }
+        File.WriteAllBytes(path, file);
+    }
+
+    private static byte[] Id3TextFrame(string id, string text)
+    {
+        var body = new byte[1 + text.Length];
+        Encoding.ASCII.GetBytes(text, 0, text.Length, body, 1);
+        return Id3Frame(id, body);
+    }
+
+    private static byte[] Id3Frame(string id, byte[] body)
+    {
+        var frame = new byte[10 + body.Length];
+        Encoding.ASCII.GetBytes(id, 0, 4, frame, 0);
+        frame[4] = (byte)(body.Length >> 24);
+        frame[5] = (byte)(body.Length >> 16);
+        frame[6] = (byte)(body.Length >> 8);
+        frame[7] = (byte)body.Length;
+        body.CopyTo(frame, 10);
+        return frame;
     }
 
     private static void WriteMinimalMp3(string path)

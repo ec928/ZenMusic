@@ -100,6 +100,97 @@ public static class MusicLibrary
         return string.IsNullOrEmpty(artist) ? title : $"{title} \u2013 {artist}";
     }
 
+    // TagLib rejects an ID3 picture frame shorter than 5 bytes and then refuses the rest of the tag.
+    // Those frames hold no picture. Drop them and read the surrounding text frames.
+    private static TagLib.File OpenTagFile(string path)
+    {
+        try
+        {
+            return TagLib.File.Create(path);
+        }
+        catch (Exception ex) when (IsUndersizedPictureFrame(ex) && TryDropUndersizedPictureFrames(path))
+        {
+            return TagLib.File.Create(path);
+        }
+    }
+
+    private static bool IsUndersizedPictureFrame(Exception ex)
+    {
+        for (Exception? cur = ex; cur != null; cur = cur.InnerException)
+        {
+            if (cur.Message.Contains("picture frame", StringComparison.OrdinalIgnoreCase)
+                && cur.Message.Contains("at least 5 bytes", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool TryDropUndersizedPictureFrames(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+            var header = new byte[10];
+            if (fs.Read(header, 0, 10) != 10) return false;
+            if (header[0] != (byte)'I' || header[1] != (byte)'D' || header[2] != (byte)'3') return false;
+            if (header[5] != 0) return false;
+
+            int version = header[3];
+            int headerLen = version == 2 ? 6 : 10;
+            if (version is not (2 or 3 or 4)) return false;
+
+            int tagSize = SyncSafe(header.AsSpan(6, 4));
+            if (tagSize < headerLen || tagSize > 8 * 1024 * 1024) return false;
+            if (fs.Length < 10L + tagSize) return false;
+
+            var tag = new byte[tagSize];
+            if (fs.Read(tag, 0, tagSize) != tagSize) return false;
+
+            bool changed = false;
+            int pos = 0;
+            for (int n = 0; n < 256 && pos + headerLen <= tag.Length; n++)
+            {
+                if (tag[pos] == 0) break;
+                int size = version == 2
+                    ? (tag[pos + 3] << 16) | (tag[pos + 4] << 8) | tag[pos + 5]
+                    : version == 4
+                        ? SyncSafe(tag.AsSpan(pos + 4, 4))
+                        : (tag[pos + 4] << 24) | (tag[pos + 5] << 16) | (tag[pos + 6] << 8) | tag[pos + 7];
+                if (size < 0 || pos + headerLen + size > tag.Length) break;
+
+                string id = version == 2
+                    ? Encoding.ASCII.GetString(tag, pos, 3)
+                    : Encoding.ASCII.GetString(tag, pos, 4);
+                bool picture = version == 2
+                    ? id == "PIC"
+                    : id == "APIC";
+                if (picture && size < 5)
+                {
+                    int frameLen = headerLen + size;
+                    int tail = pos + frameLen;
+                    Buffer.BlockCopy(tag, tail, tag, pos, tag.Length - tail);
+                    Array.Clear(tag, tag.Length - frameLen, frameLen);
+                    changed = true;
+                    continue;
+                }
+                pos += headerLen + size;
+            }
+
+            if (!changed) return false;
+            fs.Position = 10;
+            fs.Write(tag, 0, tag.Length);
+            fs.Flush();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int SyncSafe(ReadOnlySpan<byte> b) =>
+        ((b[0] & 0x7f) << 21) | ((b[1] & 0x7f) << 14) | ((b[2] & 0x7f) << 7) | (b[3] & 0x7f);
+
     public static TrackItem ReadTrackMetadata(string path, int index, bool isCloudOnly)
     {
         var info = new FileInfo(path);
@@ -119,7 +210,7 @@ public static class MusicLibrary
 
         try
         {
-            using var file = TagLib.File.Create(path);
+            using var file = OpenTagFile(path);
             var tag = file.Tag;
             item.Title = string.IsNullOrWhiteSpace(tag.Title) ? item.Title : tag.Title.Trim();
             item.Artist = tag.JoinedPerformers?.Trim() ?? string.Empty;
@@ -154,7 +245,7 @@ public static class MusicLibrary
     {
         try
         {
-            using var file = TagLib.File.Create(path);
+            using var file = OpenTagFile(path);
             var pics = file.Tag.Pictures;
             if (pics != null && pics.Length > 0)
                 return pics[0].Data?.Data;
@@ -167,7 +258,7 @@ public static class MusicLibrary
     {
         try
         {
-            using var file = TagLib.File.Create(path);
+            using var file = OpenTagFile(path);
             return file.Tag.Lyrics?.Trim() ?? string.Empty;
         }
         catch
@@ -180,7 +271,7 @@ public static class MusicLibrary
     {
         try
         {
-            using var file = TagLib.File.Create(path);
+            using var file = OpenTagFile(path);
             return file.Tag.JoinedAlbumArtists?.Trim() ?? string.Empty;
         }
         catch
@@ -221,7 +312,7 @@ public static class MusicLibrary
             var d = new TrackDetails();
             try
             {
-                using var file = TagLib.File.Create(path);
+                using var file = OpenTagFile(path);
                 var tag = file.Tag;
                 d.Title = tag.Title ?? string.Empty;
                 d.Artist = tag.JoinedPerformers ?? string.Empty;
@@ -267,7 +358,7 @@ public static class MusicLibrary
             try
             {
                 DateTime originalWriteUtc = File.GetLastWriteTimeUtc(path);
-                using (var file = TagLib.File.Create(path))
+                using (var file = OpenTagFile(path))
                 {
                     if (Path.GetExtension(path).Equals(".flac", StringComparison.OrdinalIgnoreCase))
                         StripLegacyFlacId3Tags(file, path);
@@ -334,7 +425,7 @@ public static class MusicLibrary
             {
                 DateTime originalWriteUtc = File.GetLastWriteTimeUtc(path);
                 bool modified;
-                using (var file = TagLib.File.Create(path))
+                using (var file = OpenTagFile(path))
                 {
                     modified = ApplyStarsToTagLib(file, path, stars);
                     if (modified)
