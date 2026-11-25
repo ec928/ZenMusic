@@ -47,6 +47,20 @@ public sealed class WasapiAudioEngine : IDisposable
     // scrubber and a tag-write resume both follow the render clock instead of that cursor.
     private long _lastClockBytes;
     private int _outputBytesPerFrame = 8;
+    private int _outputSampleRate = 48000;
+    private int _streamSampleRate = 48000;
+
+    /// <summary>
+    /// Frames the speakers have played, counted at the joined stream's rate (the device clock runs at
+    /// the device rate, which differs when the stream is resampled after the join).
+    /// </summary>
+    private long SpeakerFramesLocked()
+    {
+        if (_output == null) return 0;
+        long deviceFrames = ReadClockBytesLocked() / Math.Max(1, _outputBytesPerFrame);
+        if (_outputSampleRate == _streamSampleRate) return deviceFrames;
+        return (long)Math.Round(deviceFrames * (double)_streamSampleRate / _outputSampleRate);
+    }
     private bool _holding;
     private TimeSpan _heldPosition;
     private TimeSpan _heldDuration;
@@ -398,11 +412,11 @@ public sealed class WasapiAudioEngine : IDisposable
             if (applied > TimeSpan.Zero)
                 initialReader.CurrentTime = applied;
 
-            int targetSr = (allowResample && endpointSampleRate > 0)
-                ? endpointSampleRate
-                : initialReader.WaveFormat.SampleRate;
-            // The first track's own layout, as before gapless: the speaker matrix routes it, and a
-            // following track with another channel count is not joined.
+            // Tracks are joined at the first track's own rate and layout; a following track with
+            // another rate or channel count is not joined and starts the ordinary way. Resampling to
+            // the device happens once, after the join: a resampler per track drops its buffered tail
+            // at the end of each track and starts cold on the next, which is a click at every join.
+            int sourceSr = initialReader.WaveFormat.SampleRate;
             int targetCh = initialReader.WaveFormat.Channels;
 
             _seamless = new SeamlessStreamProvider(
@@ -410,16 +424,21 @@ public sealed class WasapiAudioEngine : IDisposable
                 initialReader,
                 applied,
                 _replayGainFactor,
-                targetSr,
+                sourceSr,
                 targetCh,
-                allowResample,
+                allowResample: false,
                 _crossfadeSeconds);
             _seamless.TrackTransitioned += OnSeamlessTrackTransitioned;
             if (!string.IsNullOrEmpty(_queuedNextPath) &&
                 (_queuedAfterPath == null || string.Equals(_queuedAfterPath, path, StringComparison.OrdinalIgnoreCase)))
                 _seamless.SetQueuedNext(_queuedNextPath, _queuedNextGain, path);
 
-            _equalizerProvider = new EqualizerSampleProvider(_seamless, _equalizerGains);
+            ISampleProvider joined = _seamless;
+            if (allowResample && endpointSampleRate > 0 && endpointSampleRate != sourceSr)
+                joined = new WdlResamplingSampleProvider(_seamless, endpointSampleRate);
+            _streamSampleRate = sourceSr;
+
+            _equalizerProvider = new EqualizerSampleProvider(joined, _equalizerGains);
             var fftTap = new FftTapSampleProvider(_equalizerProvider, Fft);
             _volumeProvider = new RampedVolumeSampleProvider(fftTap, _volume);
             _matrixProvider = new SpeakerMatrixProvider(_volumeProvider, _speakerOptions, endpointChannels);
@@ -474,6 +493,7 @@ public sealed class WasapiAudioEngine : IDisposable
 
         _output.PlaybackStopped += Output_PlaybackStopped;
         _outputBytesPerFrame = Math.Max(4, _output.OutputWaveFormat.BlockAlign);
+        _outputSampleRate = Math.Max(1, _output.OutputWaveFormat.SampleRate);
 
         if (autoPlay) _output.Play();
     }
@@ -638,7 +658,7 @@ public sealed class WasapiAudioEngine : IDisposable
         lock (_lock)
         {
             if (_holding || _seamless == null) return;
-            long speakerFrames = _output == null ? 0 : ReadClockBytesLocked() / Math.Max(1, _outputBytesPerFrame);
+            long speakerFrames = SpeakerFramesLocked();
             _seamless.Seek(position, speakerFrames);
             _currentPath = _seamless.AudiblePath;
             PreopenInBackground(_seamless);
@@ -825,7 +845,7 @@ public sealed class WasapiAudioEngine : IDisposable
         if (_seamless == null)
             return _holding ? _heldPosition : TimeSpan.Zero;
 
-        long speakerFrames = _output == null ? 0 : ReadClockBytesLocked() / Math.Max(1, _outputBytesPerFrame);
+        long speakerFrames = SpeakerFramesLocked();
         var pos = _seamless.GetAudiblePosition(speakerFrames);
         // The heard track, not the reader's: during a crossfade or the device buffer they differ, and
         // a tag-write resume reopens _currentPath at this position.
