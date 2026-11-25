@@ -4634,16 +4634,21 @@ public sealed partial class MainWindow : Window
     {
         double ratio = VolumeSlider != null ? Math.Clamp(VolumeSlider.Value / 100.0, 0.0, 1.0) : 0.7;
         bool isLight = RootGrid.RequestedTheme == ElementTheme.Light;
-        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, ratio, _isHoveringVolume, isLight);
+        DrawSleekSliderRail(args.DrawingSession, (float)sender.ActualWidth, (float)sender.ActualHeight, ratio, _isHoveringVolume, isLight, maxPad: VolumeRailInset);
     }
 
-    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering, bool isLight, bool showThumbWhenIdle = true, double? hoverRatio = null)
+    // Where the invisible volume Slider's thumb centre travels: half its SliderHorizontalThumbWidth (14, set in
+    // MainWindow.xaml) plus about 1 DIP of template margin, measured with UI Automation at 0/50/100.
+    // The drawn rail is inset by the same amount so the knob sits where a click lands. Change both together.
+    private const float VolumeRailInset = 8f;
+
+    private static void DrawSleekSliderRail(CanvasDrawingSession ds, float w, float h, double ratio, bool hovering, bool isLight, bool showThumbWhenIdle = true, double? hoverRatio = null, float maxPad = 10f)
     {
         if (w <= 8f || h <= 4f) return;
 
         // When the seek rail is idle (showThumbWhenIdle = false), span edge-to-edge as a clean 2.5px bar
         // without a protruding circle over the bottom track row; show the thumb & hover ghost on pointer entry.
-        float padX = (showThumbWhenIdle || hovering) ? Math.Min(10f, w * 0.15f) : 0f;
+        float padX = (showThumbWhenIdle || hovering) ? Math.Min(maxPad, w * 0.15f) : 0f;
         float trackW = Math.Max(1f, w - padX * 2f);
         float midY = h * 0.5f;
         float clampedRatio = (float)Math.Clamp(ratio, 0.0, 1.0);

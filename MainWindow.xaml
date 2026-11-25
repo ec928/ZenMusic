@@ -1093,19 +1093,35 @@
                 </Grid>
 
                 <!-- Zone 3: Balanced Right Audio Output & Stage Utilities -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button x:Name="SpeakerBadgeBtn" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Style="{StaticResource SubtleButtonStyle}" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
+                <!-- Three groups spaced by distance: output badge | volume (icon tight to its rail) | view toggles.
+                     The rail takes the width the other two groups leave, so a wider badge text cannot push it off. -->
+                <Grid Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="SpeakerBadgeBtn" Grid.Column="0" Padding="6,2" MinWidth="0" MinHeight="0" CornerRadius="4" Style="{StaticResource SubtleButtonStyle}" VerticalAlignment="Center" Click="SpeakerBadgeBtn_Click" ToolTipService.ToolTip="Click to switch output device or 2.0 / 5.1 layout">
                         <TextBlock x:Name="SpeakerBadgeText" Text="2.0 ch" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
-                    <Button x:Name="MuteBtn" AutomationProperties.Name="Mute" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Mute / Unmute" Click="MuteBtn_Click">
+                    <Button x:Name="MuteBtn" Grid.Column="1" AutomationProperties.Name="Mute" Width="24" Height="28" Margin="12,0,0,0" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Mute / Unmute" Click="MuteBtn_Click">
                         <FontIcon x:Name="VolumeIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE767;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
-                    <Grid Width="72" Height="22" VerticalAlignment="Center">
+                    <!-- The drawn rail is inset by VolumeRailInset (code) to match where this slider's thumb travels;
+                         the thumb width below and that inset change together. -->
+                    <Grid Grid.Column="2" Height="22" MaxWidth="90" HorizontalAlignment="Stretch" VerticalAlignment="Center">
                         <canvas:CanvasControl x:Name="VolumeRailCanvas" IsHitTestVisible="False" ClearColor="Transparent" Draw="VolumeRailCanvas_Draw"/>
-                        <Slider x:Name="VolumeSlider" AutomationProperties.Name="Volume" Width="72" Opacity="0" Minimum="0" Maximum="100" Value="70" MinHeight="20" Height="22" Padding="0" VerticalAlignment="Center"
-                                ValueChanged="VolumeSlider_ValueChanged" PointerEntered="VolumeSlider_PointerEntered" PointerExited="VolumeSlider_PointerExited"/>
+                        <Slider x:Name="VolumeSlider" AutomationProperties.Name="Volume" Opacity="0" Minimum="0" Maximum="100" Value="70" MinHeight="20" Height="22" Padding="0" VerticalAlignment="Center"
+                                ValueChanged="VolumeSlider_ValueChanged" PointerEntered="VolumeSlider_PointerEntered" PointerExited="VolumeSlider_PointerExited">
+                            <Slider.Resources>
+                                <x:Double x:Key="SliderHorizontalThumbWidth">14</x:Double>
+                            </Slider.Resources>
+                        </Slider>
                     </Grid>
-                    <Border Width="1" Height="16" Margin="6,0,4,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}" VerticalAlignment="Center"/>
+                    <Border Grid.Column="3" Width="1" Height="16" Margin="12,0,8,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4">
                     <Button x:Name="RightPaneToggleBtn" AutomationProperties.Name="Show or hide side panel" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Hide Queue &amp; Track Panel (Ctrl+B)" Click="RightPaneToggleBtn_Click">
                         <FontIcon x:Name="RightPaneToggleIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE90D;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
@@ -1120,7 +1136,8 @@
                     <Button x:Name="MiniPlayerToggleBtn" AutomationProperties.Name="Mini player" Width="28" Height="28" Style="{StaticResource TransportIconBtnStyle}" ToolTipService.ToolTip="Collapse to Mini Player (Ctrl+M)" Click="MiniPlayerToggleBtn_Click">
                         <FontIcon x:Name="MiniPlayerIcon" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE73F;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
-                </StackPanel>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <!-- Full-width seek rail straddling the playbar's top edge (replaces the divider line) -->
