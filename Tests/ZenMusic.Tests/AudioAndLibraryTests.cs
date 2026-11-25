@@ -207,6 +207,25 @@ public sealed class AudioAndLibraryTests
         Assert.Same(cFresh, current[1]);
     }
 
+    // Writing tags to the playing file reopens it at the held position. Media Foundation's FLAC source
+    // ignored that seek and played from 0 while the clock, scrubber and lyrics stayed at the position.
+    [Fact]
+    public void AudioFileOpener_PositionFreshReader_StartsAFlacAtTheTarget()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "rising-tone-10s.flac");
+        using var reader = AudioFileOpener.OpenWaveStream(path);
+        AudioFileOpener.PositionFreshReader(reader, path, TimeSpan.FromSeconds(6));
+
+        var sp = reader.ToSampleProvider();
+        var buf = new float[sp.WaveFormat.SampleRate / 10 * sp.WaveFormat.Channels];
+        int got = 0;
+        while (got < buf.Length) { int n = sp.Read(buf, got, buf.Length - got); if (n <= 0) break; got += n; }
+        double rms = Math.Sqrt(buf.Take(got).Sum(x => (double)x * x) / Math.Max(1, got));
+
+        // Amplitude at t is 0.9 * t / 10; the RMS of 6.0-6.1 s is about 0.385. From 0 it would be about 0.003.
+        Assert.InRange(rms, 0.36, 0.41);
+    }
+
     // Play next / Add to end on a track already in the queue put the same object in the queue
     // ListView twice, which hung ZenMusic's UI thread. It must move instead.
     [Fact]

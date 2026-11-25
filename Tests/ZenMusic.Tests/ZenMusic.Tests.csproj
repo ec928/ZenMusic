@@ -37,4 +37,8 @@
     <Compile Include="..\..\Tagging\AutoTagger.cs" Link="AutoTagger.cs" />
     <Compile Include="..\..\Tagging\LrcParser.cs" Link="LrcParser.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 10 s, 8 kHz mono, 440 Hz with amplitude 0.9 * t / 10: the level read back tells the position. -->
+    <None Include="Fixtures\rising-tone-10s.flac" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

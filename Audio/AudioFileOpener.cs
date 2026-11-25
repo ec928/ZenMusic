@@ -47,6 +47,34 @@ public static class AudioFileOpener
         }
     }
 
+    /// <summary>
+    /// Positions a reader that has not been read from yet, exactly. Media Foundation's FLAC source
+    /// ignores a seek made before its first read (playback reopened after a tag write started at 0
+    /// while the clock, scrubber and lyrics resumed at the held position), and even after a read it
+    /// lands seconds away from the target in many files. A FLAC is therefore decoded forward from
+    /// the start, which is exact and fast (about 1000x real time). Other formats seek.
+    /// </summary>
+    public static void PositionFreshReader(WaveStream reader, string path, TimeSpan target)
+    {
+        if (target <= TimeSpan.Zero) return;
+        if (!path.EndsWith(".flac", StringComparison.OrdinalIgnoreCase))
+        {
+            reader.CurrentTime = target;
+            return;
+        }
+
+        int align = Math.Max(1, reader.WaveFormat.BlockAlign);
+        long remaining = (long)(target.TotalSeconds * reader.WaveFormat.AverageBytesPerSecond);
+        remaining -= remaining % align;
+        var scratch = new byte[Math.Max(align, reader.WaveFormat.AverageBytesPerSecond / 4 / align * align)];
+        while (remaining > 0)
+        {
+            int n = reader.Read(scratch, 0, (int)Math.Min(scratch.Length, remaining));
+            if (n <= 0) break;
+            remaining -= n;
+        }
+    }
+
     private static WaveStream OpenWav(string path)
     {
         try

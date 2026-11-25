@@ -409,8 +409,7 @@ public sealed class WasapiAudioEngine : IDisposable
 
             var initialReader = CreateReader(path);
             TimeSpan applied = PlaybackClock.SeekTarget(startAt, initialReader.TotalTime);
-            if (applied > TimeSpan.Zero)
-                initialReader.CurrentTime = applied;
+            AudioFileOpener.PositionFreshReader(initialReader, path, applied);
 
             // Tracks are joined at the first track's own rate and layout; a following track with
             // another rate or channel count is not joined and starts the ordinary way. Resampling to
