@@ -207,6 +207,32 @@ public sealed class AudioAndLibraryTests
         Assert.Same(cFresh, current[1]);
     }
 
+    // Play next / Add to end on a track already in the queue put the same object in the queue
+    // ListView twice, which hung ZenMusic's UI thread. It must move instead.
+    [Fact]
+    public void ListMerge_Enqueue_MovesQueuedTracksInsteadOfDuplicating()
+    {
+        Library.TrackItem T(string n) => new Library.TrackItem { Path = n + ".mp3", Title = n };
+        var a = T("a"); var b = T("b"); var c = T("c"); var d = T("d"); var e = T("e");
+        var q = new ObservableCollection<Library.TrackItem> { a, b, c, d };
+
+        // b plays; Play next on d (queued) and e (not queued), plus b itself, which stays put.
+        int idx = ListMerge.Enqueue(q, 1, new[] { d, e, b, d }, playNext: true);
+        Assert.Equal(new[] { a, b, d, e, c }, q);
+        Assert.Equal(1, idx);
+
+        // Add to end of queue on a, which sits before the playing entry: the index follows b.
+        idx = ListMerge.Enqueue(q, idx, new[] { a }, playNext: false);
+        Assert.Equal(new[] { b, d, e, c, a }, q);
+        Assert.Equal(0, idx);
+
+        // Nothing playing: Play next goes to the front.
+        idx = ListMerge.Enqueue(q, -1, new[] { c }, playNext: true);
+        Assert.Equal(new[] { c, b, d, e, a }, q);
+        Assert.Equal(-1, idx);
+        Assert.Equal(q.Count, q.Distinct().Count());
+    }
+
     [Theory]
     [InlineData(@"C:\Music\01 - Pink Floyd - Time [Official Audio].mp3", "Pink Floyd", "Time", 1)]
     [InlineData(@"C:\Music\One_Two_Three_-_Sinnerman[YoutubeConverter.Me].mp3", "One Two Three", "Sinnerman", 0)]

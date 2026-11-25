@@ -3079,9 +3079,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        foreach (var t in tracks)
-            _queueTracks.Add(t);
-        UpdateQueueHeader();
+        EnqueueTracks(tracks, playNext: false);
         ShowHudPill($"Added {tracks.Count} track(s) to queue");
     }
 
@@ -6241,6 +6239,15 @@ public sealed partial class MainWindow : Window
     private void AlbumsGridView_RightTapped(object sender, RightTappedRoutedEventArgs e)
         => ShowTrackContextMenu(AlbumsGridView, e);
 
+    /// <summary>Play next / Add to end of queue / drop onto the queue. See <see cref="ListMerge.Enqueue"/>.</summary>
+    private void EnqueueTracks(IEnumerable<TrackItem> tracks, bool playNext)
+    {
+        bool hadPlaying = _queueIndex >= 0 && _queueIndex < _queueTracks.Count;
+        int idx = ListMerge.Enqueue(_queueTracks, _queueIndex, tracks, playNext);
+        if (hadPlaying) _queueIndex = idx;
+        UpdateQueueHeader();
+    }
+
     private void ShowTrackContextMenu(ListViewBase view, RightTappedRoutedEventArgs e)
     {
         AlbumCardItem? hitCard = null;
@@ -6296,21 +6303,11 @@ public sealed partial class MainWindow : Window
         }
 
         var playNextItem = new MenuFlyoutItem { Text = "Play next" };
-        playNextItem.Click += (_, _) =>
-        {
-            int insertAt = _queueIndex >= 0 && _queueIndex < _queueTracks.Count ? _queueIndex + 1 : 0;
-            for (int i = 0; i < selected.Count; i++)
-                _queueTracks.Insert(insertAt + i, selected[i]);
-            UpdateQueueHeader();
-        };
+        playNextItem.Click += (_, _) => EnqueueTracks(selected, playNext: true);
         menu.Items.Add(playNextItem);
 
         var queueEndItem = new MenuFlyoutItem { Text = "Add to end of queue" };
-        queueEndItem.Click += (_, _) =>
-        {
-            foreach (var t in selected) _queueTracks.Add(t);
-            UpdateQueueHeader();
-        };
+        queueEndItem.Click += (_, _) => EnqueueTracks(selected, playNext: false);
         menu.Items.Add(queueEndItem);
 
         menu.Items.Add(new MenuFlyoutSeparator());
