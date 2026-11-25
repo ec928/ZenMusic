@@ -226,6 +226,53 @@ public sealed class AudioAndLibraryTests
         Assert.InRange(rms, 0.36, 0.41);
     }
 
+    // Media Foundation's FLAC seek during playback landed seconds from the target in many files (the
+    // scrubber and lyrics then ran ahead of or behind the audio). A seek must give exactly the samples
+    // a straight decode has at that point.
+    [Fact]
+    public void ExactSeekFlacReader_SeekDuringPlaybackGivesTheSamplesAtTheTarget()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "rising-tone-10s.flac");
+        byte[] straight;
+        using (var plain = new NAudio.Wave.MediaFoundationReader(path))
+        using (var ms = new MemoryStream())
+        {
+            plain.CopyTo(ms);
+            straight = ms.ToArray();
+        }
+
+        using var reader = AudioFileOpener.OpenWaveStream(path);
+        int bps = reader.WaveFormat.AverageBytesPerSecond, align = reader.WaveFormat.BlockAlign;
+        var buf = new byte[bps];
+        reader.Read(buf, 0, buf.Length);                      // play 1 s
+        foreach (double t in new[] { 6.37, 2.11, 9.7 })
+        {
+            long pos = (long)(t * bps); pos -= pos % align;
+            reader.Position = pos;
+            var got = new byte[bps / 4];
+            int n = 0;
+            while (n < got.Length) { int r = reader.Read(got, n, got.Length - n); if (r <= 0) break; n += r; }
+            int expect = (int)Math.Min(got.Length, straight.Length - pos);
+            Assert.Equal(expect, n);
+            Assert.True(got.AsSpan(0, n).SequenceEqual(straight.AsSpan((int)pos, n)), $"samples at {t} s differ from a straight decode");
+        }
+    }
+
+    // Seeking past the end once looped forever in the frame search (it advanced by 0 bytes at the end of the file).
+    [Fact]
+    public void ExactSeekFlacReader_SeekPastTheEndReturnsNothing()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "rising-tone-10s.flac");
+        var read = Task.Run(() =>
+        {
+            using var reader = AudioFileOpener.OpenWaveStream(path);
+            reader.Position = reader.Length + 5L * reader.WaveFormat.AverageBytesPerSecond;
+            return reader.Read(new byte[4096], 0, 4096);
+        });
+        Assert.True(read.Wait(TimeSpan.FromSeconds(5)), "seek past the end did not return");
+        Assert.Equal(0, read.Result);
+    }
+
     // Play next / Add to end on a track already in the queue put the same object in the queue
     // ListView twice, which hung ZenMusic's UI thread. It must move instead.
     [Fact]
