@@ -1285,6 +1285,30 @@ public sealed class AudioAndLibraryTests
     }
 
     [Fact]
+    public void SeamlessStreamProvider_QueueEditAfterPreopen_JoinsTheNewNextOrEnds()
+    {
+        // A queue edit near the end of a track, after the old next track was already opened.
+        Func<string, WaveStream> factory = p => CreateConstantFloatWave(10000, 2, p == "mem://c" ? 400 : 300, p == "mem://c" ? 0.5f : 0.75f);
+
+        using var replaced = CreateSeamless("mem://a", CreateConstantFloatWave(10000, 2, 250, 0.25f), factory);
+        replaced.SetQueuedNext("mem://b", 1.0f, "mem://a");
+        replaced.TryPreopenNextIfClose();
+        replaced.SetQueuedNext("mem://c", 1.0f, "mem://a");   // b removed, c is next now
+        replaced.TryPreopenNextIfClose();
+        var buf = new float[1000 * 2];
+        int frames = replaced.Read(buf, 0, buf.Length) / 2;
+        Assert.Equal(250 + 400, frames);
+        Assert.Equal(0.5f, buf[250 * 2], 4);
+
+        using var removed = CreateSeamless("mem://a", CreateConstantFloatWave(10000, 2, 250, 0.25f), factory);
+        removed.SetQueuedNext("mem://b", 1.0f, "mem://a");
+        removed.TryPreopenNextIfClose();
+        removed.SetQueuedNext(null, 1.0f, "mem://a");          // nothing after a any more
+        Assert.Equal(250, ReadAllFrames(removed, 2));
+        Assert.True(removed.ReachedEnd);
+    }
+
+    [Fact]
     public void SeamlessStreamProvider_NextNotPreopened_EndsWithoutOpeningOnTheRenderThread()
     {
         int opens = 0;

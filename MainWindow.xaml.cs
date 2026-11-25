@@ -4379,7 +4379,8 @@ public sealed partial class MainWindow : Window
 
     private void ProgressTimer_Tick(object? sender, object e)
     {
-        if (_isDraggingSeek) return;
+        // While a wheel or keyboard seek waits to be applied, leave the slider where it was put.
+        if (_isDraggingSeek || _seekCoalesceTimer.IsEnabled) return;
         var pos = _engine.Position;
         var dur = _engine.Duration;
         SyncPlaybackProgressUi(pos, dur);
@@ -4534,15 +4535,20 @@ public sealed partial class MainWindow : Window
         ElapsedTimeText.Text = FormatTime(TimeSpan.FromSeconds(e.NewValue));
         // A volume wheel or a free-spinning scroll can land on this slider and fire once per notch.
         // Seeking on every notch repositions the decoder continuously, which is the stutter.
+        // The target is kept here: by the time the timer fires, the progress tick may have moved the
+        // slider back to the playing position, and seeking to that loses the seek.
+        _pendingSeekSeconds = e.NewValue;
         _seekCoalesceTimer.Stop();
         _seekCoalesceTimer.Start();
     }
+
+    private double _pendingSeekSeconds;
 
     private void FlushCoalescedSeek()
     {
         _seekCoalesceTimer.Stop();
         if (_isDraggingSeek || _isUpdatingSeekSlider || _engine.Duration.TotalSeconds <= 0) return;
-        _engine.Seek(TimeSpan.FromSeconds(SeekSlider.Value));
+        _engine.Seek(TimeSpan.FromSeconds(_pendingSeekSeconds));
     }
 
     private void SeekSlider_KeyUp(object sender, KeyRoutedEventArgs e)
@@ -5710,12 +5716,18 @@ public sealed partial class MainWindow : Window
         if (deletedPaths.Count > 0)
         {
             _allTracks.RemoveAll(t => deletedPaths.Contains(t.Path));
+            string? playingPath = _queueIndex >= 0 && _queueIndex < _queueTracks.Count ? _queueTracks[_queueIndex].Path : null;
             for (int i = _queueTracks.Count - 1; i >= 0; i--)
             {
                 if (deletedPaths.Contains(_queueTracks[i].Path))
                     _queueTracks.RemoveAt(i);
             }
-            if (_queueIndex >= _queueTracks.Count)
+            // Find the playing track again by path: removing tracks above it shifts its index.
+            int stillPlaying = playingPath == null ? -1
+                : _queueTracks.ToList().FindIndex(t => string.Equals(t.Path, playingPath, StringComparison.OrdinalIgnoreCase));
+            if (stillPlaying >= 0)
+                _queueIndex = stillPlaying;
+            else if (_queueIndex >= _queueTracks.Count)
                 _queueIndex = _queueTracks.Count - 1;
             UpdateQueueHeader();
 
