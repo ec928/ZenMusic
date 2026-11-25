@@ -2445,12 +2445,19 @@ public sealed partial class MainWindow : Window
             await ScanFolderAsync(_settings.MusicFolder);
     }
 
+    private bool _skipNextSearchRefresh;
+
     private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (!_initialized) return;
         ClearSearchBtn.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Collapsed : Visibility.Visible;
 
         _searchDebounceCts?.Cancel();
+        if (_skipNextSearchRefresh)
+        {
+            _skipNextSearchRefresh = false;
+            return;
+        }
         var cts = new CancellationTokenSource();
         _searchDebounceCts = cts;
         try
@@ -2592,7 +2599,12 @@ public sealed partial class MainWindow : Window
         _activeCustomFilter = null;
         _activeFacet = "all";
         if (!string.IsNullOrEmpty(SearchBox.Text))
+        {
+            // The refresh below covers the cleared search. Without this, the search box's own refresh
+            // runs 100 ms later and rebuilds the grid after the album card was selected and scrolled to.
+            _skipNextSearchRefresh = true;
             SearchBox.Text = string.Empty;
+        }
         if (returnToGrid)
         {
             _settings.ViewMode = "Grid";
