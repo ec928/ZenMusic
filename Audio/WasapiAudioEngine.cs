@@ -23,13 +23,16 @@ public sealed class WasapiAudioEngine : IDisposable
     private readonly object _lock = new();
 
     private WasapiOut? _output;
-    private WaveStream? _reader;
-    private SmoothGainSampleProvider? _replayGainProvider;
+    private SeamlessStreamProvider? _seamless;
     private EqualizerSampleProvider? _equalizerProvider;
     private RampedVolumeSampleProvider? _volumeProvider;
     private SpeakerMatrixProvider? _matrixProvider;
 
     private string? _currentPath;
+    private string? _queuedNextPath;
+    private string? _queuedAfterPath;
+    private float _queuedNextGain = 1.0f;
+    private double _crossfadeSeconds;
     private string? _deviceId;
     private bool _exclusiveMode;
     private SpeakerRoutingOptions _speakerOptions = new();
@@ -42,9 +45,8 @@ public sealed class WasapiAudioEngine : IDisposable
 
     // Audible position. The reader cursor leads the speakers by the device buffer, so the
     // scrubber and a tag-write resume both follow the render clock instead of that cursor.
-    private TimeSpan _origin;
-    private long _clockAtOrigin;
-    private int _outputBytesPerSecond;
+    private long _lastClockBytes;
+    private int _outputBytesPerFrame = 8;
     private bool _holding;
     private TimeSpan _heldPosition;
     private TimeSpan _heldDuration;
@@ -73,13 +75,28 @@ public sealed class WasapiAudioEngine : IDisposable
         {
             lock (_lock)
             {
-                if (_reader != null) return _reader.TotalTime;
+                if (_seamless != null) return _seamless.AudibleDuration;
                 return _holding ? _heldDuration : TimeSpan.Zero;
             }
         }
     }
 
+    public double CrossfadeSeconds
+    {
+        get { lock (_lock) return _crossfadeSeconds; }
+        set
+        {
+            double clamped = Math.Clamp(value, 0.0, 12.0);
+            lock (_lock)
+            {
+                _crossfadeSeconds = clamped;
+                if (_seamless != null) _seamless.CrossfadeSeconds = clamped;
+            }
+        }
+    }
+
     public event Action? TrackEnded;
+    public event Action<string>? SeamlessTrackTransitioned;
     public event Action<bool>? PlaybackStateChanged;
     public event Action<string>? PlaybackError;
     public event Action? SmtcNextRequested;
@@ -228,7 +245,7 @@ public sealed class WasapiAudioEngine : IDisposable
                 RearLevel = options.RearLevel
             };
             _matrixProvider?.UpdateOptions(_speakerOptions);
-            needsRebuild = _reader != null && (deviceChanged || channelCountChanged || exclusiveChanged);
+            needsRebuild = _seamless != null && (deviceChanged || channelCountChanged || exclusiveChanged);
         }
 
         if (needsRebuild)
@@ -283,6 +300,57 @@ public sealed class WasapiAudioEngine : IDisposable
         catch { }
     }
 
+    /// <summary>
+    /// Queues <paramref name="path"/> to follow <paramref name="afterPath"/> with no gap. A request made
+    /// for a track the stream has already left is ignored (see <see cref="SeamlessStreamProvider.SetQueuedNext"/>).
+    /// </summary>
+    public void SetQueuedNextTrack(string? path, float replayGainFactor = 1.0f, string? afterPath = null)
+    {
+        float clamped = Math.Clamp(replayGainFactor, 0.05f, 4.0f);
+        SeamlessStreamProvider? seamless;
+        lock (_lock)
+        {
+            _queuedNextPath = string.IsNullOrWhiteSpace(path) ? null : path;
+            _queuedAfterPath = afterPath;
+            _queuedNextGain = clamped;
+            seamless = _seamless;
+        }
+        if (seamless == null) return;
+        seamless.SetQueuedNext(path, clamped, afterPath);
+        PreopenInBackground(seamless);
+    }
+
+    private static void PreopenInBackground(SeamlessStreamProvider seamless)
+    {
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { seamless.TryPreopenNextIfClose(); } catch { }
+        });
+    }
+
+    public void PreopenNextTrackIfClose()
+    {
+        SeamlessStreamProvider? seamless;
+        lock (_lock)
+        {
+            seamless = _seamless;
+        }
+        seamless?.TryPreopenNextIfClose();
+    }
+
+    private void OnSeamlessTrackTransitioned(string newPath)
+    {
+        lock (_lock)
+        {
+            _currentPath = newPath;
+        }
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (!_disposed)
+                SeamlessTrackTransitioned?.Invoke(newPath);
+        });
+    }
+
     private void RebuildGraphPreservingPosition()
     {
         try
@@ -290,7 +358,7 @@ public sealed class WasapiAudioEngine : IDisposable
             bool wasPlaying;
             lock (_lock)
             {
-                if (_currentPath == null || _reader == null) return;
+                if (_currentPath == null || _seamless == null) return;
                 wasPlaying = _isPlaying;
                 BeginHoldLocked();
                 var pos = _heldPosition;
@@ -309,12 +377,7 @@ public sealed class WasapiAudioEngine : IDisposable
 
     private void OpenAndStartGraph(string path, TimeSpan startAt, bool autoPlay)
     {
-        _reader = CreateReader(path);
-        TimeSpan applied = PlaybackClock.SeekTarget(startAt, _reader.TotalTime);
-        if (applied > TimeSpan.Zero)
-            _reader.CurrentTime = applied;
-        _origin = applied;
-        _clockAtOrigin = 0;
+        _lastClockBytes = 0;
         _holding = false;
 
         var mixFormat = GetEndpointMixFormat(_deviceId);
@@ -323,13 +386,40 @@ public sealed class WasapiAudioEngine : IDisposable
 
         ISampleProvider BuildPipeline(bool allowResample)
         {
-            ISampleProvider p = _reader.ToSampleProvider();
-            if (allowResample && p.WaveFormat.SampleRate != endpointSampleRate && endpointSampleRate > 0)
+            if (_seamless != null)
             {
-                p = new WdlResamplingSampleProvider(p, endpointSampleRate);
+                _seamless.TrackTransitioned -= OnSeamlessTrackTransitioned;
+                _seamless.Dispose();
+                _seamless = null;
             }
-            _replayGainProvider = new SmoothGainSampleProvider(p, _replayGainFactor);
-            _equalizerProvider = new EqualizerSampleProvider(_replayGainProvider, _equalizerGains);
+
+            var initialReader = CreateReader(path);
+            TimeSpan applied = PlaybackClock.SeekTarget(startAt, initialReader.TotalTime);
+            if (applied > TimeSpan.Zero)
+                initialReader.CurrentTime = applied;
+
+            int targetSr = (allowResample && endpointSampleRate > 0)
+                ? endpointSampleRate
+                : initialReader.WaveFormat.SampleRate;
+            // The first track's own layout, as before gapless: the speaker matrix routes it, and a
+            // following track with another channel count is not joined.
+            int targetCh = initialReader.WaveFormat.Channels;
+
+            _seamless = new SeamlessStreamProvider(
+                path,
+                initialReader,
+                applied,
+                _replayGainFactor,
+                targetSr,
+                targetCh,
+                allowResample,
+                _crossfadeSeconds);
+            _seamless.TrackTransitioned += OnSeamlessTrackTransitioned;
+            if (!string.IsNullOrEmpty(_queuedNextPath) &&
+                (_queuedAfterPath == null || string.Equals(_queuedAfterPath, path, StringComparison.OrdinalIgnoreCase)))
+                _seamless.SetQueuedNext(_queuedNextPath, _queuedNextGain, path);
+
+            _equalizerProvider = new EqualizerSampleProvider(_seamless, _equalizerGains);
             var fftTap = new FftTapSampleProvider(_equalizerProvider, Fft);
             _volumeProvider = new RampedVolumeSampleProvider(fftTap, _volume);
             _matrixProvider = new SpeakerMatrixProvider(_volumeProvider, _speakerOptions, endpointChannels);
@@ -383,7 +473,7 @@ public sealed class WasapiAudioEngine : IDisposable
         }
 
         _output.PlaybackStopped += Output_PlaybackStopped;
-        _outputBytesPerSecond = Math.Max(1, _output.OutputWaveFormat.AverageBytesPerSecond);
+        _outputBytesPerFrame = Math.Max(4, _output.OutputWaveFormat.BlockAlign);
 
         if (autoPlay) _output.Play();
     }
@@ -481,13 +571,13 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         if (_suppressStoppedEvent || _disposed) return;
 
-        bool reachedEnd = false;
+        bool reachedEnd;
         lock (_lock)
         {
-            if (_reader != null && _reader.TotalTime > TimeSpan.Zero)
-            {
-                reachedEnd = _reader.CurrentTime >= _reader.TotalTime - TimeSpan.FromMilliseconds(350);
-            }
+            if (_seamless != null && _output != null)
+                _seamless.PollAudibleTransition(long.MaxValue / 4);
+            // Only a stream that ran out of audio is the end of the track; any other stop is not.
+            reachedEnd = _seamless != null && _seamless.ReachedEnd;
         }
 
         _dispatcher.TryEnqueue(() =>
@@ -535,8 +625,9 @@ public sealed class WasapiAudioEngine : IDisposable
             _heldDuration = TimeSpan.Zero;
             StopInternal();
             _currentPath = null;
-            _origin = TimeSpan.Zero;
-            _clockAtOrigin = 0;
+            _queuedNextPath = null;
+            _queuedAfterPath = null;
+            _lastClockBytes = 0;
         }
         Fft.Clear();
         UpdatePlaybackState(false);
@@ -546,11 +637,11 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         lock (_lock)
         {
-            if (_holding || _reader == null || !_reader.CanSeek) return;
-            var target = PlaybackClock.SeekTarget(position, _reader.TotalTime);
-            _reader.CurrentTime = target;
-            _origin = target;
-            _clockAtOrigin = ReadClockBytesLocked();
+            if (_holding || _seamless == null) return;
+            long speakerFrames = _output == null ? 0 : ReadClockBytesLocked() / Math.Max(1, _outputBytesPerFrame);
+            _seamless.Seek(position, speakerFrames);
+            _currentPath = _seamless.AudiblePath;
+            PreopenInBackground(_seamless);
         }
     }
 
@@ -571,15 +662,17 @@ public sealed class WasapiAudioEngine : IDisposable
 
         lock (_lock)
         {
+            _seamless?.ReleasePreopenedIfMatches(path);
             if (!_disposed &&
                 _currentPath != null &&
-                _reader != null &&
-                string.Equals(_currentPath, path, StringComparison.OrdinalIgnoreCase))
+                _seamless != null &&
+                (string.Equals(_currentPath, path, StringComparison.OrdinalIgnoreCase) || _seamless.UsesFilePath(path)))
             {
                 released = true;
                 wasPlaying = _isPlaying;
                 BeginHoldLocked();
                 pos = _heldPosition;
+                path = _currentPath;
                 StopInternal();
             }
         }
@@ -641,10 +734,11 @@ public sealed class WasapiAudioEngine : IDisposable
 
         lock (_lock)
         {
+            _seamless?.ReleasePreopenedIfMatches(oldPath);
             if (!_disposed &&
                 _currentPath != null &&
-                _reader != null &&
-                string.Equals(_currentPath, oldPath, StringComparison.OrdinalIgnoreCase))
+                _seamless != null &&
+                (string.Equals(_currentPath, oldPath, StringComparison.OrdinalIgnoreCase) || _seamless.UsesFilePath(oldPath)))
             {
                 released = true;
                 wasPlaying = _isPlaying;
@@ -696,7 +790,7 @@ public sealed class WasapiAudioEngine : IDisposable
         _replayGainFactor = clamped;
         lock (_lock)
         {
-            if (_replayGainProvider != null) _replayGainProvider.TargetGain = clamped;
+            _seamless?.SetReplayGainForCurrent(clamped);
         }
     }
 
@@ -728,19 +822,21 @@ public sealed class WasapiAudioEngine : IDisposable
 
     private TimeSpan HeardLocked()
     {
-        if (_reader == null)
-            return _holding ? _heldPosition : _origin;
+        if (_seamless == null)
+            return _holding ? _heldPosition : TimeSpan.Zero;
 
-        int bytesPerSecond = _outputBytesPerSecond;
-        long clock = _output == null ? _clockAtOrigin : ReadClockBytesLocked();
-        var duration = _reader.TotalTime;
-        return PlaybackClock.Heard(_origin, clock, _clockAtOrigin, bytesPerSecond, duration);
+        long speakerFrames = _output == null ? 0 : ReadClockBytesLocked() / Math.Max(1, _outputBytesPerFrame);
+        var pos = _seamless.GetAudiblePosition(speakerFrames);
+        // The heard track, not the reader's: during a crossfade or the device buffer they differ, and
+        // a tag-write resume reopens _currentPath at this position.
+        _currentPath = _seamless.AudiblePath;
+        return pos;
     }
 
     private void BeginHoldLocked()
     {
         _heldPosition = HeardLocked();
-        _heldDuration = _reader?.TotalTime ?? _heldDuration;
+        _heldDuration = _seamless?.AudibleDuration ?? _heldDuration;
         _holding = true;
     }
 
@@ -748,17 +844,16 @@ public sealed class WasapiAudioEngine : IDisposable
     {
         try
         {
-            if (_output == null) return _clockAtOrigin;
+            if (_output == null) return _lastClockBytes;
             long clock = Math.Max(0, _output.GetPosition());
-            // A stopped or not-yet-started client reports 0. Don't treat that as a rewind
-            // once the clock has already moved, or the scrubber snaps back to the seek point.
-            if (clock == 0 && _clockAtOrigin > 0)
-                return _clockAtOrigin;
+            if (clock == 0 && _lastClockBytes > 0)
+                return _lastClockBytes;
+            _lastClockBytes = clock;
             return clock;
         }
         catch
         {
-            return _clockAtOrigin;
+            return _lastClockBytes;
         }
     }
 
@@ -788,9 +883,12 @@ public sealed class WasapiAudioEngine : IDisposable
                 _output.Dispose();
                 _output = null;
             }
-            _reader?.Dispose();
-            _reader = null;
-            _replayGainProvider = null;
+            if (_seamless != null)
+            {
+                _seamless.TrackTransitioned -= OnSeamlessTrackTransitioned;
+                _seamless.Dispose();
+                _seamless = null;
+            }
             _equalizerProvider = null;
             _volumeProvider = null;
             _matrixProvider = null;

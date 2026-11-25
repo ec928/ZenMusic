@@ -111,6 +111,7 @@ public sealed partial class MainWindow : Window
     private ScrollViewer? _queueScrollViewer;
     private bool _albumTrackOrderActive;
     private bool _enteredAlbumFromGrid;
+    private int _preopeningNextTrack;
     private readonly SnapshotRequest? _snapshotRequest;
 
     private int _activeFocusLrcIndex = -1;
@@ -322,10 +323,12 @@ public sealed partial class MainWindow : Window
 
         _engine = new WasapiAudioEngine(DispatcherQueue);
         _engine.TrackEnded += Engine_TrackEnded;
+        _engine.SeamlessTrackTransitioned += Engine_SeamlessTrackTransitioned;
         _engine.PlaybackStateChanged += Engine_PlaybackStateChanged;
         _engine.PlaybackError += Engine_PlaybackError;
         _engine.SmtcNextRequested += () => PlayNext(fromAutoTrackEnd: false);
         _engine.SmtcPreviousRequested += () => PlayPrevious();
+        _engine.CrossfadeSeconds = _settings.CrossfadeSeconds;
 
         ApplyAudioConfigFromSettings();
 
@@ -1646,6 +1649,7 @@ public sealed partial class MainWindow : Window
                 : $"· {_visibleTracks.Count:N0}";
             ScopePlayAllBtn.Visibility = _visibleTracks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
+        UpdateScopeAlbumHeader(hasScopeFilter, playingPath);
         ScopeFilterBar.Visibility = hasScopeFilter ? Visibility.Visible : Visibility.Collapsed;
         UpdateSidebarCounts();
         UpdateStatusFooter();
@@ -2501,6 +2505,78 @@ public sealed partial class MainWindow : Window
     {
         if (_visibleTracks.Count > 0)
             PlayFromList(_visibleTracks.ToList(), _visibleTracks[0]);
+    }
+
+    /// <summary>
+    /// The scope strip's one rule: when the filter is exactly one album, the strip shows that album
+    /// (cover, title, artist · year · tracks · length) with Play, Shuffle and Show all. Any other filter
+    /// keeps the plain label and count.
+    /// </summary>
+    private void UpdateScopeAlbumHeader(bool hasScopeFilter, string? playingPath)
+    {
+        bool isAlbum = hasScopeFilter && !string.IsNullOrEmpty(_activeAlbumFilter) &&
+                       _activeArtistFilter == null && _activeHygiene == null && _activePlaylist == null &&
+                       _activeCustomFilter == null && _activeFacet == "all";
+        AlbumCardItem? card = null;
+        if (isAlbum)
+        {
+            string key = _activeAlbumFilter!;
+            var albumTracks = _allTracks.Where(t => string.Equals(t.Album?.Trim(), key, StringComparison.OrdinalIgnoreCase)).ToList();
+            card = albumTracks.Count > 0
+                ? BuildAlbumCardsFromTracks(albumTracks, playingPath).FirstOrDefault(c => !c.IsSingle)
+                : null;
+        }
+
+        bool show = card != null;
+        ScopeGenericPanel.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        ScopeAlbumPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ScopeShuffleBtn.Visibility = show && _visibleTracks.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        ScopeFilterBar.Height = show ? 52 : 32;
+        ToolTipService.SetToolTip(ScopePlayAllBtn, show ? "Play album" : "Play filtered tracks");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ScopePlayAllBtn, show ? "Play album" : "Play filtered tracks");
+        if (card == null)
+        {
+            _scopeAlbumCoverPath = null;
+            return;
+        }
+
+        ScopeAlbumTitle.Text = card.DisplayAlbum;
+        ScopeAlbumMeta.Text = card.BrowseSubtitleText;
+        ToolTipService.SetToolTip(ScopeAlbumTitle, card.DisplayAlbum);
+        _ = SetScopeAlbumCoverAsync(card.CoverTrackPath);
+    }
+
+    private string? _scopeAlbumCoverPath;
+
+    private async Task SetScopeAlbumCoverAsync(string? coverPath)
+    {
+        if (string.Equals(coverPath, _scopeAlbumCoverPath, StringComparison.OrdinalIgnoreCase) && ScopeAlbumCover.Source != null)
+            return;
+        _scopeAlbumCoverPath = coverPath;
+        ScopeAlbumCover.Source = null;
+        ScopeAlbumCoverFallback.Visibility = Visibility.Visible;
+        if (string.IsNullOrEmpty(coverPath)) return;
+
+        var img = await LoadThumbnailForPathAsync(coverPath);
+        // The scope may have moved on to another album while the art loaded.
+        if (!string.Equals(coverPath, _scopeAlbumCoverPath, StringComparison.OrdinalIgnoreCase)) return;
+        ScopeAlbumCover.Source = img;
+        ScopeAlbumCoverFallback.Visibility = img == null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ScopeShuffleBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_visibleTracks.Count == 0) return;
+        // A random order for this play only; the Shuffle setting is left as it is, and the queue keeps
+        // the album order to return to.
+        var albumOrder = _visibleTracks.ToList();
+        var shuffled = albumOrder.ToList();
+        ShuffleInPlace(shuffled);
+        _unshuffledQueue.Clear();
+        _unshuffledQueue.AddRange(albumOrder);
+        _queueTracks.Clear();
+        foreach (var t in shuffled) _queueTracks.Add(t);
+        PlayQueueIndex(0);
     }
 
     private void ScopeClearBtn_Click(object sender, RoutedEventArgs e)
@@ -3424,7 +3500,11 @@ public sealed partial class MainWindow : Window
             menu.ShowAt(target);
     }
 
-    private void UpdateQueueHeader() => SyncRightPanelList();
+    private void UpdateQueueHeader()
+    {
+        SyncRightPanelList();
+        SyncQueuedNextTrackToEngine();
+    }
 
     private void RightColSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -3748,9 +3828,48 @@ public sealed partial class MainWindow : Window
         _activePlayingPathForLyrics = track.Path;
         bool started = _engine.PlayFile(track.Path, GetTrackReplayGainFactor(track));
         _ = FlushPendingRatingWritesAsync();
+        PromoteToTrackUi(index, track, started);
+    }
+
+    private void Engine_SeamlessTrackTransitioned(string newPath)
+    {
+        if (_queueTracks.Count == 0) return;
+
+        int nextIdx = -1;
+        if (_settings.RepeatMode == 2 && _queueIndex >= 0 && _queueIndex < _queueTracks.Count &&
+            string.Equals(_queueTracks[_queueIndex].Path, newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            nextIdx = _queueIndex;
+        }
+        else if (_queueIndex + 1 < _queueTracks.Count &&
+                 string.Equals(_queueTracks[_queueIndex + 1].Path, newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            nextIdx = _queueIndex + 1;
+        }
+        else
+        {
+            for (int i = 0; i < _queueTracks.Count; i++)
+            {
+                if (string.Equals(_queueTracks[i].Path, newPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    nextIdx = i;
+                    break;
+                }
+            }
+        }
+
+        if (nextIdx < 0) return;
+        _queueIndex = nextIdx;
+        var track = _queueTracks[nextIdx];
+        _activePlayingPathForLyrics = track.Path;
+        PromoteToTrackUi(nextIdx, track, incrementPlayCount: true);
+    }
+
+    private void PromoteToTrackUi(int index, TrackItem track, bool incrementPlayCount)
+    {
         SetNowPlayingTrack(track.Path);
         UpdateSpeakerBadgeTooltip();
-        if (started)
+        if (incrementPlayCount)
         {
             track.PlayCount++;
             track.LastPlayedUtc = DateTime.UtcNow;
@@ -3807,6 +3926,38 @@ public sealed partial class MainWindow : Window
 
         _ = LoadPlayingArtAndSmtcAsync(track);
         _ = LoadFocusLyricsAsync(track.Path);
+    }
+
+    private void SyncQueuedNextTrackToEngine()
+    {
+        if (_engine == null || _sleepAfterCurrentTrack || _queueTracks.Count == 0 || _queueIndex < 0 || _queueIndex >= _queueTracks.Count)
+        {
+            _engine?.SetQueuedNextTrack(null);
+            return;
+        }
+
+        TrackItem? nextTrack = null;
+        if (_settings.RepeatMode == 2)
+        {
+            nextTrack = _queueTracks[_queueIndex];
+        }
+        else if (_queueIndex + 1 < _queueTracks.Count)
+        {
+            nextTrack = _queueTracks[_queueIndex + 1];
+        }
+        else if (_settings.RepeatMode == 1 && !_settings.Shuffle)
+        {
+            nextTrack = _queueTracks[0];
+        }
+
+        string afterPath = _queueTracks[_queueIndex].Path;
+        if (nextTrack == null || nextTrack.IsCloudOnly)
+        {
+            _engine.SetQueuedNextTrack(null, 1.0f, afterPath);
+            return;
+        }
+
+        _engine.SetQueuedNextTrack(nextTrack.Path, GetTrackReplayGainFactor(nextTrack), afterPath);
     }
 
     private async Task LoadPlayingArtAndSmtcAsync(TrackItem track)
@@ -4152,6 +4303,7 @@ public sealed partial class MainWindow : Window
         _sleepTimer?.Stop();
         _sleepEndUtc = null;
         _sleepAfterCurrentTrack = true;
+        SyncQueuedNextTrackToEngine();
         ShowHudPill("Sleep timer: pause after current track");
     }
 
@@ -4175,6 +4327,7 @@ public sealed partial class MainWindow : Window
         _sleepTimer?.Stop();
         _sleepEndUtc = null;
         _sleepAfterCurrentTrack = false;
+        SyncQueuedNextTrackToEngine();
         if (showHud && wasActive) ShowHudPill("Sleep timer off");
     }
 
@@ -4230,6 +4383,15 @@ public sealed partial class MainWindow : Window
         var pos = _engine.Position;
         var dur = _engine.Duration;
         SyncPlaybackProgressUi(pos, dur);
+
+        if (_engine.IsPlaying && Interlocked.CompareExchange(ref _preopeningNextTrack, 1, 0) == 0)
+        {
+            _ = Task.Run(() =>
+            {
+                try { _engine.PreopenNextTrackIfClose(); }
+                finally { Volatile.Write(ref _preopeningNextTrack, 0); }
+            });
+        }
 
         if (FocusVisualizerOverlay.Visibility == Visibility.Visible)
         {
@@ -4588,6 +4750,7 @@ public sealed partial class MainWindow : Window
         _settings.RepeatMode = (_settings.RepeatMode + 1) % 3;
         _settings.RepeatAll = _settings.RepeatMode != 0;
         UpdateRepeatButtonVisual();
+        SyncQueuedNextTrackToEngine();
         _settings.Save();
     }
 

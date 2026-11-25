@@ -631,6 +631,31 @@ public sealed partial class MainWindow
             _engine.SetEqualizerGains(_settings.EqualizerGains);
         };
 
+        double[] xfadeChoices = { 0.0, 1.0, 2.0, 3.0, 4.0, 6.0 };
+        var xfadeBox = new ComboBox { MinWidth = SettingsCard.ChoiceWidth };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(xfadeBox, "Track transitions");
+        foreach (double sec in xfadeChoices)
+        {
+            xfadeBox.Items.Add(new ComboBoxItem
+            {
+                Content = sec <= 0.05 ? "Gapless" : $"{sec:0} s crossfade",
+                Tag = sec
+            });
+        }
+        int xfadeIdx = Array.FindIndex(xfadeChoices, s => Math.Abs(s - _settings.CrossfadeSeconds) < 0.25);
+        xfadeBox.SelectedIndex = xfadeIdx >= 0 ? xfadeIdx : 0;
+        xfadeBox.SelectionChanged += (_, _) =>
+        {
+            if (loading) return;
+            double sec = (xfadeBox.SelectedItem as ComboBoxItem)?.Tag is double d ? d : 0.0;
+            _settings.CrossfadeSeconds = sec;
+            _settings.Save();
+            _engine.CrossfadeSeconds = sec;
+            SyncQueuedNextTrackToEngine();
+        };
+        var (xfadeRow, _, _) = SettingsCard.Row("\uE8AB", "Track transitions",
+            "Gapless plays one track into the next with no pause; a crossfade blends them", xfadeBox);
+
         var exclusiveToggle = new ToggleSwitch
         {
             IsOn = _settings.WasapiExclusive,
@@ -798,6 +823,7 @@ public sealed partial class MainWindow
             ApplyTheme(_settings.Theme);
             ApplyAudioConfigFromSettings();
             ApplyLiveReplayGain();
+            _engine.CrossfadeSeconds = _settings.CrossfadeSeconds;
             ApplyVisualizerFromSettings();
             SettingsPanelHost.Content = BuildSettingsContent();
         };
@@ -812,7 +838,7 @@ public sealed partial class MainWindow
             (rearRow, rearDivider),
             (exclusiveRow, null)));
         panel.Children.Add(SettingsCard.Section("Loudness and tone"));
-        panel.Children.Add(SettingsCard.Card(rgRow, rgAnalyzeRow, eqRow));
+        panel.Children.Add(SettingsCard.Card(rgRow, rgAnalyzeRow, eqRow, xfadeRow));
         panel.Children.Add(SettingsCard.Section("Visualizer and appearance"));
         panel.Children.Add(SettingsCard.Card(
             SettingsCard.Row("", "Visualizer style", "Playbar, backdrop and the F11 focus stage", vizBox).Row,

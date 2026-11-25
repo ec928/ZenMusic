@@ -52,6 +52,7 @@ public sealed class AppSettings
     public float RearLevel { get; set; } = 0.60f;
     public string ReplayGainMode { get; set; } = "Track"; // Off | Track | Album
     public double ReplayGainPreampDb { get; set; } = 0.0;
+    public double CrossfadeSeconds { get; set; } = 0.0; // 0 = True Gapless, 1..6 = Equal-power crossfade
     public string EqualizerPreset { get; set; } = "Flat";
     public double[] EqualizerGains { get; set; } = new double[10];
     public string VisualizerMode { get; set; } = "Spectrum"; // Spectrum | Waveform | Off
@@ -115,6 +116,7 @@ public sealed class AppSettings
         RearLevel = 0.60f;
         ReplayGainMode = "Track";
         ReplayGainPreampDb = 0.0;
+        CrossfadeSeconds = 0.0;
         EqualizerPreset = "Flat";
         EqualizerGains = new double[10];
         VisualizerMode = "Spectrum";

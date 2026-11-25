@@ -294,16 +294,39 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                        <StackPanel x:Name="ScopeGenericPanel" Grid.Column="0" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE71C;" FontSize="11.5" Foreground="{ThemeResource FavouriteStarBrush}" VerticalAlignment="Center"/>
                             <TextBlock x:Name="ScopeClearText" Text="" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource FavouriteStarBrush}" TextTrimming="CharacterEllipsis" MaxWidth="420" VerticalAlignment="Center"/>
                             <TextBlock x:Name="ScopeCountText" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         </StackPanel>
+                        <!-- When the filter is one album, the strip shows that album -->
+                        <Grid x:Name="ScopeAlbumPanel" Grid.Column="0" ColumnSpacing="10" VerticalAlignment="Center" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Width="40" Height="40" CornerRadius="4" Background="{ThemeResource SubtleFillColorTertiaryBrush}" VerticalAlignment="Center">
+                                <Grid>
+                                    <FontIcon x:Name="ScopeAlbumCoverFallback" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE93C;" FontSize="16" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <Image x:Name="ScopeAlbumCover" Stretch="UniformToFill"/>
+                                </Grid>
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="ScopeAlbumTitle" Text="" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="ScopeAlbumMeta" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Grid>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                             <Button x:Name="ScopePlayAllBtn" AutomationProperties.Name="Play filtered tracks" Height="24" MinWidth="0" MinHeight="0" Padding="9,0" CornerRadius="12" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Play filtered tracks" Click="ScopePlayAllBtn_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                                     <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE768;" FontSize="10"/>
                                     <TextBlock Text="Play" FontSize="11.5" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="ScopeShuffleBtn" AutomationProperties.Name="Shuffle album" Height="24" MinWidth="0" MinHeight="0" Padding="9,0" CornerRadius="12" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Play this album in random order" Visibility="Collapsed" Click="ScopeShuffleBtn_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE8B1;" FontSize="10"/>
+                                    <TextBlock Text="Shuffle" FontSize="11.5" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             <Button x:Name="ScopeClearBtn" AutomationProperties.Name="Clear filter" Height="24" MinWidth="0" MinHeight="0" Padding="9,0" CornerRadius="12" Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Clear active filter (Esc)" Click="ScopeClearBtn_Click">

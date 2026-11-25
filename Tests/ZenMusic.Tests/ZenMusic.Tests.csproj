@@ -28,6 +28,7 @@
     <Compile Include="..\..\Audio\FftAnalyzer.cs" Link="FftAnalyzer.cs" />
     <Compile Include="..\..\Audio\PlaybackClock.cs" Link="PlaybackClock.cs" />
     <Compile Include="..\..\Audio\RampedVolumeSampleProvider.cs" Link="RampedVolumeSampleProvider.cs" />
+    <Compile Include="..\..\Audio\SeamlessStreamProvider.cs" Link="SeamlessStreamProvider.cs" />
     <Compile Include="..\..\Library\TrackItem.cs" Link="TrackItem.cs" />
     <Compile Include="..\..\Library\LibraryCache.cs" Link="LibraryCache.cs" />
     <Compile Include="..\..\Library\SmartPlaylistGenerator.cs" Link="SmartPlaylistGenerator.cs" />
